@@ -1,0 +1,6 @@
+@SendgridParquetLogger_HostAddress = http://localhost:5206
+
+GET {{SendgridParquetLogger_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

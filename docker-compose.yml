@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  sendgrid-logger:
+    build:
+      context: ./SendgridParquetLogger
+      dockerfile: Dockerfile
+      platforms:
+        - linux/amd64
+    platform: linux/amd64
+    ports:
+      - "8080:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY}
+      - S3_SECRET_KEY=${S3_SECRET_KEY}
+      - S3_SERVICE_URL=${S3_SERVICE_URL}
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME}
+    restart: unless-stopped

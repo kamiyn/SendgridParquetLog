@@ -1,0 +1,45 @@
+# Nuxt dev/build outputs
+.output
+.data
+.nuxt
+.nitro
+.cache
+dist
+
+# Node dependencies
+node_modules
+
+# Logs
+logs
+*.log
+
+# Misc
+.DS_Store
+.fleet
+.idea
+
+# https://nuxt.com/docs/guide/directory-structure/env
+.env
+
+# Webstormは自動でTypeScriptコンパイルするが、このjsは不要
+client-app/src/server/**/*.js
+
+# Build Folders (you can keep bin if you'd like, to store dlls and pdbs)
+[Bb]in/
+[Oo]bj/
+.vs/
+*.user
+
+# Azure Storage Local Emulator
+.azurite
+
+# Verify
+*.received.txt
+
+# gitにコミットしたくない実験コード置き場
+Scratch/
+
+# local SQLite database
+app.db
+app.db-shm
+app.db-wal
