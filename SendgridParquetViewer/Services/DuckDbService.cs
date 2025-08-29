@@ -139,6 +139,9 @@ public class DuckDbService
 
     public async Task<IList<SendGridEvent>> GetEventsByEmailAndMonthAsync(string email, int year, int month)
     {
+        // DuckDBでは @param 記法は関数と解釈されるため、Dapperのパラメータバインディングは使えません。
+        // email値をSQLに直接埋め込む（シングルクォートでエスケープ）
+        var safeEmail = email.Replace("'", "''");
         try
         {
             using var connection = CreateConnection();
@@ -147,10 +150,10 @@ public class DuckDbService
             var sql = $@"
                 SELECT {SendGridEvent.SelectColumns}
                 FROM parquet_scan('{s3Path}')
-                WHERE email = @email
+                WHERE email LIKE '{safeEmail}'
                 ORDER BY timestamp DESC";
 
-            var events = await connection.QueryAsync<SendGridEvent>(sql, new { email });
+            var events = await connection.QueryAsync<SendGridEvent>(sql);
             return events.ToList();
         }
         catch (Exception ex)
