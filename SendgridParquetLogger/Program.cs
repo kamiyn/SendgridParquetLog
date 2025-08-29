@@ -1,4 +1,6 @@
-﻿using Microsoft.AspNetCore.OpenApi;
+﻿#if UseSwagger
+using Microsoft.AspNetCore.OpenApi;
+#endif
 
 using SendgridParquetLogger.Options;
 using SendgridParquetLogger.Services;
