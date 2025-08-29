@@ -19,7 +19,7 @@ builder.Services.AddControllers()
 
 #if UseSwagger
 // Learn more about configuring OpenAPI at https://aka.ms/aspnetcore/openapi
-builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddOpenApi();
 builder.Services.AddSwaggerGen();
 #endif
 
@@ -36,8 +36,11 @@ if (!app.Environment.IsDevelopment())
 }
 #if UseSwagger
 {
-    app.UseSwagger();
-    app.UseSwaggerUI();
+    app.MapOpenApi();
+    app.UseSwaggerUI(options =>
+    {
+        options.SwaggerEndpoint("/openapi/v1.json", "SendGrid Parquet Logger API v1");
+    });
 }
 #endif
 

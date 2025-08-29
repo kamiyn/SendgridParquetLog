@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a .NET 8.0 application that receives SendGrid Event Webhooks and stores them as Parquet files in S3-compatible storage. The project uses .NET Aspire for local development orchestration.
+This is a .NET 10.0 application that receives SendGrid Event Webhooks and stores them as Parquet files in S3-compatible storage. The project uses .NET Aspire for local development orchestration.
 
 ## Architecture
 

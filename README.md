@@ -1,6 +1,6 @@
 # SendGrid Webhook to Parquet Logger
 
-SendGrid WebHookを受信してParquet形式でS3互換ストレージに保存する.NET 8.0アプリケーション
+SendGrid WebHookを受信してParquet形式でS3互換ストレージに保存する.NET 10.0アプリケーション
 
 ## 概要
 
@@ -194,7 +194,7 @@ LIMIT 100;
 
 #### 前提条件
 
-- .NET 8.0 SDK
+- .NET 10.0 SDK
 - Docker Desktop
 - .NET Aspire Workload
 
