@@ -38,8 +38,8 @@ public class WebhookController : ControllerBase
 
             _logger.LogInformation($"Received {events.Count} events from SendGrid");
 
-            var parquetData = await _parquetService.ConvertToParquetAsync(events);
-            if (parquetData.Length == 0)
+            await using var parquetData = await _parquetService.ConvertToParquetAsync(events);
+            if (parquetData == null)
             {
                 _logger.LogError("Failed to convert events to Parquet format");
                 return StatusCode(500, "Failed to convert data to Parquet");

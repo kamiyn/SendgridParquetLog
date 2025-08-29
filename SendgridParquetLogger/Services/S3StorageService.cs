@@ -19,16 +19,9 @@ public class S3StorageService
         _logger = logger;
         _options = options.Value;
 
-        var serviceUrl = _options.ServiceUrl;
-        if (string.IsNullOrEmpty(serviceUrl))
-        {
-            serviceUrl = "https://s3.amazonaws.com"; // Default URL for testing
-            _logger.LogWarning("S3 ServiceUrl not configured, using default: {0}", serviceUrl);
-        }
-
         var config = new AmazonS3Config
         {
-            ServiceURL = serviceUrl,
+            ServiceURL = _options.ServiceUrl,
             ForcePathStyle = true
         };
 
@@ -36,12 +29,10 @@ public class S3StorageService
         _s3Client = new AmazonS3Client(credentials, config);
     }
 
-    public async Task<bool> UploadFileAsync(byte[] fileContent, string fileName)
+    public async Task<bool> UploadFileAsync(Stream stream, string fileName)
     {
         try
         {
-            using var stream = new MemoryStream(fileContent);
-
             var request = new PutObjectRequest
             {
                 BucketName = _options.BucketName,
@@ -49,7 +40,6 @@ public class S3StorageService
                 InputStream = stream,
                 ContentType = "application/octet-stream"
             };
-
             var response = await _s3Client.PutObjectAsync(request);
 
             _logger.LogInformation($"File {fileName} uploaded successfully to S3. ETag: {response.ETag}");
@@ -62,7 +52,7 @@ public class S3StorageService
         }
     }
 
-    public async Task<bool> BucketExistsAsync()
+    private async Task<bool> BucketExistsAsync()
     {
         try
         {

@@ -13,7 +13,7 @@ namespace SendgridParquetLogger.Services;
 public class ParquetService
 {
     // Paired field definition and processing function
-    private record FieldProcessor(DataField Field, Func<List<SendGridEvent>, DataColumn> ProcessorFunc);
+    private record FieldProcessor(DataField Field, Func<IEnumerable<SendGridEvent>, DataColumn> ProcessorFunc);
 
     private static readonly FieldProcessor[] FieldProcessors = CreateFieldProcessors();
 
@@ -44,8 +44,8 @@ public class ParquetService
         var poolIdField = new DataField(SendGridWebHookFields.PoolIdParquetColumn, typeof(int?));
         var sendAtField = new DataField(SendGridWebHookFields.SendAt, typeof(DateTime?));
 
-        return new[]
-        {
+        return
+        [
             new FieldProcessor(emailField,
                 events => new DataColumn(emailField,
                     events.Select(e => e.Email ?? string.Empty).ToArray())),
@@ -141,31 +141,25 @@ public class ParquetService
             new FieldProcessor(sendAtField,
                 events => new DataColumn(sendAtField,
                     events.Select(e => e.SendAt.HasValue ? DateTimeOffset.FromUnixTimeSeconds(e.SendAt.Value).DateTime : (DateTime?)null).ToArray()))
-        };
+        ];
     }
 
-    public async Task<byte[]> ConvertToParquetAsync(List<SendGridEvent> events)
+    public async Task<Stream?> ConvertToParquetAsync(ICollection<SendGridEvent> events)
     {
-        if (events == null || !events.Any())
-            return null!;
-
-        // Extract fields from FieldProcessors
-        var fields = FieldProcessors.Select(fp => fp.Field).ToArray();
-        var schema = new ParquetSchema(fields);
-
-        using var stream = new MemoryStream();
-        using (var writer = await ParquetWriter.CreateAsync(schema, stream))
+        if (!events.Any())
         {
-            using var groupWriter = writer.CreateRowGroup();
-
-            // Process each field using its associated processor function
-            foreach (var processor in FieldProcessors)
-            {
-                var dataColumn = processor.ProcessorFunc(events);
-                await groupWriter.WriteColumnAsync(dataColumn);
-            }
+            return null;
         }
-
-        return stream.ToArray();
+        var stream = new MemoryStream();
+        // Extract fields from FieldProcessors
+        Field[] fields = FieldProcessors.Select(fp => fp.Field).ToArray<Field>();
+        await using var writer = await ParquetWriter.CreateAsync(new ParquetSchema(fields), stream);
+        using var groupWriter = writer.CreateRowGroup();
+        foreach (var processor in FieldProcessors)
+        {
+            var dataColumn = processor.ProcessorFunc(events);
+            await groupWriter.WriteColumnAsync(dataColumn);
+        }
+        return stream;
     }
 }
