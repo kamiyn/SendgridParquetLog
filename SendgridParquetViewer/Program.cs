@@ -16,8 +16,8 @@ builder.Services.AddRazorComponents()
 // Add Fluent UI
 builder.Services.AddFluentUIComponents();
 
-// Add DuckDB service - using Scoped for better connection management in Blazor Server
-builder.Services.AddScoped<DuckDbService>();
+// Add DuckDB service
+builder.Services.AddTransient<DuckDbService>();
 
 var app = builder.Build();
 

@@ -1,4 +1,5 @@
 ﻿@page "/"
+@rendermode InteractiveServer
 @using Microsoft.FluentUI.AspNetCore.Components
 @using SendgridParquetViewer.Models
 @using SendgridParquetViewer.Services
@@ -126,10 +127,12 @@ else if (hasSearched)
             // Error handling - you might want to show a toast or error message
             Console.WriteLine($"Search error: {ex.Message}");
             hasSearched = true;
+            StateHasChanged(); // Force UI update
         }
         finally
         {
             isLoading = false;
+            StateHasChanged(); // Ensure UI is updated
         }
     }
 }
