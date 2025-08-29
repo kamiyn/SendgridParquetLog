@@ -2,6 +2,11 @@
 
 public static class SendGridWebHookFields
 {
+    /// <summary>
+    /// Parquet 列定義のバージョン
+    /// </summary>
+    public const string ParquetSchemaVersion = "v1";
+
     public const string Email = "email";
     public const string Timestamp = "timestamp";
     public const string Event = "event";

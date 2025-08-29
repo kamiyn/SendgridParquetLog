@@ -4,6 +4,8 @@ using DuckDB.NET.Data;
 
 using Microsoft.Extensions.Options;
 
+using SendgridParquet.Shared;
+
 using SendgridParquetViewer.Models;
 using SendgridParquetViewer.Options;
 
@@ -59,7 +61,7 @@ public class DuckDbService
 
     private string GetS3Path(int? year = null, int? month = null, int? day = null)
     {
-        var basePath = $"s3://{_s3Options.BucketName}/v1";
+        var basePath = $"s3://{_s3Options.BucketName}/{SendGridWebHookFields.ParquetSchemaVersion}";
 
         if (year.HasValue)
         {

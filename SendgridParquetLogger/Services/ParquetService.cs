@@ -17,8 +17,6 @@ namespace SendgridParquetLogger.Services;
 
 public class ParquetService
 {
-    public const string Version = "v1";
-    
     // Paired field definition and processing function
     private record FieldProcessor(DataField Field, Func<List<SendGridEvent>, DataColumn> ProcessorFunc);
 
@@ -53,100 +51,100 @@ public class ParquetService
 
         return new[]
         {
-            new FieldProcessor(emailField, 
-                events => new DataColumn(emailField, 
+            new FieldProcessor(emailField,
+                events => new DataColumn(emailField,
                     events.Select(e => e.Email ?? string.Empty).ToArray())),
 
-            new FieldProcessor(timestampField, 
-                events => new DataColumn(timestampField, 
+            new FieldProcessor(timestampField,
+                events => new DataColumn(timestampField,
                     events.Select(e => e.GetDateTime()).ToArray())),
 
-            new FieldProcessor(eventField, 
-                events => new DataColumn(eventField, 
+            new FieldProcessor(eventField,
+                events => new DataColumn(eventField,
                     events.Select(e => e.Event ?? string.Empty).ToArray())),
 
-            new FieldProcessor(categoryField, 
-                events => new DataColumn(categoryField, 
+            new FieldProcessor(categoryField,
+                events => new DataColumn(categoryField,
                     events.Select(e => e.Category != null ? JsonSerializer.Serialize(e.Category) : string.Empty).ToArray())),
 
-            new FieldProcessor(sgEventIdField, 
-                events => new DataColumn(sgEventIdField, 
+            new FieldProcessor(sgEventIdField,
+                events => new DataColumn(sgEventIdField,
                     events.Select(e => e.SgEventId ?? string.Empty).ToArray())),
 
-            new FieldProcessor(sgMessageIdField, 
-                events => new DataColumn(sgMessageIdField, 
+            new FieldProcessor(sgMessageIdField,
+                events => new DataColumn(sgMessageIdField,
                     events.Select(e => e.SgMessageId ?? string.Empty).ToArray())),
 
-            new FieldProcessor(smtpIdField, 
-                events => new DataColumn(smtpIdField, 
+            new FieldProcessor(smtpIdField,
+                events => new DataColumn(smtpIdField,
                     events.Select(e => e.SmtpId ?? string.Empty).ToArray())),
 
-            new FieldProcessor(userAgentField, 
-                events => new DataColumn(userAgentField, 
+            new FieldProcessor(userAgentField,
+                events => new DataColumn(userAgentField,
                     events.Select(e => e.UserAgent ?? string.Empty).ToArray())),
 
-            new FieldProcessor(ipField, 
-                events => new DataColumn(ipField, 
+            new FieldProcessor(ipField,
+                events => new DataColumn(ipField,
                     events.Select(e => e.Ip ?? string.Empty).ToArray())),
 
-            new FieldProcessor(urlField, 
-                events => new DataColumn(urlField, 
+            new FieldProcessor(urlField,
+                events => new DataColumn(urlField,
                     events.Select(e => e.Url ?? string.Empty).ToArray())),
 
-            new FieldProcessor(reasonField, 
-                events => new DataColumn(reasonField, 
+            new FieldProcessor(reasonField,
+                events => new DataColumn(reasonField,
                     events.Select(e => e.Reason ?? string.Empty).ToArray())),
 
-            new FieldProcessor(statusField, 
-                events => new DataColumn(statusField, 
+            new FieldProcessor(statusField,
+                events => new DataColumn(statusField,
                     events.Select(e => e.Status ?? string.Empty).ToArray())),
 
-            new FieldProcessor(responseField, 
-                events => new DataColumn(responseField, 
+            new FieldProcessor(responseField,
+                events => new DataColumn(responseField,
                     events.Select(e => e.Response ?? string.Empty).ToArray())),
 
-            new FieldProcessor(tlsField, 
-                events => new DataColumn(tlsField, 
+            new FieldProcessor(tlsField,
+                events => new DataColumn(tlsField,
                     events.Select(e => e.Tls).ToArray())),
 
-            new FieldProcessor(attemptField, 
-                events => new DataColumn(attemptField, 
+            new FieldProcessor(attemptField,
+                events => new DataColumn(attemptField,
                     events.Select(e => e.Attempt ?? string.Empty).ToArray())),
 
-            new FieldProcessor(typeField, 
-                events => new DataColumn(typeField, 
+            new FieldProcessor(typeField,
+                events => new DataColumn(typeField,
                     events.Select(e => e.Type ?? string.Empty).ToArray())),
 
-            new FieldProcessor(bounceClassificationField, 
-                events => new DataColumn(bounceClassificationField, 
+            new FieldProcessor(bounceClassificationField,
+                events => new DataColumn(bounceClassificationField,
                     events.Select(e => e.BounceClassification ?? string.Empty).ToArray())),
 
-            new FieldProcessor(asmGroupIdField, 
-                events => new DataColumn(asmGroupIdField, 
+            new FieldProcessor(asmGroupIdField,
+                events => new DataColumn(asmGroupIdField,
                     events.Select(e => e.AsmGroupId).ToArray())),
 
-            new FieldProcessor(uniqueArgsField, 
-                events => new DataColumn(uniqueArgsField, 
+            new FieldProcessor(uniqueArgsField,
+                events => new DataColumn(uniqueArgsField,
                     events.Select(e => e.UniqueArgs != null ? JsonSerializer.Serialize(e.UniqueArgs) : string.Empty).ToArray())),
 
-            new FieldProcessor(marketingCampaignIdField, 
-                events => new DataColumn(marketingCampaignIdField, 
+            new FieldProcessor(marketingCampaignIdField,
+                events => new DataColumn(marketingCampaignIdField,
                     events.Select(e => e.MarketingCampaignId).ToArray())),
 
-            new FieldProcessor(marketingCampaignNameField, 
-                events => new DataColumn(marketingCampaignNameField, 
+            new FieldProcessor(marketingCampaignNameField,
+                events => new DataColumn(marketingCampaignNameField,
                     events.Select(e => e.MarketingCampaignName ?? string.Empty).ToArray())),
 
-            new FieldProcessor(poolNameField, 
-                events => new DataColumn(poolNameField, 
+            new FieldProcessor(poolNameField,
+                events => new DataColumn(poolNameField,
                     events.Select(e => e.Pool?.Name ?? string.Empty).ToArray())),
 
-            new FieldProcessor(poolIdField, 
-                events => new DataColumn(poolIdField, 
+            new FieldProcessor(poolIdField,
+                events => new DataColumn(poolIdField,
                     events.Select(e => e.Pool?.Id).ToArray())),
 
-            new FieldProcessor(sendAtField, 
-                events => new DataColumn(sendAtField, 
+            new FieldProcessor(sendAtField,
+                events => new DataColumn(sendAtField,
                     events.Select(e => e.SendAt.HasValue ? DateTimeOffset.FromUnixTimeSeconds(e.SendAt.Value).DateTime : (DateTime?)null).ToArray()))
         };
     }
