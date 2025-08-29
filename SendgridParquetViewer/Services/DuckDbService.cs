@@ -84,7 +84,7 @@ public class DuckDbService
         return basePath;
     }
 
-    public async Task<List<SendGridEvent>> GetEventsByDateAsync(int year, int month, int day)
+    public async Task<IList<SendGridEvent>> GetEventsByDateAsync(int year, int month, int day)
     {
         try
         {
@@ -92,31 +92,7 @@ public class DuckDbService
             var s3Path = GetS3Path(year, month, day);
 
             var sql = $@"
-                SELECT 
-                    email AS Email,
-                    timestamp AS Timestamp,
-                    event AS Event,
-                    category AS Category,
-                    sg_event_id AS SgEventId,
-                    sg_message_id AS SgMessageId,
-                    smtp_id AS SmtpId,
-                    useragent AS UserAgent,
-                    ip AS Ip,
-                    url AS Url,
-                    reason AS Reason,
-                    status AS Status,
-                    response AS Response,
-                    tls AS Tls,
-                    attempt AS Attempt,
-                    type AS Type,
-                    bounce_classification AS BounceClassification,
-                    asm_group_id AS AsmGroupId,
-                    unique_args AS UniqueArgs,
-                    marketing_campaign_id AS MarketingCampaignId,
-                    marketing_campaign_name AS MarketingCampaignName,
-                    pool_name AS PoolName,
-                    pool_id AS PoolId,
-                    send_at AS SendAt
+                SELECT {SendGridEvent.SelectColumns}
                 FROM parquet_scan('{s3Path}')
                 ORDER BY timestamp DESC";
 
@@ -130,7 +106,7 @@ public class DuckDbService
         }
     }
 
-    public async Task<List<SendGridEvent>> GetEventsByMonthAsync(int year, int month, int limit = 1000)
+    public async Task<IList<SendGridEvent>> GetEventsByMonthAsync(int year, int month, int limit = 1000)
     {
         try
         {
@@ -138,31 +114,7 @@ public class DuckDbService
             var s3Path = GetS3Path(year, month);
 
             var sql = $@"
-                SELECT 
-                    email AS Email,
-                    timestamp AS Timestamp,
-                    event AS Event,
-                    category AS Category,
-                    sg_event_id AS SgEventId,
-                    sg_message_id AS SgMessageId,
-                    smtp_id AS SmtpId,
-                    useragent AS UserAgent,
-                    ip AS Ip,
-                    url AS Url,
-                    reason AS Reason,
-                    status AS Status,
-                    response AS Response,
-                    tls AS Tls,
-                    attempt AS Attempt,
-                    type AS Type,
-                    bounce_classification AS BounceClassification,
-                    asm_group_id AS AsmGroupId,
-                    unique_args AS UniqueArgs,
-                    marketing_campaign_id AS MarketingCampaignId,
-                    marketing_campaign_name AS MarketingCampaignName,
-                    pool_name AS PoolName,
-                    pool_id AS PoolId,
-                    send_at AS SendAt
+                SELECT {SendGridEvent.SelectColumns}
                 FROM parquet_scan('{s3Path}')
                 ORDER BY timestamp DESC
                 LIMIT {limit}";
@@ -177,7 +129,7 @@ public class DuckDbService
         }
     }
 
-    public async Task<List<SendGridEvent>> GetEventsByEmailAndMonthAsync(string email, int year, int month)
+    public async Task<IList<SendGridEvent>> GetEventsByEmailAndMonthAsync(string email, int year, int month)
     {
         try
         {
@@ -185,31 +137,7 @@ public class DuckDbService
             var s3Path = GetS3Path(year, month);
 
             var sql = $@"
-                SELECT 
-                    email AS Email,
-                    timestamp AS Timestamp,
-                    event AS Event,
-                    category AS Category,
-                    sg_event_id AS SgEventId,
-                    sg_message_id AS SgMessageId,
-                    smtp_id AS SmtpId,
-                    useragent AS UserAgent,
-                    ip AS Ip,
-                    url AS Url,
-                    reason AS Reason,
-                    status AS Status,
-                    response AS Response,
-                    tls AS Tls,
-                    attempt AS Attempt,
-                    type AS Type,
-                    bounce_classification AS BounceClassification,
-                    asm_group_id AS AsmGroupId,
-                    unique_args AS UniqueArgs,
-                    marketing_campaign_id AS MarketingCampaignId,
-                    marketing_campaign_name AS MarketingCampaignName,
-                    pool_name AS PoolName,
-                    pool_id AS PoolId,
-                    send_at AS SendAt
+                SELECT {SendGridEvent.SelectColumns}
                 FROM parquet_scan('{s3Path}')
                 WHERE email = @email
                 ORDER BY timestamp DESC";

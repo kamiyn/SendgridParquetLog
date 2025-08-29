@@ -75,7 +75,7 @@ else if (hasSearched)
 }
 
 @code {
-    private List<SendGridEvent> events = new();
+    private IList<SendGridEvent> events = new List<SendGridEvent>();
     private bool isLoading = false;
     private bool hasSearched = false;
     
@@ -110,11 +110,11 @@ else if (hasSearched)
             await DuckDbService.GetEventsByEmailAndMonthAsync(selectedEmail, selectedYear, selectedMonth));
     }
 
-    private async Task ExecuteSearchAsync(Func<Task<List<SendGridEvent>>> searchFunc)
+    private async Task ExecuteSearchAsync(Func<Task<IList<SendGridEvent>>> searchFunc)
     {
         isLoading = true;
         hasSearched = false;
-        events.Clear();
+        events = new List<SendGridEvent>();
         
         try
         {

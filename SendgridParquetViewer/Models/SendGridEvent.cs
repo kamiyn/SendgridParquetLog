@@ -26,4 +26,30 @@ public class SendGridEvent
     public string? PoolName { get; set; }
     public int? PoolId { get; set; }
     public DateTime? SendAt { get; set; }
+
+    public static readonly string SelectColumns = $@"
+        email AS {nameof(Email)},
+        timestamp AS {nameof(Timestamp)},
+        event AS {nameof(Event)},
+        category AS {nameof(Category)},
+        sg_event_id AS {nameof(SgEventId)},
+        sg_message_id AS {nameof(SgMessageId)},
+        smtp_id AS {nameof(SmtpId)},
+        useragent AS {nameof(UserAgent)},
+        ip AS {nameof(Ip)},
+        url AS {nameof(Url)},
+        reason AS {nameof(Reason)},
+        status AS {nameof(Status)},
+        response AS {nameof(Response)},
+        tls AS {nameof(Tls)},
+        attempt AS {nameof(Attempt)},
+        type AS {nameof(Type)},
+        bounce_classification AS {nameof(BounceClassification)},
+        asm_group_id AS {nameof(AsmGroupId)},
+        unique_args AS {nameof(UniqueArgs)},
+        marketing_campaign_id AS {nameof(MarketingCampaignId)},
+        marketing_campaign_name AS {nameof(MarketingCampaignName)},
+        pool_name AS {nameof(PoolName)},
+        pool_id AS {nameof(PoolId)},
+        send_at AS {nameof(SendAt)}";
 }
