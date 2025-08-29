@@ -10,9 +10,15 @@
     <PackageReference Include="AWSSDK.S3" Version="4.0.6.10" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.0" />
     <PackageReference Include="Parquet.Net" Version="5.2.0" />
+  </ItemGroup>
+  <!-- Swagger UI はデバッグビルドのみ有効 -->
+  <ItemGroup Condition="'$(Configuration)' == 'DEBUG'">
     <PackageReference Include="Swashbuckle.AspNetCore.Swagger" Version="9.0.4" />
     <PackageReference Include="Swashbuckle.AspNetCore.SwaggerGen" Version="9.0.4" />
     <PackageReference Include="Swashbuckle.AspNetCore.SwaggerUI" Version="9.0.4" />
   </ItemGroup>
+  <PropertyGroup Condition="'$(Configuration)' == 'DEBUG'">
+      <DefineConstants>UseSwagger;$(DefineConstants)</DefineConstants>
+  </PropertyGroup>
 
 </Project>

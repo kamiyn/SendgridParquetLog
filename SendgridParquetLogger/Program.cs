@@ -2,18 +2,18 @@ using Microsoft.AspNetCore.OpenApi;
 using SendgridParquetLogger.Services;
 
 var builder = WebApplication.CreateBuilder(args);
-
-// Add services to the container.
-
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
         options.JsonSerializerOptions.PropertyNamingPolicy = null;
         options.JsonSerializerOptions.WriteIndented = false;
     });
+
+#if UseSwagger
 // Learn more about configuring OpenAPI at https://aka.ms/aspnetcore/openapi
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+#endif
 
 // Register services
 builder.Services.AddSingleton<ParquetService>();
@@ -21,24 +21,19 @@ builder.Services.AddSingleton<S3StorageService>();
 
 var app = builder.Build();
 
-// Initialize S3 bucket (only in production)
 if (!app.Environment.IsDevelopment())
 {
     var s3Service = app.Services.GetRequiredService<S3StorageService>();
     await s3Service.CreateBucketIfNotExistsAsync();
 }
-
-// Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
+#if UseSwagger
 {
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+#endif
 
 app.UseHttpsRedirection();
-
 app.UseAuthorization();
-
 app.MapControllers();
-
 app.Run();
