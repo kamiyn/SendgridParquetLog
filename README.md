@@ -57,10 +57,10 @@ cd SendgridParquetLog
 `.env`ファイルを作成:
 
 ```bash
-S3_ACCESS_KEY=your-access-key
-S3_SECRET_KEY=your-secret-key
-S3_SERVICE_URL=https://your-s3-endpoint.com
-S3_BUCKET_NAME=sendgrid-events
+S3__AccessKey=your-access-key
+S3__SecretKey=your-secret-key
+S3__ServiceUrl=https://your-s3-endpoint.com
+S3__BucketName=sendgrid-events
 ```
 
 ### 3. Dockerイメージのビルドと実行
