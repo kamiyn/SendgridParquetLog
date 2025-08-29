@@ -1,7 +1,11 @@
 using Microsoft.AspNetCore.OpenApi;
+using SendgridParquetLogger.Options;
 using SendgridParquetLogger.Services;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Configure options
+builder.Services.Configure<S3Options>(builder.Configuration.GetSection(S3Options.SectionName));
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {

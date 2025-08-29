@@ -15,14 +15,33 @@ SendGrid WebHookを受信してParquet形式でS3互換ストレージに保存�
 - ヘルスチェックエンドポイント (GET /webhook/health)
 - Docker対応 (linux/amd64)
 
-## 必要な環境変数
+## 設定方法
+
+ASP.NET Core のOptions パターンを使用して設定を管理します。
+
+### 環境変数での設定
 
 | 環境変数名 | 説明 | 例 |
 |----------|------|-----|
-| S3_ACCESS_KEY | S3アクセスキー | your-access-key |
-| S3_SECRET_KEY | S3シークレットキー | your-secret-key |
-| S3_SERVICE_URL | S3エンドポイントURL | https://s3.amazonaws.com |
-| S3_BUCKET_NAME | バケット名 | sendgrid-events |
+| S3__AccessKey | S3アクセスキー | your-access-key |
+| S3__SecretKey | S3シークレットキー | your-secret-key |
+| S3__ServiceUrl | S3エンドポイントURL | https://s3.amazonaws.com |
+| S3__BucketName | バケット名 | sendgrid-events |
+
+### appsettings.json での設定
+
+```json
+{
+  "S3": {
+    "AccessKey": "your-access-key",
+    "SecretKey": "your-secret-key", 
+    "ServiceUrl": "https://your-s3-endpoint.com",
+    "BucketName": "sendgrid-events"
+  }
+}
+```
+
+環境変数は `appsettings.json` の設定を上書きします。
 
 ## セットアップ
 
