@@ -1,0 +1,135 @@
+﻿@page "/"
+@using Microsoft.FluentUI.AspNetCore.Components
+@using SendgridParquetViewer.Models
+@using SendgridParquetViewer.Services
+@inject DuckDbService DuckDbService
+
+<PageTitle>SendGrid Events Viewer</PageTitle>
+
+<h1>SendGrid Events Viewer</h1>
+
+<FluentTabs>
+    <FluentTab Id="tab-1" Text="日別検索">
+        <div style="padding: 20px;">
+            <FluentStack Orientation="Orientation.Horizontal" Wrap="true">
+                <FluentNumberField @bind-Value="selectedYear" Label="年" Style="width: 120px;" />
+                <FluentNumberField @bind-Value="selectedMonth" Label="月" Style="width: 120px;" />
+                <FluentNumberField @bind-Value="selectedDay" Label="日" Style="width: 120px;" />
+                <FluentButton Appearance="Appearance.Accent" OnClick="SearchByDateAsync">検索</FluentButton>
+            </FluentStack>
+        </div>
+    </FluentTab>
+    
+    <FluentTab Id="tab-2" Text="月別検索（先頭1000件）">
+        <div style="padding: 20px;">
+            <FluentStack Orientation="Orientation.Horizontal" Wrap="true">
+                <FluentNumberField @bind-Value="selectedYear" Label="年" Style="width: 120px;" />
+                <FluentNumberField @bind-Value="selectedMonth" Label="月" Style="width: 120px;" />
+                <FluentButton Appearance="Appearance.Accent" OnClick="SearchByMonthAsync">検索</FluentButton>
+            </FluentStack>
+        </div>
+    </FluentTab>
+    
+    <FluentTab Id="tab-3" Text="メール+月別検索">
+        <div style="padding: 20px;">
+            <FluentStack Orientation="Orientation.Horizontal" Wrap="true">
+                <FluentTextField @bind-Value="selectedEmail" Label="メールアドレス" Style="width: 300px;" />
+                <FluentNumberField @bind-Value="selectedYear" Label="年" Style="width: 120px;" />
+                <FluentNumberField @bind-Value="selectedMonth" Label="月" Style="width: 120px;" />
+                <FluentButton Appearance="Appearance.Accent" OnClick="SearchByEmailAndMonthAsync">検索</FluentButton>
+            </FluentStack>
+        </div>
+    </FluentTab>
+</FluentTabs>
+
+@if (isLoading)
+{
+    <FluentProgress />
+    <p>データを検索中...</p>
+}
+else if (events.Any())
+{
+    <div style="margin-top: 20px;">
+        <p>検索結果: @events.Count 件</p>
+        
+        <FluentDataGrid Items="@events.AsQueryable()" Pagination="@pagination" Style="height: 600px;">
+            <PropertyColumn Property="@(e => e.Timestamp)" Title="タイムスタンプ" Format="yyyy-MM-dd HH:mm:ss" Sortable="true" />
+            <PropertyColumn Property="@(e => e.Email)" Title="メールアドレス" Sortable="true" />
+            <PropertyColumn Property="@(e => e.Event)" Title="イベント" Sortable="true" />
+            <PropertyColumn Property="@(e => e.Category)" Title="カテゴリ" Sortable="true" />
+            <PropertyColumn Property="@(e => e.Reason)" Title="理由" />
+            <PropertyColumn Property="@(e => e.Status)" Title="ステータス" />
+            <PropertyColumn Property="@(e => e.Response)" Title="レスポンス" />
+            <PropertyColumn Property="@(e => e.MarketingCampaignName)" Title="キャンペーン名" Sortable="true" />
+            <PropertyColumn Property="@(e => e.Url)" Title="URL" />
+            <PropertyColumn Property="@(e => e.UserAgent)" Title="ユーザーエージェント" />
+            <PropertyColumn Property="@(e => e.Ip)" Title="IPアドレス" />
+        </FluentDataGrid>
+        
+        <FluentPaginator State="@pagination" />
+    </div>
+}
+else if (hasSearched)
+{
+    <p>検索結果が見つかりませんでした。</p>
+}
+
+@code {
+    private List<SendGridEvent> events = new();
+    private bool isLoading = false;
+    private bool hasSearched = false;
+    
+    // Search parameters
+    private int selectedYear = DateTime.Now.Year;
+    private int selectedMonth = DateTime.Now.Month;
+    private int selectedDay = DateTime.Now.Day;
+    private string selectedEmail = "";
+    
+    private PaginationState pagination = new PaginationState { ItemsPerPage = 50 };
+
+    private async Task SearchByDateAsync()
+    {
+        await ExecuteSearchAsync(async () => 
+            await DuckDbService.GetEventsByDateAsync(selectedYear, selectedMonth, selectedDay));
+    }
+
+    private async Task SearchByMonthAsync()
+    {
+        await ExecuteSearchAsync(async () => 
+            await DuckDbService.GetEventsByMonthAsync(selectedYear, selectedMonth, 1000));
+    }
+
+    private async Task SearchByEmailAndMonthAsync()
+    {
+        if (string.IsNullOrWhiteSpace(selectedEmail))
+        {
+            return;
+        }
+        
+        await ExecuteSearchAsync(async () => 
+            await DuckDbService.GetEventsByEmailAndMonthAsync(selectedEmail, selectedYear, selectedMonth));
+    }
+
+    private async Task ExecuteSearchAsync(Func<Task<List<SendGridEvent>>> searchFunc)
+    {
+        isLoading = true;
+        hasSearched = false;
+        events.Clear();
+        
+        try
+        {
+            events = await searchFunc();
+            hasSearched = true;
+        }
+        catch (Exception ex)
+        {
+            // Error handling - you might want to show a toast or error message
+            Console.WriteLine($"Search error: {ex.Message}");
+            hasSearched = true;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+}

@@ -73,6 +73,60 @@
             "logging": {
                 "moduleLoad": false
             }
+        },
+        {
+            "name": ".NET Core Launch (SendgridParquetViewer - http)",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build",
+            "program": "${workspaceFolder}/SendgridParquetViewer/bin/Debug/net10.0/SendgridParquetViewer.dll",
+            "args": [],
+            "cwd": "${workspaceFolder}/SendgridParquetViewer",
+            "stopAtEntry": false,
+            "serverReadyAction": {
+                "action": "openExternally",
+                "pattern": "\\bNow listening on:\\s+(https?://\\S+)",
+                "uriFormat": "%s"
+            },
+            "env": {
+                "ASPNETCORE_ENVIRONMENT": "Development",
+                "ASPNETCORE_URLS": "http://localhost:5007",
+                "S3__ServiceUrl": "http://localhost:9000",
+                "S3__AccessKey": "minioadmin",
+                "S3__SecretKey": "minioadmin",
+                "S3__BucketName": "sendgrid-events"
+            },
+            "console": "integratedTerminal",
+            "logging": {
+                "moduleLoad": false
+            }
+        },
+        {
+            "name": ".NET Core Launch (SendgridParquetViewer - https)",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build",
+            "program": "${workspaceFolder}/SendgridParquetViewer/bin/Debug/net10.0/SendgridParquetViewer.dll",
+            "args": [],
+            "cwd": "${workspaceFolder}/SendgridParquetViewer",
+            "stopAtEntry": false,
+            "serverReadyAction": {
+                "action": "openExternally",
+                "pattern": "\\bNow listening on:\\s+(https?://\\S+)",
+                "uriFormat": "%s"
+            },
+            "env": {
+                "ASPNETCORE_ENVIRONMENT": "Development",
+                "ASPNETCORE_URLS": "https://localhost:7100",
+                "S3__ServiceUrl": "http://localhost:9000",
+                "S3__AccessKey": "minioadmin",
+                "S3__SecretKey": "minioadmin",
+                "S3__BucketName": "sendgrid-events"
+            },
+            "console": "integratedTerminal",
+            "logging": {
+                "moduleLoad": false
+            }
         }
     ]
 }
