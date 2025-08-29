@@ -8,31 +8,36 @@ using Amazon.S3.Model;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
-namespace SendgridParquetLogger.Services
+namespace SendgridParquetLogger.Services;
+
+public class S3StorageService
 {
-    public class S3StorageService
-    {
         private readonly IAmazonS3 _s3Client;
-        private readonly string _bucketName;
+        private readonly string? _bucketName;
         private readonly ILogger<S3StorageService> _logger;
 
         public S3StorageService(IConfiguration configuration, ILogger<S3StorageService> logger)
         {
             _logger = logger;
             
-            var accessKey = configuration["S3:AccessKey"];
-            var secretKey = configuration["S3:SecretKey"];
-            var serviceUrl = configuration["S3:ServiceUrl"];
-            _bucketName = configuration["S3:BucketName"];
+            var accessKey = Environment.GetEnvironmentVariable("S3_ACCESS_KEY") ?? configuration["S3:AccessKey"];
+            var secretKey = Environment.GetEnvironmentVariable("S3_SECRET_KEY") ?? configuration["S3:SecretKey"];
+            var serviceUrl = Environment.GetEnvironmentVariable("S3_SERVICE_URL") ?? configuration["S3:ServiceUrl"];
+            _bucketName = Environment.GetEnvironmentVariable("S3_BUCKET_NAME") ?? configuration["S3:BucketName"];
+
+            if (string.IsNullOrEmpty(serviceUrl) || serviceUrl.StartsWith("${"))
+            {
+                serviceUrl = "https://s3.amazonaws.com"; // Default URL for testing
+                _logger.LogWarning("S3_SERVICE_URL not configured, using default: {0}", serviceUrl);
+            }
 
             var config = new AmazonS3Config
             {
                 ServiceURL = serviceUrl,
-                ForcePathStyle = true,
-                SignatureVersion = "4"
+                ForcePathStyle = true
             };
 
-            var credentials = new BasicAWSCredentials(accessKey, secretKey);
+            var credentials = new BasicAWSCredentials(accessKey ?? "test", secretKey ?? "test");
             _s3Client = new AmazonS3Client(credentials, config);
         }
 
@@ -97,6 +102,5 @@ namespace SendgridParquetLogger.Services
                     throw;
                 }
             }
-        }
     }
 }

@@ -7,12 +7,12 @@ using Microsoft.Extensions.Logging;
 using SendgridParquetLogger.Models;
 using SendgridParquetLogger.Services;
 
-namespace SendgridParquetLogger.Controllers
+namespace SendgridParquetLogger.Controllers;
+
+[ApiController]
+[Route("webhook")]
+public class WebhookController : ControllerBase
 {
-    [ApiController]
-    [Route("webhook")]
-    public class WebhookController : ControllerBase
-    {
         private readonly ILogger<WebhookController> _logger;
         private readonly ParquetService _parquetService;
         private readonly S3StorageService _s3StorageService;
@@ -71,6 +71,5 @@ namespace SendgridParquetLogger.Controllers
         public IActionResult Health()
         {
             return Ok(new { status = "healthy", timestamp = DateTimeOffset.UtcNow });
-        }
     }
 }

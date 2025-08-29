@@ -1,0 +1,184 @@
+{
+  "openapi": "3.0.4",
+  "info": {
+    "title": "SendgridParquetLogger",
+    "version": "1.0"
+  },
+  "paths": {
+    "/webhook/sendgrid": {
+      "post": {
+        "tags": [
+          "Webhook"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SendGridEvent"
+                }
+              }
+            },
+            "text/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SendGridEvent"
+                }
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SendGridEvent"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/webhook/health": {
+      "get": {
+        "tags": [
+          "Webhook"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Pool": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SendGridEvent": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "nullable": true
+          },
+          "timestamp": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "event": {
+            "type": "string",
+            "nullable": true
+          },
+          "category": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "sg_event_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "sg_message_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "smtp-id": {
+            "type": "string",
+            "nullable": true
+          },
+          "useragent": {
+            "type": "string",
+            "nullable": true
+          },
+          "ip": {
+            "type": "string",
+            "nullable": true
+          },
+          "url": {
+            "type": "string",
+            "nullable": true
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          },
+          "response": {
+            "type": "string",
+            "nullable": true
+          },
+          "tls": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "attempt": {
+            "type": "string",
+            "nullable": true
+          },
+          "type": {
+            "type": "string",
+            "nullable": true
+          },
+          "bounce_classification": {
+            "type": "string",
+            "nullable": true
+          },
+          "asm_group_id": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "unique_args": {
+            "type": "object",
+            "additionalProperties": { },
+            "nullable": true
+          },
+          "marketing_campaign_id": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "marketing_campaign_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "pool": {
+            "$ref": "#/components/schemas/Pool"
+          },
+          "send_at": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}
