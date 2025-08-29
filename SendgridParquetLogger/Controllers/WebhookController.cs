@@ -72,6 +72,8 @@ public class WebhookController : ControllerBase
     [HttpGet("health")]
     public IActionResult Health()
     {
+        // 起動時に await s3Service.CreateBucketIfNotExistsAsync(); を行っており
+        // 構成上の問題は検出される
         return Ok(new { status = "healthy", timestamp = DateTimeOffset.UtcNow });
     }
 }

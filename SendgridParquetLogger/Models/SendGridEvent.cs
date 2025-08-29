@@ -16,7 +16,7 @@ public class SendGridEvent
     public string? Event { get; set; }
 
     [JsonPropertyName("category")]
-    public List<string>? Category { get; set; }
+    public string? Category { get; set; }
 
     [JsonPropertyName("sg_event_id")]
     public string? SgEventId { get; set; }
