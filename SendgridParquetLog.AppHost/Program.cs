@@ -17,8 +17,10 @@ var minio = builder.AddContainer("s3storage", "minio/minio")
 builder.AddProject<Projects.SendgridParquetLogger>("sendgridparquetlogger")
     .WithReference(redis)
     .WithEnvironment("S3__ServiceUrl", () => $"http://localhost:{minio.GetEndpoint("api").Port}")
-    .WithEnvironment("S3__AccessKey", "minioadmin")
-    .WithEnvironment("S3__SecretKey", "minioadmin")
-    .WithEnvironment("S3__BucketName", "sendgrid-events");
+    // accessKey, secretKey, Bucket の作成を自動化できていないため これらは手動で作成し .env に設定するか 環境変数に設定する
+    // .WithEnvironment("S3__AccessKey", accessKey)
+    // .WithEnvironment("S3__SecretKey", secretKey)
+    // .WithEnvironment("S3__BucketName", "sendgrid-events")
+    ;
 
 builder.Build().Run();
