@@ -20,6 +20,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\SendgridParquetLog.ServiceDefaults\SendgridParquetLog.ServiceDefaults.csproj" />
+    <ProjectReference Include="../SendgridParquet.Shared/SendgridParquet.Shared.csproj" />
   </ItemGroup>
 
 </Project>

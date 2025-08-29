@@ -1,4 +1,6 @@
-﻿namespace SendgridParquetViewer.Models;
+﻿using SendgridParquet.Shared;
+
+namespace SendgridParquetViewer.Models;
 
 public class SendGridEvent
 {
@@ -28,28 +30,28 @@ public class SendGridEvent
     public DateTime? SendAt { get; set; }
 
     public static readonly string SelectColumns = $@"
-        email AS {nameof(Email)},
-        timestamp AS {nameof(Timestamp)},
-        event AS {nameof(Event)},
-        category AS {nameof(Category)},
-        sg_event_id AS {nameof(SgEventId)},
-        sg_message_id AS {nameof(SgMessageId)},
-        smtp_id AS {nameof(SmtpId)},
-        useragent AS {nameof(UserAgent)},
-        ip AS {nameof(Ip)},
-        url AS {nameof(Url)},
-        reason AS {nameof(Reason)},
-        status AS {nameof(Status)},
-        response AS {nameof(Response)},
-        tls AS {nameof(Tls)},
-        attempt AS {nameof(Attempt)},
-        type AS {nameof(Type)},
-        bounce_classification AS {nameof(BounceClassification)},
-        asm_group_id AS {nameof(AsmGroupId)},
-        unique_args AS {nameof(UniqueArgs)},
-        marketing_campaign_id AS {nameof(MarketingCampaignId)},
-        marketing_campaign_name AS {nameof(MarketingCampaignName)},
-        pool_name AS {nameof(PoolName)},
-        pool_id AS {nameof(PoolId)},
-        send_at AS {nameof(SendAt)}";
+        {SendGridWebHookFields.Email} AS {nameof(Email)},
+        {SendGridWebHookFields.Timestamp} AS {nameof(Timestamp)},
+        {SendGridWebHookFields.Event} AS {nameof(Event)},
+        {SendGridWebHookFields.Category} AS {nameof(Category)},
+        {SendGridWebHookFields.SgEventId} AS {nameof(SgEventId)},
+        {SendGridWebHookFields.SgMessageId} AS {nameof(SgMessageId)},
+        {SendGridWebHookFields.SmtpIdParquetColumn} AS {nameof(SmtpId)},
+        {SendGridWebHookFields.UserAgent} AS {nameof(UserAgent)},
+        {SendGridWebHookFields.Ip} AS {nameof(Ip)},
+        {SendGridWebHookFields.Url} AS {nameof(Url)},
+        {SendGridWebHookFields.Reason} AS {nameof(Reason)},
+        {SendGridWebHookFields.Status} AS {nameof(Status)},
+        {SendGridWebHookFields.Response} AS {nameof(Response)},
+        {SendGridWebHookFields.Tls} AS {nameof(Tls)},
+        {SendGridWebHookFields.Attempt} AS {nameof(Attempt)},
+        {SendGridWebHookFields.Type} AS {nameof(Type)},
+        {SendGridWebHookFields.BounceClassification} AS {nameof(BounceClassification)},
+        {SendGridWebHookFields.AsmGroupId} AS {nameof(AsmGroupId)},
+        {SendGridWebHookFields.UniqueArgs} AS {nameof(UniqueArgs)},
+        {SendGridWebHookFields.MarketingCampaignId} AS {nameof(MarketingCampaignId)},
+        {SendGridWebHookFields.MarketingCampaignName} AS {nameof(MarketingCampaignName)},
+        {SendGridWebHookFields.PoolNameParquetColumn} AS {nameof(PoolName)},
+        {SendGridWebHookFields.PoolIdParquetColumn} AS {nameof(PoolId)},
+        {SendGridWebHookFields.SendAt} AS {nameof(SendAt)}";
 }

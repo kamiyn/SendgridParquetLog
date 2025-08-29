@@ -2,77 +2,79 @@
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
 
+using SendgridParquet.Shared;
+
 namespace SendgridParquetLogger.Models;
 
 public class SendGridEvent
 {
-    [JsonPropertyName("email")]
+    [JsonPropertyName(SendGridWebHookFields.Email)]
     public string? Email { get; set; }
 
-    [JsonPropertyName("timestamp")]
+    [JsonPropertyName(SendGridWebHookFields.Timestamp)]
     public long Timestamp { get; set; }
 
-    [JsonPropertyName("event")]
+    [JsonPropertyName(SendGridWebHookFields.Event)]
     public string? Event { get; set; }
 
-    [JsonPropertyName("category")]
+    [JsonPropertyName(SendGridWebHookFields.Category)]
     public string? Category { get; set; }
 
-    [JsonPropertyName("sg_event_id")]
+    [JsonPropertyName(SendGridWebHookFields.SgEventId)]
     public string? SgEventId { get; set; }
 
-    [JsonPropertyName("sg_message_id")]
+    [JsonPropertyName(SendGridWebHookFields.SgMessageId)]
     public string? SgMessageId { get; set; }
 
-    [JsonPropertyName("smtp-id")]
+    [JsonPropertyName(SendGridWebHookFields.SmtpId)]
     public string? SmtpId { get; set; }
 
-    [JsonPropertyName("useragent")]
+    [JsonPropertyName(SendGridWebHookFields.UserAgent)]
     public string? UserAgent { get; set; }
 
-    [JsonPropertyName("ip")]
+    [JsonPropertyName(SendGridWebHookFields.Ip)]
     public string? Ip { get; set; }
 
-    [JsonPropertyName("url")]
+    [JsonPropertyName(SendGridWebHookFields.Url)]
     public string? Url { get; set; }
 
-    [JsonPropertyName("reason")]
+    [JsonPropertyName(SendGridWebHookFields.Reason)]
     public string? Reason { get; set; }
 
-    [JsonPropertyName("status")]
+    [JsonPropertyName(SendGridWebHookFields.Status)]
     public string? Status { get; set; }
 
-    [JsonPropertyName("response")]
+    [JsonPropertyName(SendGridWebHookFields.Response)]
     public string? Response { get; set; }
 
-    [JsonPropertyName("tls")]
+    [JsonPropertyName(SendGridWebHookFields.Tls)]
     public int? Tls { get; set; }
 
-    [JsonPropertyName("attempt")]
+    [JsonPropertyName(SendGridWebHookFields.Attempt)]
     public string? Attempt { get; set; }
 
-    [JsonPropertyName("type")]
+    [JsonPropertyName(SendGridWebHookFields.Type)]
     public string? Type { get; set; }
 
-    [JsonPropertyName("bounce_classification")]
+    [JsonPropertyName(SendGridWebHookFields.BounceClassification)]
     public string? BounceClassification { get; set; }
 
-    [JsonPropertyName("asm_group_id")]
+    [JsonPropertyName(SendGridWebHookFields.AsmGroupId)]
     public int? AsmGroupId { get; set; }
 
-    [JsonPropertyName("unique_args")]
+    [JsonPropertyName(SendGridWebHookFields.UniqueArgs)]
     public Dictionary<string, object>? UniqueArgs { get; set; }
 
-    [JsonPropertyName("marketing_campaign_id")]
+    [JsonPropertyName(SendGridWebHookFields.MarketingCampaignId)]
     public int? MarketingCampaignId { get; set; }
 
-    [JsonPropertyName("marketing_campaign_name")]
+    [JsonPropertyName(SendGridWebHookFields.MarketingCampaignName)]
     public string? MarketingCampaignName { get; set; }
 
-    [JsonPropertyName("pool")]
+    [JsonPropertyName(SendGridWebHookFields.Pool)]
     public Pool? Pool { get; set; }
 
-    [JsonPropertyName("send_at")]
+    [JsonPropertyName(SendGridWebHookFields.SendAt)]
     public long? SendAt { get; set; }
 
     public DateTime GetDateTime()
@@ -83,9 +85,9 @@ public class SendGridEvent
 
 public class Pool
 {
-    [JsonPropertyName("name")]
+    [JsonPropertyName(SendGridWebHookFields.PoolFields.Name)]
     public string? Name { get; set; }
 
-    [JsonPropertyName("id")]
+    [JsonPropertyName(SendGridWebHookFields.PoolFields.Id)]
     public int Id { get; set; }
 }

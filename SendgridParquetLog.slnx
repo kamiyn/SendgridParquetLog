@@ -1,8 +1,15 @@
 <Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
   <Folder Name="/Solution Items/">
     <File Path=".editorconfig" />
   </Folder>
+  <Project Path="SendgridParquet.Shared/SendgridParquet.Shared.csproj" />
   <Project Path="SendgridParquetLog.AppHost/SendgridParquetLog.AppHost.csproj" />
   <Project Path="SendgridParquetLog.ServiceDefaults/SendgridParquetLog.ServiceDefaults.csproj" />
   <Project Path="SendgridParquetLogger/SendgridParquetLogger.csproj" />
+  <Project Path="SendgridParquetViewer/SendgridParquetViewer.csproj" />
 </Solution>
