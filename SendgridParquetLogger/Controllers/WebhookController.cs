@@ -50,7 +50,7 @@ public class WebhookController : ControllerBase
             }
 
             var timestamp = DateTimeOffset.UtcNow;
-            var fileName = $"sendgrid-events/{timestamp:yyyy/MM/dd}/events_{timestamp:yyyyMMdd_HHmmss}_{Guid.NewGuid():N}.parquet";
+            var fileName = $"{ParquetService.Version}/{timestamp:yyyy/MM/dd}/events_{timestamp:yyyyMMdd_HHmmss}_{Guid.NewGuid():N}.parquet";
 
             var uploadSuccess = await _s3StorageService.UploadFileAsync(parquetData, fileName);
             if (!uploadSuccess)

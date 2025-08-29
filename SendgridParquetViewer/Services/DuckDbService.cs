@@ -59,7 +59,7 @@ public class DuckDbService
 
     private string GetS3Path(int? year = null, int? month = null, int? day = null)
     {
-        var basePath = $"s3://{_s3Options.BucketName}/sendgrid-events";
+        var basePath = $"s3://{_s3Options.BucketName}/v1";
 
         if (year.HasValue)
         {
