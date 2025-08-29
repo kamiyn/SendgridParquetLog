@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/Solution Items/">
+    <File Path=".editorconfig" />
+  </Folder>
+  <Project Path="SendgridParquetLog.AppHost/SendgridParquetLog.AppHost.csproj" />
+  <Project Path="SendgridParquetLog.ServiceDefaults/SendgridParquetLog.ServiceDefaults.csproj" />
+  <Project Path="SendgridParquetLogger/SendgridParquetLogger.csproj" />
+</Solution>

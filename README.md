@@ -188,6 +188,62 @@ LIMIT 100;
 
 ## ローカル開発
 
+### .NET Aspire環境での開発
+
+.NET Aspireを使用してローカル開発環境を構築できます。Aspire環境では、MinIO (S3互換ストレージ)、Redis、WebAPIが自動的に連携して起動します。
+
+#### 前提条件
+
+- .NET 8.0 SDK
+- Docker Desktop
+- .NET Aspire Workload
+
+```bash
+# .NET Aspire Workloadのインストール
+dotnet workload install aspire
+```
+
+#### Aspire環境の起動
+
+```bash
+# プロジェクトディレクトリに移動
+cd SendgridParquetLog
+
+# Aspire AppHostを実行
+dotnet run --project SendgridParquetLog.AppHost
+```
+
+#### アクセス先
+
+起動後、以下のURLでアクセスできます:
+
+- **Aspire Dashboard**: http://localhost:15000 (開発監視ダッシュボード)
+- **SendgridParquetLogger API**: Aspire Dashboard上で確認 (動的ポート)
+- **MinIO Console**: http://localhost:9001
+  - ユーザー名: `minioadmin`
+  - パスワード: `minioadmin`
+- **MinIO API**: http://localhost:9000
+
+#### 環境変数の自動設定
+
+Aspire環境では以下の環境変数が自動的に設定されます:
+
+- `S3__ServiceUrl`: MinIOのエンドポイント
+- `S3__AccessKey`: minioadmin
+- `S3__SecretKey`: minioadmin
+- `S3__BucketName`: sendgrid-events
+
+#### テスト実行 (Aspire環境)
+
+```bash
+# Aspire Dashboard でAPIのポートを確認してからテスト実行
+curl -X POST http://localhost:{api-port}/webhook/sendgrid \
+  -H "Content-Type: application/json" \
+  -d '[{"email":"test@example.com","timestamp":1513299569,"event":"delivered"}]'
+```
+
+### 従来のローカル開発
+
 ```bash
 # プロジェクトディレクトリに移動
 cd SendgridParquetLogger

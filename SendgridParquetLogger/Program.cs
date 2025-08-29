@@ -5,7 +5,10 @@ using SendgridParquetLogger.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Configure options
+// Add Aspire service defaults
+builder.AddServiceDefaults();
+
+// Configure options (Aspire will provide environment variables)
 builder.Services.Configure<S3Options>(builder.Configuration.GetSection(S3Options.SectionName));
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
@@ -41,4 +44,8 @@ if (!app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 app.UseAuthorization();
 app.MapControllers();
+
+// Map Aspire default endpoints (health checks, etc.)
+app.MapDefaultEndpoints();
+
 app.Run();
