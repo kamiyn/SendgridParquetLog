@@ -94,17 +94,17 @@ else if (_hasSearched)
         YearMonth,
         YearMonthDay
     }
-    
+
     private IList<SendGridEvent> _sendGridEvents = [];
     private bool _isLoading;
     private bool _hasSearched;
     private string _errorMessage = "";
-    
+
     // Search parameters
     private string _selectedEmail = "";
     private DateSelectionMode _dateSelectionMode = DateSelectionMode.YearMonth;
     private DateTime? _selectedDate = DateTime.Now;
-    
+
     private readonly PaginationState _pagination = new PaginationState { ItemsPerPage = 50 };
 
     private void OnInputChange()
@@ -113,7 +113,7 @@ else if (_hasSearched)
         _hasSearched = false;
         _errorMessage = "";
     }
-    
+
     private void OnDateSelectionModeChange()
     {
         // Reset search state when date selection mode changes
@@ -129,36 +129,14 @@ else if (_hasSearched)
 
     private Func<Task<IList<SendGridEvent>>> DetermineSearchMethod()
     {
-        bool hasEmail = !string.IsNullOrWhiteSpace(_selectedEmail);
-        bool hasDate = _selectedDate.HasValue;
 
-        return (hasEmail, hasDate, dateSelectionMode: _dateSelectionMode) switch
+        var ymd = _dateSelectionMode switch
         {
-            // Email + Date search (Year-Month mode - ignore day)
-            (true, true, DateSelectionMode.YearMonth) => async () => await DuckDbService.GetEventsByEmailAndMonthAsync(
-                _selectedEmail, _selectedDate!.Value.Year, _selectedDate!.Value.Month),
-            
-            // Email + Date search (Year-Month-Day mode - use full date for month search)
-            (true, true, DateSelectionMode.YearMonthDay) => async () => await DuckDbService.GetEventsByEmailAndMonthAsync(
-                _selectedEmail, _selectedDate!.Value.Year, _selectedDate!.Value.Month),
-            
-            // Date search only (Year-Month-Day mode - use full date)
-            (false, true, DateSelectionMode.YearMonthDay) => async () => await DuckDbService.GetEventsByDateAsync(
-                _selectedDate!.Value.Year, _selectedDate!.Value.Month, _selectedDate!.Value.Day),
-            
-            // Date search only (Year-Month mode - ignore day)
-            (false, true, DateSelectionMode.YearMonth) => async () => await DuckDbService.GetEventsByMonthAsync(
-                _selectedDate!.Value.Year, _selectedDate!.Value.Month),
-            
-            // No valid search criteria
-            _ => HandleInvalidSearchCriteria()
+            DateSelectionMode.YearMonth => new YearMonthDayOptional(_selectedDate?.Year, _selectedDate?.Month, null),
+            DateSelectionMode.YearMonthDay => new YearMonthDayOptional(_selectedDate?.Year, _selectedDate?.Month, _selectedDate?.Day),
+            _ => throw new ArgumentOutOfRangeException()
         };
-    }
-
-    private Func<Task<IList<SendGridEvent>>> HandleInvalidSearchCriteria()
-    {
-        _errorMessage = "検索条件を指定してください: 日付を選択し、必要に応じてメールアドレスを入力してください";
-        return () => Task.FromResult<IList<SendGridEvent>>([]);
+        return async () => await DuckDbService.GetEventsByDateAsync(ymd, _selectedEmail, /* limit */ 1000);
     }
 
     private async Task ExecuteSearchAsync(Func<Task<IList<SendGridEvent>>> searchFunc)

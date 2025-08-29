@@ -11,6 +11,8 @@ using SendgridParquetViewer.Options;
 
 namespace SendgridParquetViewer.Services;
 
+public record struct YearMonthDayOptional(int? Year, int? Month, int? Day);
+
 public class DuckDbService
 {
     private readonly S3Options _s3Options;
@@ -59,19 +61,19 @@ public class DuckDbService
         }
     }
 
-    private string GetS3Path(int? year = null, int? month = null, int? day = null)
+    private string GetS3Path(YearMonthDayOptional ymd)
     {
         var basePath = $"s3://{_s3Options.BucketName}/{SendGridWebHookFields.ParquetSchemaVersion}";
 
-        if (year.HasValue)
+        if (ymd.Year.HasValue)
         {
-            basePath += $"/{year:D4}";
-            if (month.HasValue)
+            basePath += $"/{ymd.Year:D4}";
+            if (ymd.Month.HasValue)
             {
-                basePath += $"/{month:D2}";
-                if (day.HasValue)
+                basePath += $"/{ymd.Month:D2}";
+                if (ymd.Day.HasValue)
                 {
-                    basePath += $"/{day:D2}";
+                    basePath += $"/{ymd.Day:D2}";
                 }
                 else
                 {
@@ -92,73 +94,34 @@ public class DuckDbService
         return basePath;
     }
 
-    public async Task<IList<SendGridEvent>> GetEventsByDateAsync(int year, int month, int day)
+    public async Task<IList<SendGridEvent>> GetEventsByDateAsync(YearMonthDayOptional ymd, string? email, int? limit)
     {
         try
         {
             using var connection = CreateConnection();
-            var s3Path = GetS3Path(year, month, day);
+            var s3Path = GetS3Path(ymd);
 
+            // 現時点では 日付が path として表現されているため WHERE 句での絞り込みは email のみ
+            var emailFilter = !string.IsNullOrWhiteSpace(email)
+                ? $"WHERE email LIKE '{email.Replace("'", "''") /* シングルクオートを除去して safe にする */}'"
+                : string.Empty;
+
+            var limitClause = limit.HasValue ? $"LIMIT {limit.Value}" : string.Empty;
+
+            // 複数のParquetを読んだ後に timestamp で ORDER BY をかけている
             var sql = $@"
                 SELECT {SendGridEvent.SelectColumns}
                 FROM parquet_scan('{s3Path}')
-                ORDER BY timestamp DESC";
-
-            var events = await connection.QueryAsync<SendGridEvent>(sql);
-            return events.ToList();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error querying events by date: {Year}-{Month:D2}-{Day:D2}", year, month, day);
-            throw;
-        }
-    }
-
-    public async Task<IList<SendGridEvent>> GetEventsByMonthAsync(int year, int month, int limit = 1000)
-    {
-        try
-        {
-            using var connection = CreateConnection();
-            var s3Path = GetS3Path(year, month);
-
-            var sql = $@"
-                SELECT {SendGridEvent.SelectColumns}
-                FROM parquet_scan('{s3Path}')
+                {emailFilter}
                 ORDER BY timestamp DESC
-                LIMIT {limit}";
+                {limitClause}";
 
             var events = await connection.QueryAsync<SendGridEvent>(sql);
             return events.ToList();
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error querying events by month: {Year}-{Month:D2}", year, month);
-            throw;
-        }
-    }
-
-    public async Task<IList<SendGridEvent>> GetEventsByEmailAndMonthAsync(string email, int year, int month)
-    {
-        // DuckDBでは @param 記法は関数と解釈されるため、Dapperのパラメータバインディングは使えません。
-        // email値をSQLに直接埋め込む（シングルクォートでエスケープ）
-        var safeEmail = email.Replace("'", "''");
-        try
-        {
-            using var connection = CreateConnection();
-            var s3Path = GetS3Path(year, month);
-
-            var sql = $@"
-                SELECT {SendGridEvent.SelectColumns}
-                FROM parquet_scan('{s3Path}')
-                WHERE email LIKE '{safeEmail}'
-                ORDER BY timestamp DESC";
-
-            var events = await connection.QueryAsync<SendGridEvent>(sql);
-            return events.ToList();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error querying events by email and month: {Email}, {Year}-{Month:D2}", email, year, month);
+            _logger.LogError(ex, "Error querying events by date: {Year}-{Month:D2}-{Day:D2}", ymd.Year, ymd.Month, ymd.Day);
             throw;
         }
     }
