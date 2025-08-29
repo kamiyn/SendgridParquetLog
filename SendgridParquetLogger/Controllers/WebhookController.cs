@@ -1,10 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
-
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.AspNetCore.Mvc;
 
 using SendgridParquet.Shared;
 
@@ -36,7 +30,7 @@ public class WebhookController : ControllerBase
     {
         try
         {
-            if (events == null || !events.Any())
+            if (!events.Any())
             {
                 _logger.LogWarning("Received empty or null events");
                 return BadRequest("No events received");
@@ -45,7 +39,7 @@ public class WebhookController : ControllerBase
             _logger.LogInformation($"Received {events.Count} events from SendGrid");
 
             var parquetData = await _parquetService.ConvertToParquetAsync(events);
-            if (parquetData == null || parquetData.Length == 0)
+            if (parquetData.Length == 0)
             {
                 _logger.LogError("Failed to convert events to Parquet format");
                 return StatusCode(500, "Failed to convert data to Parquet");

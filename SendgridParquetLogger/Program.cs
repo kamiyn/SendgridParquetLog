@@ -1,8 +1,4 @@
-﻿#if UseSwagger
-using Microsoft.AspNetCore.OpenApi;
-#endif
-
-using SendgridParquetLogger.Options;
+﻿using SendgridParquetLogger.Options;
 using SendgridParquetLogger.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -10,8 +6,11 @@ var builder = WebApplication.CreateBuilder(args);
 // Add Aspire service defaults
 builder.AddServiceDefaults();
 
-// Configure options (Aspire will provide environment variables)
-builder.Services.Configure<S3Options>(builder.Configuration.GetSection(S3Options.SectionName));
+// Configure options
+builder.Services.AddOptions<S3Options>()
+    .Bind(builder.Configuration.GetSection(S3Options.SectionName))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {

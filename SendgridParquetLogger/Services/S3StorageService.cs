@@ -1,13 +1,7 @@
-﻿using System;
-using System.IO;
-using System.Threading.Tasks;
-
-using Amazon;
-using Amazon.Runtime;
+﻿using Amazon.Runtime;
 using Amazon.S3;
 using Amazon.S3.Model;
 
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 using SendgridParquetLogger.Options;
