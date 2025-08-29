@@ -1,9 +1,9 @@
-namespace SendgridParquetLogger.Options;
+﻿namespace SendgridParquetLogger.Options;
 
 public class S3Options
 {
     public const string SectionName = "S3";
-    
+
     public string AccessKey { get; set; } = string.Empty;
     public string SecretKey { get; set; } = string.Empty;
     public string ServiceUrl { get; set; } = string.Empty;

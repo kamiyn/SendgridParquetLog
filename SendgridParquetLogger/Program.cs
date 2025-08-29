@@ -1,4 +1,5 @@
-using Microsoft.AspNetCore.OpenApi;
+﻿using Microsoft.AspNetCore.OpenApi;
+
 using SendgridParquetLogger.Options;
 using SendgridParquetLogger.Services;
 

@@ -1,12 +1,15 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Threading.Tasks;
+
 using Amazon;
 using Amazon.Runtime;
 using Amazon.S3;
 using Amazon.S3.Model;
+
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+
 using SendgridParquetLogger.Options;
 
 namespace SendgridParquetLogger.Services;
@@ -21,7 +24,7 @@ public class S3StorageService
     {
         _logger = logger;
         _options = options.Value;
-        
+
         var serviceUrl = _options.ServiceUrl;
         if (string.IsNullOrEmpty(serviceUrl))
         {
@@ -44,7 +47,7 @@ public class S3StorageService
         try
         {
             using var stream = new MemoryStream(fileContent);
-            
+
             var request = new PutObjectRequest
             {
                 BucketName = _options.BucketName,
@@ -54,7 +57,7 @@ public class S3StorageService
             };
 
             var response = await _s3Client.PutObjectAsync(request);
-            
+
             _logger.LogInformation($"File {fileName} uploaded successfully to S3. ETag: {response.ETag}");
             return true;
         }
