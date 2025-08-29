@@ -201,6 +201,14 @@ LIMIT 100;
 ```bash
 # .NET Aspire Workloadのインストール
 dotnet workload install aspire
+
+# WSL ターミナル
+dotnet dev-certs https --clean          # 古いものが残っていたら削除
+# 新規に作成し C:/temp に証明書を保存する
+DOTNET_CLI_HOME=$HOME dotnet dev-certs https -ep /mnt/c/Temp/aspnetcore.pfx -p "MySecretPassword123!"
+dotnet dev-certs https --trust
+
+echo IMPORT IN WINDOWS C:/Temp/aspnetcore.pfx
 ```
 
 #### Aspire環境の起動

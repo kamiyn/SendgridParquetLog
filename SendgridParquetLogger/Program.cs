@@ -19,8 +19,9 @@ builder.Services.AddControllers()
 
 #if UseSwagger
 // Learn more about configuring OpenAPI at https://aka.ms/aspnetcore/openapi
+//builder.Services.AddEndpointsApiExplorer(); // dotnet 8.0 以前用
+//builder.Services.AddSwaggerGen(); // dotnet 8.0 以前用
 builder.Services.AddOpenApi();
-builder.Services.AddSwaggerGen();
 #endif
 
 // Register services
@@ -29,13 +30,14 @@ builder.Services.AddSingleton<S3StorageService>();
 
 var app = builder.Build();
 
-if (!app.Environment.IsDevelopment())
+// if (!app.Environment.IsDevelopment())
 {
     var s3Service = app.Services.GetRequiredService<S3StorageService>();
     await s3Service.CreateBucketIfNotExistsAsync();
 }
 #if UseSwagger
 {
+    //app.UseSwagger(); // dotnet 8.0 以前用
     app.MapOpenApi();
     app.UseSwaggerUI(options =>
     {

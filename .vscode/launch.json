@@ -1,0 +1,47 @@
+{
+    // IntelliSense を使用して利用可能な属性を学べます。
+    // 既存の属性の説明をホバーして表示します。
+    // 詳細情報は次を確認してください: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": ".NET Core Launch (SendgridParquetLogger)",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build",
+            "program": "${workspaceFolder}/SendgridParquetLogger/bin/Debug/net10.0/SendgridParquetLogger.dll",
+            "args": [],
+            "cwd": "${workspaceFolder}/SendgridParquetLogger",
+            "stopAtEntry": false,
+            "console": "internalConsole",
+            "cwd": "${workspaceFolder}/SendgridParquetLogger",
+            "env": {
+                "ASPNETCORE_ENVIRONMENT": "Development"
+            },
+            "logging": {
+                "moduleLoad": false
+            }
+        },
+        {
+            "name": "Aspire .NET Core Launch (SendgridParquetLog.AppHost)",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build",
+            "program": "dotnet",
+            "args": [
+                "run",
+                "--project",
+                "SendgridParquetLog.AppHost"
+            ],
+            "cwd": "${workspaceFolder}",
+            "stopAtEntry": false,
+            "console": "integratedTerminal",
+            "env": {
+                "ASPNETCORE_ENVIRONMENT": "Development"
+            },
+            "logging": {
+                "moduleLoad": false
+            }
+        }
+    ]
+}
