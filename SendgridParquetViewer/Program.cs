@@ -6,8 +6,11 @@ using SendgridParquetViewer.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Configure S3 options
-builder.Services.Configure<S3Options>(builder.Configuration.GetSection(S3Options.SectionName));
+// Configure S3 options with validation
+builder.Services.AddOptions<S3Options>()
+    .Bind(builder.Configuration.GetSection(S3Options.SectionName))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
 
 // Add services to the container.
 builder.Services.AddRazorComponents()

@@ -22,33 +22,39 @@ public class DuckDbService
 
     private DuckDBConnection CreateConnection()
     {
-        var connection = new DuckDBConnection();
-        connection.Open();
-
-        // Install and load httpfs extension for S3 support
-        using (var cmd = connection.CreateCommand())
+        try
         {
-            cmd.CommandText = "INSTALL httpfs; LOAD httpfs;";
-            cmd.ExecuteNonQuery();
-        }
+            // https://duckdb.net/docs/connection-string.html#in-memory-database
+            var connection = new DuckDBConnection("DataSource = :memory:");
+            connection.Open();
+            // Install and load httpfs extension for S3 support
+            using (var cmd = connection.CreateCommand())
+            {
+                cmd.CommandText = "INSTALL httpfs; LOAD httpfs;";
+                cmd.ExecuteNonQuery();
+            }
+            using (var cmd = connection.CreateCommand())
+            {
+                var serviceUri = new Uri(_s3Options.ServiceUrl);
+                cmd.CommandText = $@"
+                    CREATE SECRET s3_secret (
+                        TYPE S3,
+                        KEY_ID '{_s3Options.AccessKey}',
+                        SECRET '{_s3Options.SecretKey}',
+                        ENDPOINT '{serviceUri.Host}:{serviceUri.Port}',
+                        USE_SSL {(serviceUri.Scheme == "https").ToString().ToLower()},
+                        URL_STYLE 'path'
+                    );";
+                cmd.ExecuteNonQuery();
+            }
 
-        // Create S3 secret
-        using (var cmd = connection.CreateCommand())
+            return connection;
+        }
+        catch (Exception ex)
         {
-            var serviceUri = new Uri(_s3Options.ServiceUrl);
-            cmd.CommandText = $@"
-                CREATE SECRET s3_secret (
-                    TYPE S3,
-                    KEY_ID '{_s3Options.AccessKey}',
-                    SECRET '{_s3Options.SecretKey}',
-                    ENDPOINT '{serviceUri.Host}:{serviceUri.Port}',
-                    USE_SSL {(serviceUri.Scheme == "https").ToString().ToLower()},
-                    URL_STYLE 'path'
-                );";
-            cmd.ExecuteNonQuery();
+            _logger.LogError(ex, "Failed to create DuckDB connection");
+            throw;
         }
-
-        return connection;
     }
 
     private string GetS3Path(int? year = null, int? month = null, int? day = null)
