@@ -11,12 +11,38 @@
 
 <div style="padding: 20px; background-color: #f8f9fa; border-radius: 8px; margin-bottom: 20px;">
     <h3>検索条件</h3>
-    <FluentStack Orientation="Orientation.Horizontal" Wrap="true" Style="gap: 15px;">
-        <FluentTextField @bind-Value="selectedEmail" @oninput="OnInputChange" Label="メールアドレス（オプション）" Style="width: 250px;" Placeholder="example@domain.com" />
-        <FluentNumberField @bind-Value="selectedYear" @oninput="OnInputChange" Label="年（オプション）" Style="width: 120px;" Placeholder="2025" />
-        <FluentNumberField @bind-Value="selectedMonth" @oninput="OnInputChange" Label="月（オプション）" Style="width: 120px;" Placeholder="8" />
-        <FluentNumberField @bind-Value="selectedDay" @oninput="OnInputChange" Label="日（オプション）" Style="width: 120px;" Placeholder="29" />
-        <FluentButton Appearance="Appearance.Accent" OnClick="SearchAsync" Style="margin-top: 20px;">検索</FluentButton>
+    
+    <!-- Search Form with Flow Layout -->
+    <FluentStack Orientation="Orientation.Horizontal" Wrap="true" Style="gap: 20px; align-items: flex-start;">
+        
+        <!-- Email Address Field -->
+        <div style="min-width: 250px;">
+            <FluentTextField @bind-Value="selectedEmail" @oninput="OnInputChange" Label="メールアドレス（オプション）" Style="width: 100%;" Placeholder="example@domain.com" />
+        </div>
+        
+        <!-- Date Selection Mode -->
+        <div style="min-width: 250px;">
+            <FluentLabel>日付の扱い</FluentLabel>
+            <FluentRadioGroup @bind-Value="dateSelectionMode" @onchange="OnDateSelectionModeChange" Style="margin-top: 5px;">
+                <FluentRadio Value="@DateSelectionMode.YearMonth">年月のみ使用（日付は無視）</FluentRadio>
+                <FluentRadio Value="@DateSelectionMode.YearMonthDay">年月日すべて使用</FluentRadio>
+            </FluentRadioGroup>
+        </div>
+        
+        <!-- Date Picker - Always Visible -->
+        <div style="min-width: 200px;">
+            <FluentDatePicker @bind-Value="selectedDate" @oninput="OnInputChange" Label="日付選択" Style="width: 100%;" />
+            @if (dateSelectionMode == DateSelectionMode.YearMonth)
+            {
+                <small style="color: #666; margin-top: 5px; display: block;">※ 日付部分は検索で無視されます</small>
+            }
+        </div>
+        
+        <!-- Search Button -->
+        <div style="margin-top: 25px;">
+            <FluentButton Appearance="Appearance.Accent" OnClick="SearchAsync">検索</FluentButton>
+        </div>
+        
     </FluentStack>
 </div>
 
@@ -62,16 +88,22 @@ else if (hasSearched)
 }
 
 @code {
+    // Enum for date selection mode
+    public enum DateSelectionMode
+    {
+        YearMonth,
+        YearMonthDay
+    }
+    
     private IList<SendGridEvent> sendGridEvents = [];
     private bool isLoading = false;
     private bool hasSearched = false;
     private string errorMessage = "";
     
-    // Search parameters - nullable to allow optional input
-    private int? selectedYear = null;
-    private int? selectedMonth = null;
-    private int? selectedDay = null;
+    // Search parameters
     private string selectedEmail = "";
+    private DateSelectionMode dateSelectionMode = DateSelectionMode.YearMonth;
+    private DateTime? selectedDate = DateTime.Now;
     
     private PaginationState pagination = new PaginationState { ItemsPerPage = 50 };
 
@@ -80,6 +112,12 @@ else if (hasSearched)
         // Reset search state when any input changes
         hasSearched = false;
         errorMessage = "";
+    }
+    
+    private void OnDateSelectionModeChange()
+    {
+        // Reset search state when date selection mode changes
+        OnInputChange();
     }
 
     private async Task SearchAsync()
@@ -99,20 +137,25 @@ else if (hasSearched)
     private Func<Task<IList<SendGridEvent>>> DetermineSearchMethod()
     {
         bool hasEmail = !string.IsNullOrWhiteSpace(selectedEmail);
-        bool hasYear = selectedYear.HasValue;
-        bool hasMonth = selectedMonth.HasValue;
-        bool hasDay = selectedDay.HasValue;
+        bool hasDate = selectedDate.HasValue;
 
-        return (hasEmail, hasYear, hasMonth, hasDay) switch
+        return (hasEmail, hasDate, dateSelectionMode) switch
         {
-            // Email + Year + Month search
-            (true, true, true, _) => async () => await DuckDbService.GetEventsByEmailAndMonthAsync(selectedEmail!, selectedYear!.Value, selectedMonth!.Value),
+            // Email + Date search (Year-Month mode - ignore day)
+            (true, true, DateSelectionMode.YearMonth) => async () => await DuckDbService.GetEventsByEmailAndMonthAsync(
+                selectedEmail!, selectedDate!.Value.Year, selectedDate!.Value.Month),
             
-            // Specific date search (Year + Month + Day)
-            (false, true, true, true) => async () => await DuckDbService.GetEventsByDateAsync(selectedYear!.Value, selectedMonth!.Value, selectedDay!.Value),
+            // Email + Date search (Year-Month-Day mode - use full date for month search)
+            (true, true, DateSelectionMode.YearMonthDay) => async () => await DuckDbService.GetEventsByEmailAndMonthAsync(
+                selectedEmail!, selectedDate!.Value.Year, selectedDate!.Value.Month),
             
-            // Month search (Year + Month only)
-            (false, true, true, false) => async () => await DuckDbService.GetEventsByMonthAsync(selectedYear!.Value, selectedMonth!.Value, 1000),
+            // Date search only (Year-Month-Day mode - use full date)
+            (false, true, DateSelectionMode.YearMonthDay) => async () => await DuckDbService.GetEventsByDateAsync(
+                selectedDate!.Value.Year, selectedDate!.Value.Month, selectedDate!.Value.Day),
+            
+            // Date search only (Year-Month mode - ignore day)
+            (false, true, DateSelectionMode.YearMonth) => async () => await DuckDbService.GetEventsByMonthAsync(
+                selectedDate!.Value.Year, selectedDate!.Value.Month, 1000),
             
             // No valid search criteria
             _ => HandleInvalidSearchCriteria()
@@ -121,7 +164,7 @@ else if (hasSearched)
 
     private Func<Task<IList<SendGridEvent>>> HandleInvalidSearchCriteria()
     {
-        errorMessage = "検索条件を指定してください: 年+月、年+月+日、またはメールアドレス+年+月";
+        errorMessage = "検索条件を指定してください: 日付を選択し、必要に応じてメールアドレスを入力してください";
         return () => Task.FromResult<IList<SendGridEvent>>([]);
     }
 
