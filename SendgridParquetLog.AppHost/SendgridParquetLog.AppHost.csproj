@@ -17,11 +17,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\SendgridParquetLogger\SendgridParquetLogger.csproj" />
+    <ProjectReference Include="../SendgridParquetLogger/SendgridParquetLogger.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\SendgridParquetViewer\SendgridParquetViewer.csproj" />
+    <ProjectReference Include="../SendgridParquetViewer/SendgridParquetViewer.csproj" />
   </ItemGroup>
 
 </Project>
