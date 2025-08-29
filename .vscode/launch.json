@@ -14,7 +14,6 @@
             "cwd": "${workspaceFolder}/SendgridParquetLogger",
             "stopAtEntry": false,
             "console": "internalConsole",
-            "cwd": "${workspaceFolder}/SendgridParquetLogger",
             "env": {
                 "ASPNETCORE_ENVIRONMENT": "Development"
             },
@@ -23,22 +22,53 @@
             }
         },
         {
-            "name": "Aspire .NET Core Launch (SendgridParquetLog.AppHost)",
+            "name": ".NET Aspire Launch (http)",
             "type": "coreclr",
             "request": "launch",
             "preLaunchTask": "build",
-            "program": "dotnet",
-            "args": [
-                "run",
-                "--project",
-                "SendgridParquetLog.AppHost"
-            ],
-            "cwd": "${workspaceFolder}",
+            "program": "${workspaceFolder}/SendgridParquetLog.AppHost/bin/Debug/net10.0/SendgridParquetLog.AppHost.dll",
+            "args": [],
+            "cwd": "${workspaceFolder}/SendgridParquetLog.AppHost",
             "stopAtEntry": false,
-            "console": "integratedTerminal",
-            "env": {
-                "ASPNETCORE_ENVIRONMENT": "Development"
+            "serverReadyAction": {
+                "action": "openExternally",
+                "pattern": "\\bNow listening on:\\s+(https?://\\S+)",
+                "uriFormat": "%s"
             },
+            "env": {
+                "ASPNETCORE_ENVIRONMENT": "Development",
+                "DOTNET_ENVIRONMENT": "Development",
+                "DOTNET_DASHBOARD_OTLP_ENDPOINT_URL": "http://localhost:19197",
+                "DOTNET_RESOURCE_SERVICE_ENDPOINT_URL": "http://localhost:20187",
+                "ASPNETCORE_URLS": "http://localhost:15163"
+            },
+            "console": "integratedTerminal",
+            "logging": {
+                "moduleLoad": false
+            }
+        },
+        {
+            "name": ".NET Aspire Launch (https)",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build",
+            "program": "${workspaceFolder}/SendgridParquetLog.AppHost/bin/Debug/net10.0/SendgridParquetLog.AppHost.dll",
+            "args": [],
+            "cwd": "${workspaceFolder}/SendgridParquetLog.AppHost",
+            "stopAtEntry": false,
+            "serverReadyAction": {
+                "action": "openExternally",
+                "pattern": "\\bNow listening on:\\s+(https?://\\S+)",
+                "uriFormat": "%s"
+            },
+            "env": {
+                "ASPNETCORE_ENVIRONMENT": "Development",
+                "DOTNET_ENVIRONMENT": "Development",
+                "DOTNET_DASHBOARD_OTLP_ENDPOINT_URL": "https://localhost:21134",
+                "DOTNET_RESOURCE_SERVICE_ENDPOINT_URL": "https://localhost:22021",
+                "ASPNETCORE_URLS": "https://localhost:17071;http://localhost:15163"
+            },
+            "console": "integratedTerminal",
             "logging": {
                 "moduleLoad": false
             }
