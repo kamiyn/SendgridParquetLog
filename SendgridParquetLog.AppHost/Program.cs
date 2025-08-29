@@ -25,4 +25,12 @@ builder.AddProject<Projects.SendgridParquetLogger>("sendgridparquetlogger")
     .WithEnvironment("S3__BucketName", "sendgrid-events")
     ;
 
+builder.AddProject<Projects.SendgridParquetViewer>("sendgridparquetviewer")
+    .WithReference(redis)
+    .WithEnvironment("S3__ServiceUrl", () => $"http://localhost:{minio.GetEndpoint("api").Port}")
+    .WithEnvironment("S3__AccessKey", MINIO_ROOT_USER)
+    .WithEnvironment("S3__SecretKey", MINIO_ROOT_PASSWORD)
+    .WithEnvironment("S3__BucketName", "sendgrid-events")
+    ;
+
 builder.Build().Run();

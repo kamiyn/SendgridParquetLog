@@ -90,7 +90,7 @@
             },
             "env": {
                 "ASPNETCORE_ENVIRONMENT": "Development",
-                "ASPNETCORE_URLS": "http://localhost:5007",
+                "ASPNETCORE_URLS": "http://localhost:5002",
                 "S3__ServiceUrl": "http://localhost:9000",
                 "S3__AccessKey": "minioadmin",
                 "S3__SecretKey": "minioadmin",
@@ -117,7 +117,7 @@
             },
             "env": {
                 "ASPNETCORE_ENVIRONMENT": "Development",
-                "ASPNETCORE_URLS": "https://localhost:7100",
+                "ASPNETCORE_URLS": "http://localhost:5002;https://localhost:5003",
                 "S3__ServiceUrl": "http://localhost:9000",
                 "S3__AccessKey": "minioadmin",
                 "S3__SecretKey": "minioadmin",
