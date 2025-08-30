@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # SendGrid Webhook Logger Service
   sendgrid-logger:
