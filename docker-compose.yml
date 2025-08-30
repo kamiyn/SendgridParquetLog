@@ -1,19 +1,95 @@
 version: '3.8'
 
 services:
+  # SendGrid Webhook Logger Service
   sendgrid-logger:
     build:
-      context: ./SendgridParquetLogger
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: SendgridParquetLogger/Dockerfile
       platforms:
         - linux/amd64
     platform: linux/amd64
+    container_name: sendgrid-parquet-logger
     ports:
       - "8080:8080"
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
-      - S3__AccessKey=${S3__AccessKey}
-      - S3__SecretKey=${S3__SecretKey}
-      - S3__ServiceUrl=${S3__ServiceUrl}
-      - S3__BucketName=${S3__BucketName}
+      - S3__AccessKey=${S3__AccessKey:-minioadmin}
+      - S3__SecretKey=${S3__SecretKey:-minioadmin}
+      - S3__ServiceUrl=${S3__ServiceUrl:-http://minio:9000}
+      - S3__BucketName=${S3__BucketName:-sendgrid-events}
+    depends_on:
+      - minio
     restart: unless-stopped
+    networks:
+      - sendgrid-network
+
+  # SendGrid Parquet Viewer Service  
+  sendgrid-viewer:
+    build:
+      context: .
+      dockerfile: SendgridParquetViewer/Dockerfile
+      platforms:
+        - linux/amd64
+    platform: linux/amd64
+    container_name: sendgrid-parquet-viewer
+    ports:
+      - "5000:5000"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - S3__AccessKey=${S3__AccessKey:-minioadmin}
+      - S3__SecretKey=${S3__SecretKey:-minioadmin}
+      - S3__ServiceUrl=${S3__ServiceUrl:-http://minio:9000}
+      - S3__BucketName=${S3__BucketName:-sendgrid-events}
+    depends_on:
+      - minio
+      - sendgrid-logger
+    restart: unless-stopped
+    networks:
+      - sendgrid-network
+
+  # MinIO for S3-compatible storage
+  minio:
+    image: minio/minio:latest
+    platform: linux/amd64
+    container_name: sendgrid-minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio-data:/data
+    restart: unless-stopped
+    networks:
+      - sendgrid-network
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Redis for caching (optional)
+  redis:
+    image: redis:alpine
+    platform: linux/amd64
+    container_name: sendgrid-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+    networks:
+      - sendgrid-network
+
+volumes:
+  minio-data:
+    driver: local
+  redis-data:
+    driver: local
+
+networks:
+  sendgrid-network:
+    driver: bridge
