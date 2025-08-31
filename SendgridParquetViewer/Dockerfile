@@ -13,21 +13,22 @@ RUN dotnet restore SendgridParquetViewer/SendgridParquetViewer.csproj
 COPY SendgridParquetViewer/ SendgridParquetViewer/
 COPY SendgridParquet.Shared/ SendgridParquet.Shared/
 
-# Build and publish as self-contained for linux-x64
+# Build and publish as self-contained for linux-musl-x64 (Alpine)
 WORKDIR /src/SendgridParquetViewer
-RUN dotnet publish -c Release -r linux-x64 --self-contained true -p:PublishSingleFile=true -o /app/publish
+RUN dotnet publish -c Release -r linux-musl-x64 --self-contained true -p:PublishSingleFile=true -o /app/publish
 
-# Runtime stage - Using Ubuntu for compatibility with glibc
-FROM ubuntu:24.04
+# Runtime stage - Using Alpine for minimal size
+FROM alpine:3.20
 WORKDIR /app
 
-# Install required dependencies
-RUN apt-get update && apt-get install -y \
+# Install required dependencies for .NET runtime and DuckDB on Alpine
+RUN apk add --no-cache \
+    libstdc++ \
+    libgcc \
+    icu-libs \
     ca-certificates \
     curl \
-    libicu74 \
-    libssl3 \
-    && rm -rf /var/lib/apt/lists/*
+    openssl
 
 # Copy published application
 COPY --from=build /app/publish .
