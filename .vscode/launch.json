@@ -91,10 +91,10 @@
             "env": {
                 "ASPNETCORE_ENVIRONMENT": "Development",
                 "ASPNETCORE_URLS": "http://localhost:5002",
-                "S3__ServiceUrl": "http://localhost:9000",
-                "S3__AccessKey": "minioadmin",
-                "S3__SecretKey": "minioadmin",
-                "S3__BucketName": "sendgrid-events"
+                "S3__SERVICEURL": "http://localhost:9000",
+                "S3__ACCESSKEY": "minioadmin",
+                "S3__SECRETKEY": "minioadmin",
+                "S3__BUCKETNAME": "sendgrid-events"
             },
             "console": "integratedTerminal",
             "logging": {
@@ -118,10 +118,10 @@
             "env": {
                 "ASPNETCORE_ENVIRONMENT": "Development",
                 "ASPNETCORE_URLS": "http://localhost:5002;https://localhost:5003",
-                "S3__ServiceUrl": "http://localhost:9000",
-                "S3__AccessKey": "minioadmin",
-                "S3__SecretKey": "minioadmin",
-                "S3__BucketName": "sendgrid-events"
+                "S3__SERVICEURL": "http://localhost:9000",
+                "S3__ACCESSKEY": "minioadmin",
+                "S3__SECRETKEY": "minioadmin",
+                "S3__BUCKETNAME": "sendgrid-events"
             },
             "console": "integratedTerminal",
             "logging": {

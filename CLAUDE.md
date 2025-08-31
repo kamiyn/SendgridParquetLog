@@ -70,7 +70,7 @@ docker-compose logs -f
 ## Configuration
 
 The application uses ASP.NET Core Options pattern with S3Options bound from configuration:
-- Environment variables: `S3__AccessKey`, `S3__SecretKey`, `S3__ServiceUrl`, `S3__BucketName`
+- Environment variables: `S3__ACCESSKEY`, `S3__SECRETKEY`, `S3__SERVICEURL`, `S3__BUCKETNAME`
 - Configuration section: `S3` in appsettings.json
 
 In Aspire environment, these are automatically configured to use local MinIO instance.

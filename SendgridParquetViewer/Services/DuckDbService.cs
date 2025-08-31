@@ -39,12 +39,12 @@ public class DuckDbService
             }
             using (var cmd = connection.CreateCommand())
             {
-                var serviceUri = new Uri(_s3Options.ServiceUrl);
+                var serviceUri = new Uri(_s3Options.SERVICEURL);
                 cmd.CommandText = $@"
                     CREATE SECRET s3_secret (
                         TYPE S3,
-                        KEY_ID '{_s3Options.AccessKey}',
-                        SECRET '{_s3Options.SecretKey}',
+                        KEY_ID '{_s3Options.ACCESSKEY}',
+                        SECRET '{_s3Options.SECRETKEY}',
                         ENDPOINT '{serviceUri.Host}:{serviceUri.Port}',
                         USE_SSL {(serviceUri.Scheme == "https").ToString().ToLower()},
                         URL_STYLE 'path'
@@ -63,7 +63,7 @@ public class DuckDbService
 
     private string GetS3Path(YearMonthDayOptional ymd)
     {
-        var basePath = $"s3://{_s3Options.BucketName}/{SendGridWebHookFields.ParquetSchemaVersion}";
+        var basePath = $"s3://{_s3Options.BUCKETNAME}/{SendGridWebHookFields.ParquetSchemaVersion}";
 
         if (ymd.Year.HasValue)
         {

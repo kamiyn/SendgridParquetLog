@@ -52,10 +52,10 @@ fi
 : "${DEPLOY_VERSION:?Environment variable DEPLOY_VERSION is required}"
 
 # Required S3 configuration environment variables
-: "${S3__ServiceUrl:?Environment variable S3__ServiceUrl is required}"
-: "${S3__AccessKey:?Environment variable S3__AccessKey is required}"
-: "${S3__SecretKey:?Environment variable S3__SecretKey is required}"
-S3__BucketName=${S3__BucketName:-"sendgrid-events"}
+: "${S3__SERVICEURL:?Environment variable S3__SERVICEURL is required}"
+: "${S3__ACCESSKEY:?Environment variable S3__ACCESSKEY is required}"
+: "${S3__SECRETKEY:?Environment variable S3__SECRETKEY is required}"
+S3__BUCKETNAME=${S3__BUCKETNAME:-"sendgrid-events"}
 
 # Optional environment variables with defaults
 # APPRUN_PORT=${APPRUN_PORT:-8080} # 引数で渡される
@@ -221,20 +221,20 @@ DEPLOYMENT_PAYLOAD=$(cat <<EOF
           "value": "Production"
         },
         {
-          "key": "S3__ServiceUrl",
-          "value": "${S3__ServiceUrl}"
+          "key": "S3__SERVICEURL",
+          "value": "${S3__SERVICEURL}"
         },
         {
-          "key": "S3__AccessKey",
-          "value": "${S3__AccessKey}"
+          "key": "S3__ACCESSKEY",
+          "value": "${S3__ACCESSKEY}"
         },
         {
-          "key": "S3__SecretKey",
-          "value": "${S3__SecretKey}"
+          "key": "S3__SECRETKEY",
+          "value": "${S3__SECRETKEY}"
         },
         {
-          "key": "S3__BucketName",
-          "value": "${S3__BucketName}"
+          "key": "S3__BUCKETNAME",
+          "value": "${S3__BUCKETNAME}"
         }
       ]
     }

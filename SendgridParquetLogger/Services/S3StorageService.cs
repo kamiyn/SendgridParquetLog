@@ -21,11 +21,11 @@ public class S3StorageService
 
         var config = new AmazonS3Config
         {
-            ServiceURL = _options.ServiceUrl,
+            ServiceURL = _options.SERVICEURL,
             ForcePathStyle = true
         };
 
-        var credentials = new BasicAWSCredentials(_options.AccessKey, _options.SecretKey);
+        var credentials = new BasicAWSCredentials(_options.ACCESSKEY, _options.SECRETKEY);
         _s3Client = new AmazonS3Client(credentials, config);
     }
 
@@ -35,7 +35,7 @@ public class S3StorageService
         {
             var request = new PutObjectRequest
             {
-                BucketName = _options.BucketName,
+                BucketName = _options.BUCKETNAME,
                 Key = fileName,
                 InputStream = stream,
                 ContentType = "application/octet-stream"
@@ -58,7 +58,7 @@ public class S3StorageService
         {
             await _s3Client.ListObjectsV2Async(new ListObjectsV2Request
             {
-                BucketName = _options.BucketName,
+                BucketName = _options.BUCKETNAME,
                 MaxKeys = 1
             });
             return true;
@@ -77,13 +77,13 @@ public class S3StorageService
             {
                 await _s3Client.PutBucketAsync(new PutBucketRequest
                 {
-                    BucketName = _options.BucketName
+                    BucketName = _options.BUCKETNAME
                 });
-                _logger.LogInformation($"Bucket {_options.BucketName} created successfully");
+                _logger.LogInformation($"Bucket {_options.BUCKETNAME} created successfully");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Error creating bucket {_options.BucketName}");
+                _logger.LogError(ex, $"Error creating bucket {_options.BUCKETNAME}");
                 throw;
             }
         }

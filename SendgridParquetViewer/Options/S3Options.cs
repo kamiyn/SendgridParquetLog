@@ -6,16 +6,16 @@ public class S3Options
 {
     public const string SectionName = "S3";
 
-    [Required(ErrorMessage = "S3 ServiceUrl is required")]
-    [Url(ErrorMessage = "S3 ServiceUrl must be a valid URL")]
-    public string ServiceUrl { get; set; } = string.Empty;
+    [Required(ErrorMessage = "S3 SERVICEURL is required")]
+    [Url(ErrorMessage = "S3 SERVICEURL must be a valid URL")]
+    public string SERVICEURL { get; set; } = string.Empty;
 
-    [Required(ErrorMessage = "S3 AccessKey is required")]
-    public string AccessKey { get; set; } = string.Empty;
+    [Required(ErrorMessage = "S3 ACCESSKEY is required")]
+    public string ACCESSKEY { get; set; } = string.Empty;
 
-    [Required(ErrorMessage = "S3 SecretKey is required")]
-    public string SecretKey { get; set; } = string.Empty;
+    [Required(ErrorMessage = "S3 SECRETKEY is required")]
+    public string SECRETKEY { get; set; } = string.Empty;
 
-    [Required(ErrorMessage = "S3 BucketName is required")]
-    public string BucketName { get; set; } = string.Empty;
+    [Required(ErrorMessage = "S3 BUCKETNAME is required")]
+    public string BUCKETNAME { get; set; } = string.Empty;
 }

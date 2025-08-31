@@ -23,20 +23,20 @@ ASP.NET Core のOptions パターンを使用して設定を管理します。
 
 | 環境変数名 | 説明 | 例 |
 |----------|------|-----|
-| S3__AccessKey | S3アクセスキー | your-access-key |
-| S3__SecretKey | S3シークレットキー | your-secret-key |
-| S3__ServiceUrl | S3エンドポイントURL | https://s3.amazonaws.com |
-| S3__BucketName | バケット名 | sendgrid-events |
+| S3__ACCESSKEY | S3アクセスキー | your-access-key |
+| S3__SECRETKEY | S3シークレットキー | your-secret-key |
+| S3__SERVICEURL | S3エンドポイントURL | https://s3.amazonaws.com |
+| S3__BUCKETNAME | バケット名 | sendgrid-events |
 
 ### appsettings.json での設定
 
 ```json
 {
   "S3": {
-    "AccessKey": "your-access-key",
-    "SecretKey": "your-secret-key", 
-    "ServiceUrl": "https://your-s3-endpoint.com",
-    "BucketName": "sendgrid-events"
+    "ACCESSKEY": "your-access-key",
+    "SECRETKEY": "your-secret-key", 
+    "SERVICEURL": "https://your-s3-endpoint.com",
+    "BUCKETNAME": "sendgrid-events"
   }
 }
 ```
@@ -234,10 +234,10 @@ dotnet run --project SendgridParquetLog.AppHost
 
 Aspire環境では以下の環境変数が自動的に設定されます:
 
-- `S3__ServiceUrl`: MinIOのエンドポイント
-- `S3__AccessKey`: minioadmin
-- `S3__SecretKey`: minioadmin
-- `S3__BucketName`: sendgrid-events
+- `S3__SERVICEURL`: MinIOのエンドポイント
+- `S3__ACCESSKEY`: minioadmin
+- `S3__SECRETKEY`: minioadmin
+- `S3__BUCKETNAME`: sendgrid-events
 
 #### テスト実行 (Aspire環境)
 
@@ -303,9 +303,9 @@ S3設定に関する Repository Variables も設定してください:
 
 | 変数名 | 説明 | 例 |
 |--------|------|-----|
-| S3__ServiceUrl | S3互換ストレージのエンドポイントURL | https://s3.amazonaws.com |
-| S3__AccessKey | S3互換ストレージのアクセスキー | your-access-key |
-| S3__BucketName | データを保存するS3バケット名 | sendgrid-events |
+| S3__SERVICEURL | S3互換ストレージのエンドポイントURL | https://s3.amazonaws.com |
+| S3__ACCESSKEY | S3互換ストレージのアクセスキー | your-access-key |
+| S3__BUCKETNAME | データを保存するS3バケット名 | sendgrid-events |
 
 #### 3. Repository Secrets の設定
 
@@ -315,7 +315,7 @@ GitHub リポジトリの Settings > Secrets and variables > Actions > Secrets �
 |---------------|------|
 | CONTAINER_REGISTRY_PASSWORD | レジストリのパスワード |
 | SAKURACLOUD_ACCESS_TOKEN_SECRET | さくらのクラウドAPIシークレット |
-| S3__SecretKey | S3互換ストレージのシークレットキー |
+| S3__SECRETKEY | S3互換ストレージのシークレットキー |
 
 ### 設定手順
 
@@ -330,9 +330,9 @@ GitHub リポジトリの Settings > Secrets and variables > Actions > Secrets �
      - `CONTAINER_REGISTRY_URL`: コンテナレジストリのURL
      - `CONTAINER_REGISTRY_USERNAME`: レジストリのユーザー名
      - `SAKURACLOUD_ACCESS_TOKEN`: さくらのクラウドAPIトークン
-     - `S3__ServiceUrl`: S3互換ストレージのエンドポイントURL
-     - `S3__AccessKey`: S3互換ストレージのアクセスキー
-     - `S3__BucketName`: データを保存するS3バケット名
+     - `S3__SERVICEURL`: S3互換ストレージのエンドポイントURL
+     - `S3__ACCESSKEY`: S3互換ストレージのアクセスキー
+     - `S3__BUCKETNAME`: データを保存するS3バケット名
 
 3. **Secrets の設定**
    - 「Secrets」タブを選択
@@ -340,7 +340,7 @@ GitHub リポジトリの Settings > Secrets and variables > Actions > Secrets �
    - 各シークレットを追加:
      - `CONTAINER_REGISTRY_PASSWORD`: レジストリのパスワード
      - `SAKURACLOUD_ACCESS_TOKEN_SECRET`: さくらのクラウドAPIシークレット
-     - `S3__SecretKey`: S3互換ストレージのシークレットキー
+     - `S3__SECRETKEY`: S3互換ストレージのシークレットキー
 
 ### ワークフローのトリガー
 
