@@ -48,7 +48,7 @@ jobs:
           APP_NAME="sendgridparquetlog-sendgrid-logger"
           APPRUN_PORT=8080
           
-          echo "Deploying version: ${GITHUB_RUN_NUMBER}"
+          echo "Deploying version: run_number${GITHUB_RUN_NUMBER}"
           
           # Make script executable
           chmod +x ./Deploy/SakuraCloud.sh
@@ -57,4 +57,4 @@ jobs:
           bash ./Deploy/SakuraCloud.sh \
             "${APP_NAME}" \
             "${APPRUN_PORT}" \
-            "${GITHUB_RUN_NUMBER}"
+            "run_number${GITHUB_RUN_NUMBER}"
