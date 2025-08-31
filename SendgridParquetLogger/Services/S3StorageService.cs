@@ -3,9 +3,10 @@ using System.Security.Cryptography;
 using System.Text;
 
 using Microsoft.Extensions.Options;
-using ZLogger;
 
 using SendgridParquetLogger.Options;
+
+using ZLogger;
 
 namespace SendgridParquetLogger.Services;
 

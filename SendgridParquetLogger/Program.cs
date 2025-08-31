@@ -1,6 +1,12 @@
 ﻿using SendgridParquetLogger.Options;
 using SendgridParquetLogger.Services;
+
 using ZLogger;
+
+foreach (string env in new[] { "S3__SERVICEURL", "S3__REGION", "S3__BUCKETNAME" })
+{
+    Console.WriteLine($"EnvironmentVariable: {env}: {Environment.GetEnvironmentVariable(env)}");
+}
 
 var builder = WebApplication.CreateBuilder(args);
 
