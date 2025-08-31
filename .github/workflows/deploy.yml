@@ -63,7 +63,7 @@ jobs:
           APP_NAME: "sendgridparquetlog-sendgrid-logger"
           APPRUN_PORT: "8080"
           APPRUN_TIMEOUT: "180"
-          APPRUN_MAX_SCALE: "3"
+          APPRUN_MAX_SCALE: "2"
           APPRUN_MAX_CPU: "0.5"
           APPRUN_MAX_MEMORY: "521Mi" # 256Mi/512Mi/1Gi/2Gi dotnet 10 の実行は 256Mi だと失敗する
         run: |

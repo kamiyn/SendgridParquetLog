@@ -6,6 +6,11 @@ services:
       dockerfile: SendgridParquetLogger/Dockerfile
     platform: linux/amd64
     container_name: sendgrid-parquet-logger
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 256M
     ports:
       - "8080:8080"
     environment:
