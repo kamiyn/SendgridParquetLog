@@ -57,6 +57,7 @@ public class S3StorageService(
     private async Task<bool> BucketExistsAsync(DateTimeOffset now, CancellationToken ct)
     {
         string uriString = $"{_options.SERVICEURL}/{_options.BUCKETNAME}/?max-keys=1";
+        logger.ZLogInformation($"Bucket {uriString} checking");
         S3SignatureSource s3SignatureSource = new(now, _options.REGION);
         try
         {
@@ -80,6 +81,7 @@ public class S3StorageService(
         if (!await BucketExistsAsync(now, ct))
         {
             string uriString = $"{_options.SERVICEURL}/{_options.BUCKETNAME}";
+            logger.ZLogInformation($"Bucket {uriString} creating");
             S3SignatureSource s3SignatureSource = new(now, _options.REGION);
             try
             {
