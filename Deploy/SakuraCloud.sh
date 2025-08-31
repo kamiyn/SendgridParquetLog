@@ -53,6 +53,7 @@ fi
 
 # Required S3 configuration environment variables
 : "${S3__SERVICEURL:?Environment variable S3__SERVICEURL is required}"
+: "${S3__REGION:?Environment variable S3__REGION is required}"
 : "${S3__ACCESSKEY:?Environment variable S3__ACCESSKEY is required}"
 : "${S3__SECRETKEY:?Environment variable S3__SECRETKEY is required}"
 S3__BUCKETNAME=${S3__BUCKETNAME:-"sendgrid-events"}
@@ -223,6 +224,10 @@ DEPLOYMENT_PAYLOAD=$(cat <<EOF
         {
           "key": "S3__SERVICEURL",
           "value": "${S3__SERVICEURL}"
+        },
+        {
+          "key": "S3__REGION",
+          "value": "${S3__REGION}"
         },
         {
           "key": "S3__ACCESSKEY",

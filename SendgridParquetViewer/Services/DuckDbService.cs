@@ -46,6 +46,7 @@ public class DuckDbService
                         KEY_ID '{_s3Options.ACCESSKEY}',
                         SECRET '{_s3Options.SECRETKEY}',
                         ENDPOINT '{serviceUri.Host}:{serviceUri.Port}',
+                        REGION '{_s3Options.REGION}',
                         USE_SSL {(serviceUri.Scheme == "https").ToString().ToLower()},
                         URL_STYLE 'path'
                     );";

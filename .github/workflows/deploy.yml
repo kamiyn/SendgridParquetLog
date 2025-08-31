@@ -40,6 +40,7 @@ jobs:
           CONTAINER_REGISTRY_USERNAME: ${{ vars.CONTAINER_REGISTRY_USERNAME }}
           CONTAINER_REGISTRY_PASSWORD: ${{ secrets.CONTAINER_REGISTRY_PASSWORD }}
           S3__SERVICEURL: ${{ vars.S3__SERVICEURL }}
+          S3__REGION: ${{ vars.S3__REGION }}
           S3__ACCESSKEY: ${{ vars.S3__ACCESSKEY }}
           S3__SECRETKEY: ${{ secrets.S3__SECRETKEY }}
           S3__BUCKETNAME: ${{ vars.S3__BUCKETNAME }}

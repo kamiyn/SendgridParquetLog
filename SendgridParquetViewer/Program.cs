@@ -12,6 +12,8 @@ builder.Services.AddOptions<S3Options>()
     .ValidateDataAnnotations()
     .ValidateOnStart();
 
+builder.Services.AddSingleton(TimeProvider.System);
+
 // Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
