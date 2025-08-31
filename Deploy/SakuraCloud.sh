@@ -198,10 +198,6 @@ DEPLOYMENT_PAYLOAD=$(cat <<EOF
       },
       "env": [
         {
-          "key": "ASPNETCORE_ENVIRONMENT",
-          "value": "Production"
-        },
-        {
           "key": "S3__SERVICEURL",
           "value": "${S3__SERVICEURL}"
         },
