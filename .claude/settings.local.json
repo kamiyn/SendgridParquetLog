@@ -1,7 +1,6 @@
 {
   "permissions": {
     "allow": [
-      "Bash(docker-compose:*)",
       "Bash(wsl docker pull:*)",
       "Bash(wsl docker compose:*)",
       "Bash(wsl docker:*)"
