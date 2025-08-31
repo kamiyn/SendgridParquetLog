@@ -188,10 +188,10 @@ DEPLOYMENT_PAYLOAD=$(cat <<EOF
   "max_scale": ${APPRUN_MAX_SCALE},
   "components": [
     {
-      "name": "main-component",
+      "name": "Component01",
       "max_cpu": "${APPRUN_MAX_CPU}",
       "max_memory": "${APPRUN_MAX_MEMORY}",
-          "deploy_source": {
+      "deploy_source": {
         "container_registry": {
           "image": "${DOCKER_FULL_IMAGE_URL}"
         }
