@@ -63,6 +63,8 @@ cd SendgridParquetLog
 
 ```bash
 sudo apt-get install docker-compose-plugin
+＃ Docker コマンドを sudo なしで実行できるようにする場合
+sudo usermod -aG docker $USER
 ```
 
 ```bash
