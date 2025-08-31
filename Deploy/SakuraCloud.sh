@@ -51,6 +51,12 @@ fi
 : "${CONTAINER_REGISTRY_URL:?Environment variable CONTAINER_REGISTRY_URL is required}"
 : "${DEPLOY_VERSION:?Environment variable DEPLOY_VERSION is required}"
 
+# Required S3 configuration environment variables
+: "${S3__ServiceUrl:?Environment variable S3__ServiceUrl is required}"
+: "${S3__AccessKey:?Environment variable S3__AccessKey is required}"
+: "${S3__SecretKey:?Environment variable S3__SecretKey is required}"
+S3__BucketName=${S3__BucketName:-"sendgrid-events"}
+
 # Optional environment variables with defaults
 # APPRUN_PORT=${APPRUN_PORT:-8080} # 引数で渡される
 APPRUN_TIMEOUT=${APPRUN_TIMEOUT:-60}
@@ -211,8 +217,24 @@ DEPLOYMENT_PAYLOAD=$(cat <<EOF
       },
       "env": [
         {
-          "key": "NODE_ENV",
-          "value": "${NODE_ENV:-production}"
+          "key": "ASPNETCORE_ENVIRONMENT",
+          "value": "Production"
+        },
+        {
+          "key": "S3__ServiceUrl",
+          "value": "${S3__ServiceUrl}"
+        },
+        {
+          "key": "S3__AccessKey",
+          "value": "${S3__AccessKey}"
+        },
+        {
+          "key": "S3__SecretKey",
+          "value": "${S3__SecretKey}"
+        },
+        {
+          "key": "S3__BucketName",
+          "value": "${S3__BucketName}"
         }
       ]
     }

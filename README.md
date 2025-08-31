@@ -297,7 +297,17 @@ GitHub リポジトリの Settings > Secrets and variables > Actions > Variables
 | CONTAINER_REGISTRY_USERNAME | レジストリのユーザー名 | your-username |
 | SAKURACLOUD_ACCESS_TOKEN | さくらのクラウドAPIトークン | your-access-token |
 
-#### 2. Repository Secrets の設定
+#### 2. Repository Variables の追加設定
+
+S3設定に関する Repository Variables も設定してください:
+
+| 変数名 | 説明 | 例 |
+|--------|------|-----|
+| S3__ServiceUrl | S3互換ストレージのエンドポイントURL | https://s3.amazonaws.com |
+| S3__AccessKey | S3互換ストレージのアクセスキー | your-access-key |
+| S3__BucketName | データを保存するS3バケット名 | sendgrid-events |
+
+#### 3. Repository Secrets の設定
 
 GitHub リポジトリの Settings > Secrets and variables > Actions > Secrets タブで以下のシークレットを設定:
 
@@ -305,6 +315,7 @@ GitHub リポジトリの Settings > Secrets and variables > Actions > Secrets �
 |---------------|------|
 | CONTAINER_REGISTRY_PASSWORD | レジストリのパスワード |
 | SAKURACLOUD_ACCESS_TOKEN_SECRET | さくらのクラウドAPIシークレット |
+| S3__SecretKey | S3互換ストレージのシークレットキー |
 
 ### 設定手順
 
@@ -316,19 +327,20 @@ GitHub リポジトリの Settings > Secrets and variables > Actions > Secrets �
    - 「Variables」タブを選択
    - 「New repository variable」ボタンをクリック
    - 各変数を追加:
-     - Name: `CONTAINER_REGISTRY_URL`
-     - Value: コンテナレジストリのURL（例: `registry.example.com`）
-     - 「Add variable」をクリック
-   - 同様に `CONTAINER_REGISTRY_USERNAME` と `SAKURACLOUD_ACCESS_TOKEN` を追加
+     - `CONTAINER_REGISTRY_URL`: コンテナレジストリのURL
+     - `CONTAINER_REGISTRY_USERNAME`: レジストリのユーザー名
+     - `SAKURACLOUD_ACCESS_TOKEN`: さくらのクラウドAPIトークン
+     - `S3__ServiceUrl`: S3互換ストレージのエンドポイントURL
+     - `S3__AccessKey`: S3互換ストレージのアクセスキー
+     - `S3__BucketName`: データを保存するS3バケット名
 
 3. **Secrets の設定**
    - 「Secrets」タブを選択
    - 「New repository secret」ボタンをクリック
    - 各シークレットを追加:
-     - Name: `CONTAINER_REGISTRY_PASSWORD`
-     - Secret: パスワードを入力
-     - 「Add secret」をクリック
-   - 同様に `SAKURACLOUD_ACCESS_TOKEN_SECRET` を追加
+     - `CONTAINER_REGISTRY_PASSWORD`: レジストリのパスワード
+     - `SAKURACLOUD_ACCESS_TOKEN_SECRET`: さくらのクラウドAPIシークレット
+     - `S3__SecretKey`: S3互換ストレージのシークレットキー
 
 ### ワークフローのトリガー
 

@@ -39,6 +39,10 @@ jobs:
           CONTAINER_REGISTRY_URL: ${{ vars.CONTAINER_REGISTRY_URL }}
           CONTAINER_REGISTRY_USERNAME: ${{ vars.CONTAINER_REGISTRY_USERNAME }}
           CONTAINER_REGISTRY_PASSWORD: ${{ secrets.CONTAINER_REGISTRY_PASSWORD }}
+          S3__ServiceUrl: ${{ vars.S3__ServiceUrl }}
+          S3__AccessKey: ${{ vars.S3__AccessKey }}
+          S3__SecretKey: ${{ secrets.S3__SecretKey }}
+          S3__BucketName: ${{ vars.S3__BucketName }}
         run: |
           # Application name (must match docker compose service name)
           APP_NAME="sendgridparquetlog-sendgrid-logger"
