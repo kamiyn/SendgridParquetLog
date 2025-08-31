@@ -66,23 +66,23 @@ services:
       retries: 5
 
   # Redis for caching (optional)
-  redis:
-    image: redis:alpine
-    platform: linux/amd64
-    container_name: sendgrid-redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis-data:/data
-    restart: unless-stopped
-    networks:
-      - sendgrid-network
+  # redis:
+  #   image: redis:alpine
+  #   platform: linux/amd64
+  #   container_name: sendgrid-redis
+  #   ports:
+  #     - "6379:6379"
+  #   volumes:
+  #     - redis-data:/data
+  #   restart: unless-stopped
+  #   networks:
+  #     - sendgrid-network
 
 volumes:
   minio-data:
     driver: local
-  redis-data:
-    driver: local
+  # redis-data:
+  #   driver: local
 
 networks:
   sendgrid-network:

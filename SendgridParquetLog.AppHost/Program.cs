@@ -4,7 +4,7 @@ var MINIO_ROOT_USER = "minioadmin";
 var MINIO_ROOT_PASSWORD = "minioadmin";
 
 // Add Redis for caching and session management
-var redis = builder.AddRedis("cache");
+// var redis = builder.AddRedis("cache");
 
 // Add MinIO for S3-compatible storage
 var minio = builder.AddContainer("s3storage", "minio/minio")
@@ -18,7 +18,7 @@ var minio = builder.AddContainer("s3storage", "minio/minio")
 
 // Add the SendGrid Parquet Logger API
 builder.AddProject<Projects.SendgridParquetLogger>("sendgridparquetlogger")
-    .WithReference(redis)
+    // .WithReference(redis)
     .WithEnvironment("S3__ServiceUrl", () => $"http://localhost:{minio.GetEndpoint("api").Port}")
     .WithEnvironment("S3__AccessKey", MINIO_ROOT_USER)
     .WithEnvironment("S3__SecretKey", MINIO_ROOT_PASSWORD)
@@ -26,7 +26,7 @@ builder.AddProject<Projects.SendgridParquetLogger>("sendgridparquetlogger")
     ;
 
 builder.AddProject<Projects.SendgridParquetViewer>("sendgridparquetviewer")
-    .WithReference(redis)
+    // .WithReference(redis)
     .WithEnvironment("S3__ServiceUrl", () => $"http://localhost:{minio.GetEndpoint("api").Port}")
     .WithEnvironment("S3__AccessKey", MINIO_ROOT_USER)
     .WithEnvironment("S3__SecretKey", MINIO_ROOT_PASSWORD)
