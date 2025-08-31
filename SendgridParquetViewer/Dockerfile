@@ -2,51 +2,38 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0-preview AS build
 WORKDIR /src
 
-# Copy project files
+# Copy csproj files and restore to leverage Docker layer cache
 COPY SendgridParquetViewer/SendgridParquetViewer.csproj SendgridParquetViewer/
 COPY SendgridParquet.Shared/SendgridParquet.Shared.csproj SendgridParquet.Shared/
 
-# Restore dependencies
-RUN dotnet restore SendgridParquetViewer/SendgridParquetViewer.csproj
+RUN dotnet restore "SendgridParquetViewer/SendgridParquetViewer.csproj"
 
-# Copy source code
+# Copy the rest of the source
 COPY SendgridParquetViewer/ SendgridParquetViewer/
 COPY SendgridParquet.Shared/ SendgridParquet.Shared/
 
-# Build and publish as self-contained for linux-musl-x64 (Alpine)
+# Publish for linux-x64 so native assets (libduckdb.so) are included
 WORKDIR /src/SendgridParquetViewer
-RUN dotnet publish -c Release -r linux-musl-x64 --self-contained true -p:PublishSingleFile=true -o /app/publish
+RUN dotnet publish "SendgridParquetViewer.csproj" \
+    -c Release -r linux-x64 --self-contained false -o /app/publish /p:PublishTrimmed=false
 
-# Runtime stage - Using Alpine for minimal size
-FROM alpine:3.20
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-preview AS runtime
 WORKDIR /app
 
-# Install required dependencies for .NET runtime and DuckDB on Alpine
-RUN apk add --no-cache \
-    libstdc++ \
-    libgcc \
-    icu-libs \
-    ca-certificates \
-    curl \
-    openssl
-
-# Copy published application
+# Copy published output
 COPY --from=build /app/publish .
 
-# Make the app executable
-RUN chmod +x ./SendgridParquetViewer
+# Ensure native libraries from publish are discoverable
+ENV LD_LIBRARY_PATH=/app
 
-# Set environment variables
+# Environment
 ENV ASPNETCORE_URLS=http://+:5000
 ENV ASPNETCORE_ENVIRONMENT=Production
-ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false
 
-# Expose port
+# Expose port and add a simple healthcheck
 EXPOSE 5000
 
-# Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:5000/ || exit 1
 
-# Run the application
-ENTRYPOINT ["/app/SendgridParquetViewer"]
+ENTRYPOINT ["dotnet", "SendgridParquetViewer.dll"]
