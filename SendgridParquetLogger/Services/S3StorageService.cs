@@ -56,10 +56,11 @@ public class S3StorageService(
 
     private async Task<bool> BucketExistsAsync(DateTimeOffset now, CancellationToken ct)
     {
+        string uriString = $"{_options.SERVICEURL}/{_options.BUCKETNAME}/?max-keys=1";
         S3SignatureSource s3SignatureSource = new(now, _options.REGION);
         try
         {
-            var uri = new Uri($"{_options.SERVICEURL}/{_options.BUCKETNAME}/?max-keys=1");
+            var uri = new Uri(uriString);
             using HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Get, uri);
             AddAwsSignatureHeaders(request, null, s3SignatureSource);
             using HttpResponseMessage response = await httpClient.SendAsync(request, ct);
@@ -69,7 +70,7 @@ public class S3StorageService(
         }
         catch (Exception ex)
         {
-            logger.ZLogWarning(ex, $"Error checking if bucket {_options.BUCKETNAME} exists");
+            logger.ZLogWarning(ex, $"Error checking if bucket {uriString} exists");
             return false;
         }
     }
@@ -78,27 +79,28 @@ public class S3StorageService(
     {
         if (!await BucketExistsAsync(now, ct))
         {
+            string uriString = $"{_options.SERVICEURL}/{_options.BUCKETNAME}";
             S3SignatureSource s3SignatureSource = new(now, _options.REGION);
             try
             {
-                var uri = new Uri($"{_options.SERVICEURL}/{_options.BUCKETNAME}");
+                var uri = new Uri(uriString);
                 var request = new HttpRequestMessage(HttpMethod.Put, uri);
                 AddAwsSignatureHeaders(request, null, s3SignatureSource);
                 var response = await httpClient.SendAsync(request, ct);
                 if (response.IsSuccessStatusCode)
                 {
-                    logger.ZLogInformation($"Bucket {_options.BUCKETNAME} created successfully");
+                    logger.ZLogInformation($"Bucket {uriString} created successfully");
                 }
                 else
                 {
                     var error = await response.Content.ReadAsStringAsync(ct);
-                    logger.ZLogError($"Error creating bucket {_options.BUCKETNAME}. Status: {response.StatusCode}, Response: {error}");
+                    logger.ZLogError($"Error creating bucket {uriString}. Status: {response.StatusCode}, Response: {error}");
                     throw new InvalidOperationException($"Failed to create bucket: {response.StatusCode}");
                 }
             }
             catch (Exception ex)
             {
-                logger.ZLogError(ex, $"Error creating bucket {_options.BUCKETNAME}");
+                logger.ZLogError(ex, $"Error creating bucket {uriString}");
                 throw;
             }
         }
