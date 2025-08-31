@@ -85,6 +85,112 @@ docker tag ${APPRUN_APPLICATION_NAME}:latest "${DOCKER_FULL_IMAGE_URL}"
 echo "Pushing image to registry..."
 docker push "${DOCKER_FULL_IMAGE_URL}"
 
+# ================================================================
+# Functions for AppRun API operations
+# ================================================================
+
+# Function: Check if application exists and get its ID
+# Returns: Sets APP_ID (UUID) variable if application exists
+check_application_exists() {
+  local app_name="$1"
+  
+  echo "Checking if application '${app_name}' exists..."
+  
+  # List all applications
+  local list_response=$(curl -s -w "%{http_code}" \
+    -u "${SAKURACLOUD_ACCESS_TOKEN}:${SAKURACLOUD_ACCESS_TOKEN_SECRET}" \
+    -H "Content-Type: application/json" \
+    -X GET \
+    "${API_BASE_URL}/applications")
+  
+  local http_code="${list_response: -3}"
+  local response_body="${list_response%???}"
+  
+  if [ "${http_code}" -ne 200 ]; then
+    echo "❌ Failed to list applications. HTTP code: ${http_code}"
+    echo "Response: ${response_body}"
+    return 1
+  fi
+  
+  APP_ID=""  
+  # Try to use jq if available, otherwise fall back to python
+  if command -v jq >/dev/null 2>&1; then
+    APP_ID=$(echo "${response_body}" | jq -r ".data[]? | select(.name==\"${app_name}\") | .id" 2>/dev/null || true)
+  else
+    if [ -n "${app_exists}" ]; then
+      echo "⚠️  Install jq command"
+    fi
+  fi
+  
+  # echo $response_body
+  if [ -n "${APP_ID}" ]; then
+    echo "✓ Application found with ID: ${APP_ID}"
+    return 0
+  else
+    echo "✓ Application not found"
+    return 0
+  fi
+}
+
+# Function: Create new application with POST
+create_application() {
+  local payload="$1"
+  
+  echo "Creating new application..."
+  
+  local response=$(curl -s -w "%{http_code}" \
+    -u "${SAKURACLOUD_ACCESS_TOKEN}:${SAKURACLOUD_ACCESS_TOKEN_SECRET}" \
+    -H "Content-Type: application/json" \
+    -X POST \
+    "${API_BASE_URL}/applications" \
+    -d "${payload}")
+  
+  local http_code="${response: -3}"
+  local response_body="${response%???}"
+  
+  if [ "${http_code}" -eq 200 ] || [ "${http_code}" -eq 201 ]; then
+    echo "✅ Application created successfully!"
+    echo "Response: ${response_body}"
+    return 0
+  else
+    echo "❌ Application creation failed with HTTP code: ${http_code}"
+    echo "Response: ${response_body}"
+    return 1
+  fi
+}
+
+# Function: Update existing application with PATCH
+update_application() {
+  local app_id="$1"
+  local payload="$2"
+  
+  echo "Updating existing application (ID: ${app_id})..."
+  
+  local response=$(curl -s -w "%{http_code}" \
+    -u "${SAKURACLOUD_ACCESS_TOKEN}:${SAKURACLOUD_ACCESS_TOKEN_SECRET}" \
+    -H "Content-Type: application/json" \
+    -X PATCH \
+    "${API_BASE_URL}/applications/${app_id}" \
+    -d "${payload}")
+  
+  local http_code="${response: -3}"
+  local response_body="${response%???}"
+  
+  if [ "${http_code}" -eq 200 ] || [ "${http_code}" -eq 202 ]; then
+    echo "✅ Application updated successfully!"
+    echo "Response: ${response_body}"
+    return 0
+  else
+    echo "❌ Application update failed with HTTP code: ${http_code}"
+    echo "Response: ${response_body}"
+    return 1
+  fi
+}
+
+# ================================================================
+# Main deployment logic
+# ================================================================
+
 # Create deployment payload
 DEPLOYMENT_PAYLOAD=$(cat <<EOF
 {
@@ -115,27 +221,39 @@ DEPLOYMENT_PAYLOAD=$(cat <<EOF
 EOF
 )
 
-echo ${DEPLOYMENT_PAYLOAD}
+echo "Deployment payload:"
+echo "${DEPLOYMENT_PAYLOAD}"
 
-# Deploy to AppRun
-echo "Deploying to AppRun..."
-RESPONSE=$(curl -s -w "%{http_code}" \
-  -u "${SAKURACLOUD_ACCESS_TOKEN}:${SAKURACLOUD_ACCESS_TOKEN_SECRET}" \
-  -H "Content-Type: application/json" \
-  -X POST \
-  "${API_BASE_URL}/applications" \
-  -d "${DEPLOYMENT_PAYLOAD}")
+# ================================================================
+# Main execution: Check existence and deploy
+# ================================================================
 
-HTTP_CODE="${RESPONSE: -3}"
-RESPONSE_BODY="${RESPONSE%???}"
+echo ""
+echo "=== Starting AppRun Deployment ==="
+echo ""
 
-if [ "${HTTP_CODE}" -eq 200 ] || [ "${HTTP_CODE}" -eq 201 ]; then
-  echo "✅ Deployment successful!"
-  echo "Response: ${RESPONSE_BODY}"
-else
-  echo "❌ Deployment failed with HTTP code: ${HTTP_CODE}"
-  echo "Response: ${RESPONSE_BODY}"
+# Step 1: Check if application exists
+if ! check_application_exists "${APPRUN_APPLICATION_NAME}"; then
+  echo "Failed to check application existence"
   exit 1
 fi
 
+# Step 2: Deploy based on existence
+echo ""
+if [ -z "${APP_ID}" ]; then
+  # Application doesn't exist - create new one
+  echo "→ Application does not exist. Proceeding with creation..."
+  if ! create_application "${DEPLOYMENT_PAYLOAD}"; then
+    exit 1
+  fi
+else
+  # Application exists - update it
+  echo "→ Application exists. Proceeding with update..."
+  if ! update_application "${APP_ID}" "${DEPLOYMENT_PAYLOAD}"; then
+    exit 1
+  fi
+fi
+
+echo ""
 echo "=== Deployment Complete ==="
+echo ""
