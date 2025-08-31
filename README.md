@@ -54,15 +54,24 @@ cd SendgridParquetLog
 
 ### 2. Dockerイメージのビルドと実行
 
+[Docker Compose V2](https://docs.docker.jp/compose/)
+
+[Ubuntu 用 Docker CE の入手](https://docs.docker.jp/engine/install/linux/docker-ce/ubuntu.html)
+に従って docker engine をインストール
+
+```bash
+sudo apt-get install docker-compose-plugin 
+```
+
 ```bash
 # イメージをビルド
-docker-compose build
+docker compose build
 
 # コンテナを起動
-docker-compose up -d
+docker compose up -d
 
 # ログを確認
-docker-compose logs -f
+docker compose logs -f
 ```
 
 ## SendGrid側の設定
