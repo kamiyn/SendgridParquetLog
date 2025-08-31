@@ -28,34 +28,43 @@ jobs:
           username: ${{ vars.CONTAINER_REGISTRY_USERNAME }}
           password: ${{ secrets.CONTAINER_REGISTRY_PASSWORD }}
 
-      - name: Build with docker compose
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ vars.CONTAINER_REGISTRY_URL }}/sendgridparquetlog-sendgrid-logger
+          tags: |
+            type=raw,value=run_number${{ github.run_number }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./SendgridParquetLogger/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Set Docker image URL for deployment
         run: |
-          docker compose build
+          echo "DOCKER_FULL_IMAGE_URL=${{ steps.meta.outputs.tags }}" >> $GITHUB_ENV
 
       - name: Deploy to Sakura Cloud
         env:
           SAKURACLOUD_ACCESS_TOKEN: ${{ vars.SAKURACLOUD_ACCESS_TOKEN }}
           SAKURACLOUD_ACCESS_TOKEN_SECRET: ${{ secrets.SAKURACLOUD_ACCESS_TOKEN_SECRET }}
-          CONTAINER_REGISTRY_URL: ${{ vars.CONTAINER_REGISTRY_URL }}
-          CONTAINER_REGISTRY_USERNAME: ${{ vars.CONTAINER_REGISTRY_USERNAME }}
-          CONTAINER_REGISTRY_PASSWORD: ${{ secrets.CONTAINER_REGISTRY_PASSWORD }}
           S3__SERVICEURL: ${{ vars.S3__SERVICEURL }}
           S3__REGION: ${{ vars.S3__REGION }}
           S3__ACCESSKEY: ${{ vars.S3__ACCESSKEY }}
           S3__SECRETKEY: ${{ secrets.S3__SECRETKEY }}
           S3__BUCKETNAME: ${{ vars.S3__BUCKETNAME }}
+          APP_NAME: "sendgridparquetlog-sendgrid-logger"
+          APPRUN_PORT: "8080"
         run: |
-          # Application name (must match docker compose service name)
-          APP_NAME="sendgridparquetlog-sendgrid-logger"
-          APPRUN_PORT=8080
-          
-          echo "Deploying version: run_number${GITHUB_RUN_NUMBER}"
-          
-          # Make script executable
-          chmod +x ./Deploy/SakuraCloud.sh
-          
-          # Call SakuraCloud.sh with app name, port, and version tag
+          echo "Deploying image: ${DOCKER_FULL_IMAGE_URL}"
           bash ./Deploy/SakuraCloud.sh \
             "${APP_NAME}" \
             "${APPRUN_PORT}" \
-            "run_number${GITHUB_RUN_NUMBER}"
+            "${DOCKER_FULL_IMAGE_URL}"

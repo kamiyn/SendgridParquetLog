@@ -8,37 +8,37 @@
 set -e
 
 # --- Positional arguments (from line 10) -------------------------------------------------
-# Usage: SakuraCloud.sh <app_name> [port] [tag]
+# Usage: SakuraCloud.sh <app_name> [port] [docker_image_url]
 #   $1 = APPRUN_APPLICATION_NAME (required, will be lower-cased)
 #   $2 = APPRUN_PORT (optional, default: 8080)
-#   $3 = Docker image tag / DEPLOY_VERSION (optional, default: latest)
+#   $3 = DOCKER_FULL_IMAGE_URL (required, full Docker image URL with tag)
 
 APPRUN_APPLICATION_NAME="$1"
 APPRUN_PORT_ARG="$2"
-DEPLOY_VERSION_ARG="$3"
+DOCKER_FULL_IMAGE_URL="$3"
 
 if [ -z "$APPRUN_APPLICATION_NAME" ]; then
-  echo "Usage: $0 <source_path> <app_name> [port] [tag]"
-  echo "  <app_name>      Application name for APPRUN (required, lowercase)"
-  echo "  [port]          APPRUN_PORT (optional, default: 8080)"
-  echo "  [tag]           Docker image tag (optional, default: latest)"
+  echo "Usage: $0 <app_name> [port] <docker_image_url>"
+  echo "  <app_name>          Application name for APPRUN (required, lowercase)"
+  echo "  [port]              APPRUN_PORT (optional, default: 8080)"
+  echo "  <docker_image_url>  Full Docker image URL with tag (required)"
+  exit 1
+fi
+
+if [ -z "$DOCKER_FULL_IMAGE_URL" ]; then
+  echo "Error: DOCKER_FULL_IMAGE_URL is required"
+  echo "Usage: $0 <app_name> [port] <docker_image_url>"
   exit 1
 fi
 
 # normalize application name to lowercase
 APPRUN_APPLICATION_NAME=$(echo "$APPRUN_APPLICATION_NAME" | tr '[:upper:]' '[:lower:]')
 
-# apply defaults: APPRUN_PORT defaults to existing env or 8080; DEPLOY_VERSION defaults to env or latest
+# apply defaults: APPRUN_PORT defaults to existing env or 8080
 if [ -n "$APPRUN_PORT_ARG" ]; then
   APPRUN_PORT="$APPRUN_PORT_ARG"
 else
   APPRUN_PORT=${APPRUN_PORT:-8080}
-fi
-
-if [ -n "$DEPLOY_VERSION_ARG" ]; then
-  DEPLOY_VERSION="$DEPLOY_VERSION_ARG"
-else
-  DEPLOY_VERSION=${DEPLOY_VERSION:-latest}
 fi
 
 # ----------------------------------------------------------------------------------------
@@ -47,9 +47,6 @@ fi
 # https://secure.sakura.ad.jp/cloud/?#/apikeys
 : "${SAKURACLOUD_ACCESS_TOKEN:?Environment variable SAKURACLOUD_ACCESS_TOKEN is required}"
 : "${SAKURACLOUD_ACCESS_TOKEN_SECRET:?Environment variable SAKURACLOUD_ACCESS_TOKEN_SECRET is required}"
-: "${APPRUN_APPLICATION_NAME:?Environment variable APPRUN_APPLICATION_NAME is required}"
-: "${CONTAINER_REGISTRY_URL:?Environment variable CONTAINER_REGISTRY_URL is required}"
-: "${DEPLOY_VERSION:?Environment variable DEPLOY_VERSION is required}"
 
 # Required S3 configuration environment variables
 : "${S3__SERVICEURL:?Environment variable S3__SERVICEURL is required}"
@@ -66,31 +63,14 @@ APPRUN_MAX_SCALE=${APPRUN_MAX_SCALE:-1}
 APPRUN_MAX_CPU=${APPRUN_MAX_CPU:-"0.1"}
 APPRUN_MAX_MEMORY=${APPRUN_MAX_MEMORY:-"256Mi"}
 
-# Docker registry credentials (optional)
-CONTAINER_REGISTRY_USERNAME=${CONTAINER_REGISTRY_USERNAME:-""}
-CONTAINER_REGISTRY_PASSWORD=${CONTAINER_REGISTRY_PASSWORD:-""}
-
 # AppRun API endpoint
 API_BASE_URL="https://secure.sakura.ad.jp/cloud/api/apprun/1.0/apprun/api"
-
-DOCKER_FULL_IMAGE_URL="${CONTAINER_REGISTRY_URL}/${APPRUN_APPLICATION_NAME}:${DEPLOY_VERSION}"
 
 # ================================================================
 # ここまで変数定義
 # ================================================================
 
-# Login to registry if credentials provided
-if [ -n "${CONTAINER_REGISTRY_USERNAME}" ] && [ -n "${CONTAINER_REGISTRY_PASSWORD}" ]; then
-  echo "Logging into container registry..."
-  echo "${CONTAINER_REGISTRY_PASSWORD}" | docker login "${CONTAINER_REGISTRY_URL%%/*}" -u "${CONTAINER_REGISTRY_USERNAME}" --password-stdin
-fi
-
-# Tag and push image
-echo "Tagging image as ${DOCKER_FULL_IMAGE_URL}..."
-docker tag ${APPRUN_APPLICATION_NAME}:latest "${DOCKER_FULL_IMAGE_URL}"
-
-echo "Pushing image to registry..."
-docker push "${DOCKER_FULL_IMAGE_URL}"
+echo "Using Docker image: ${DOCKER_FULL_IMAGE_URL}"
 
 # ================================================================
 # Functions for AppRun API operations
