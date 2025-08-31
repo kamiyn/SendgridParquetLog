@@ -27,7 +27,7 @@ builder.Services.AddOpenApi();
 
 // Register services
 builder.Services.AddSingleton<ParquetService>();
-builder.Services.AddSingleton<S3StorageService>();
+builder.Services.AddHttpClient<S3StorageService>();
 
 var app = builder.Build();
 
