@@ -8,11 +8,12 @@
 
   <ItemGroup>
     <PackageReference Include="Parquet.Net" Version="5.2.0" />
+    <PackageReference Include="ZLogger" Version="2.5.10" />
   </ItemGroup>
   <!-- Swagger UI はデバッグビルドのみ有効 -->
   <ItemGroup Condition="'$(Configuration)' == 'Debug'">
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.0-preview.7.25380.108" />
-    <PackageReference Include="Swashbuckle.AspNetCore.SwaggerUI" Version="8.1.1" />
+    <PackageReference Include="Swashbuckle.AspNetCore.SwaggerUI" Version="9.0.4" />
   </ItemGroup>
   <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
       <DefineConstants>UseSwagger;$(DefineConstants)</DefineConstants>

@@ -92,6 +92,7 @@
                 "ASPNETCORE_ENVIRONMENT": "Development",
                 "ASPNETCORE_URLS": "http://localhost:5002",
                 "S3__SERVICEURL": "http://localhost:9000",
+                "S3__REGION": "jp-north-1",
                 "S3__ACCESSKEY": "minioadmin",
                 "S3__SECRETKEY": "minioadmin",
                 "S3__BUCKETNAME": "sendgrid-events"
@@ -119,6 +120,7 @@
                 "ASPNETCORE_ENVIRONMENT": "Development",
                 "ASPNETCORE_URLS": "http://localhost:5002;https://localhost:5003",
                 "S3__SERVICEURL": "http://localhost:9000",
+                "S3__REGION": "jp-north-1",
                 "S3__ACCESSKEY": "minioadmin",
                 "S3__SECRETKEY": "minioadmin",
                 "S3__BUCKETNAME": "sendgrid-events"

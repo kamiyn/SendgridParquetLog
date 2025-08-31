@@ -4,6 +4,7 @@
 @using SendgridParquetViewer.Models
 @using SendgridParquetViewer.Services
 @inject DuckDbService DuckDbService
+@inject TimeProvider timeProvider
 
 <PageTitle>SendGrid Events Viewer</PageTitle>
 
@@ -103,9 +104,15 @@ else if (_hasSearched)
     // Search parameters
     private string _selectedEmail = "";
     private DateSelectionMode _dateSelectionMode = DateSelectionMode.YearMonth;
-    private DateTime? _selectedDate = DateTime.Now;
+    private DateTime? _selectedDate;
 
     private readonly PaginationState _pagination = new PaginationState { ItemsPerPage = 50 };
+
+    protected override async Task OnInitializedAsync()
+    {
+        _selectedDate = timeProvider.GetLocalNow().DateTime;
+        await base.OnInitializedAsync();
+    }
 
     private void OnInputChange()
     {

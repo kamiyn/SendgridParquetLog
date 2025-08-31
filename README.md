@@ -26,6 +26,7 @@ ASP.NET Core のOptions パターンを使用して設定を管理します。
 | S3__ACCESSKEY | S3アクセスキー | your-access-key |
 | S3__SECRETKEY | S3シークレットキー | your-secret-key |
 | S3__SERVICEURL | S3エンドポイントURL | https://s3.amazonaws.com |
+| S3__REGION | S3リージョン | us-east-1 |
 | S3__BUCKETNAME | バケット名 | sendgrid-events |
 
 ### appsettings.json での設定
@@ -34,8 +35,9 @@ ASP.NET Core のOptions パターンを使用して設定を管理します。
 {
   "S3": {
     "ACCESSKEY": "your-access-key",
-    "SECRETKEY": "your-secret-key", 
+    "SECRETKEY": "your-secret-key",
     "SERVICEURL": "https://your-s3-endpoint.com",
+    "REGION": "s3-region",
     "BUCKETNAME": "sendgrid-events"
   }
 }
@@ -60,7 +62,7 @@ cd SendgridParquetLog
 に従って docker engine をインストール
 
 ```bash
-sudo apt-get install docker-compose-plugin 
+sudo apt-get install docker-compose-plugin
 ```
 
 ```bash
@@ -164,7 +166,7 @@ SET s3_secret_access_key='your-secret-key';
 SET s3_endpoint='your-s3-endpoint.com';
 
 -- データの読み込みと分析
-SELECT 
+SELECT
     event,
     COUNT(*) as count,
     DATE_TRUNC('day', timestamp) as day
@@ -173,7 +175,7 @@ GROUP BY event, day
 ORDER BY day DESC, count DESC;
 
 -- 特定期間のイベント集計
-SELECT 
+SELECT
     email,
     event,
     timestamp
@@ -235,6 +237,7 @@ dotnet run --project SendgridParquetLog.AppHost
 Aspire環境では以下の環境変数が自動的に設定されます:
 
 - `S3__SERVICEURL`: MinIOのエンドポイント
+- `S3__REGION`: jp-north-1
 - `S3__ACCESSKEY`: minioadmin
 - `S3__SECRETKEY`: minioadmin
 - `S3__BUCKETNAME`: sendgrid-events
@@ -304,6 +307,7 @@ S3設定に関する Repository Variables も設定してください:
 | 変数名 | 説明 | 例 |
 |--------|------|-----|
 | S3__SERVICEURL | S3互換ストレージのエンドポイントURL | https://s3.amazonaws.com |
+| S3__REGION | S3リージョン | us-east-1 |
 | S3__ACCESSKEY | S3互換ストレージのアクセスキー | your-access-key |
 | S3__BUCKETNAME | データを保存するS3バケット名 | sendgrid-events |
 
@@ -331,6 +335,7 @@ GitHub リポジトリの Settings > Secrets and variables > Actions > Secrets �
      - `CONTAINER_REGISTRY_USERNAME`: レジストリのユーザー名
      - `SAKURACLOUD_ACCESS_TOKEN`: さくらのクラウドAPIトークン
      - `S3__SERVICEURL`: S3互換ストレージのエンドポイントURL
+     - `S3__REGION`: S3リージョン
      - `S3__ACCESSKEY`: S3互換ストレージのアクセスキー
      - `S3__BUCKETNAME`: データを保存するS3バケット名
 

@@ -144,22 +144,23 @@ public class ParquetService
         ];
     }
 
-    public async Task<Stream?> ConvertToParquetAsync(ICollection<SendGridEvent> events)
+    public async Task<byte[]?> ConvertToParquetAsync(ICollection<SendGridEvent> sendGridEvents)
     {
-        if (!events.Any())
+        if (!sendGridEvents.Any())
         {
             return null;
         }
-        var stream = new MemoryStream();
+        using var stream = new MemoryStream();
         // Extract fields from FieldProcessors
         Field[] fields = FieldProcessors.Select(fp => fp.Field).ToArray<Field>();
-        await using var writer = await ParquetWriter.CreateAsync(new ParquetSchema(fields), stream);
-        using var groupWriter = writer.CreateRowGroup();
-        foreach (var processor in FieldProcessors)
+        await using ParquetWriter writer = await ParquetWriter.CreateAsync(new ParquetSchema(fields), stream);
+        using ParquetRowGroupWriter groupWriter = writer.CreateRowGroup();
+        foreach (FieldProcessor processor in FieldProcessors)
         {
-            var dataColumn = processor.ProcessorFunc(events);
+            DataColumn dataColumn = processor.ProcessorFunc(sendGridEvents);
             await groupWriter.WriteColumnAsync(dataColumn);
         }
-        return stream;
+
+        return stream.ToArray();
     }
 }

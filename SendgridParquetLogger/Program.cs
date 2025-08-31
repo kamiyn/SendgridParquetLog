@@ -1,10 +1,15 @@
 ﻿using SendgridParquetLogger.Options;
 using SendgridParquetLogger.Services;
+using ZLogger;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add Aspire service defaults
 builder.AddServiceDefaults();
+
+// Configure ZLogger
+builder.Logging.ClearProviders();
+builder.Logging.AddZLoggerConsole();
 
 // Configure options
 builder.Services.AddOptions<S3Options>()
@@ -26,6 +31,7 @@ builder.Services.AddOpenApi();
 #endif
 
 // Register services
+builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<ParquetService>();
 builder.Services.AddHttpClient<S3StorageService>();
 
@@ -34,7 +40,7 @@ var app = builder.Build();
 // if (!app.Environment.IsDevelopment())
 {
     var s3Service = app.Services.GetRequiredService<S3StorageService>();
-    await s3Service.CreateBucketIfNotExistsAsync();
+    await s3Service.CreateBucketIfNotExistsAsync(TimeProvider.System.GetUtcNow(), CancellationToken.None);
 }
 #if UseSwagger
 {
