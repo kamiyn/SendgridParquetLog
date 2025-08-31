@@ -57,6 +57,7 @@ public class S3StorageService(
     private async Task<bool> BucketExistsAsync(DateTimeOffset now, CancellationToken ct)
     {
         string uriString = $"{_options.SERVICEURL}/{_options.BUCKETNAME}/?max-keys=1";
+        Console.WriteLine($"Bucket {uriString} checking");
         logger.ZLogInformation($"Bucket {uriString} checking");
         S3SignatureSource s3SignatureSource = new(now, _options.REGION);
         try
