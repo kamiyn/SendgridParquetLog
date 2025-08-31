@@ -17,19 +17,11 @@ COPY SendgridParquet.Shared/ SendgridParquet.Shared/
 
 # Build and publish as self-contained for linux-musl-x64 (Alpine)
 WORKDIR /src/SendgridParquetLogger
-RUN dotnet publish -c Release -r linux-musl-x64 --self-contained true -p:PublishSingleFile=true -o /app/publish
+RUN dotnet publish -c Release -r linux-musl-x64 --self-contained true -o /app/publish
 
 # Runtime stage - Using Alpine for minimal size
-FROM alpine:3.20
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-preview AS runtime
 WORKDIR /app
-
-# Install required dependencies for .NET runtime on Alpine
-RUN apk add --no-cache \
-    libstdc++ \
-    libgcc \
-    icu-libs \
-    ca-certificates \
-    curl
 
 # Copy published application
 COPY --from=build /app/publish .
@@ -40,14 +32,13 @@ RUN chmod +x ./SendgridParquetLogger
 # Set environment variables
 ENV ASPNETCORE_URLS=http://+:8080
 ENV ASPNETCORE_ENVIRONMENT=Production
-ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false
 
 # Expose port
 EXPOSE 8080
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:8080/webhook/health || exit 1
+# HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+#   CMD curl -f http://localhost:8080/webhook/health || exit 1
 
 # Run the application
 ENTRYPOINT ["/app/SendgridParquetLogger"]

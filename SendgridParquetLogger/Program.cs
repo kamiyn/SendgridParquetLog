@@ -48,8 +48,6 @@ var app = builder.Build();
 
 // if (!app.Environment.IsDevelopment())
 {
-    var options = app.Services.GetRequiredService<IOptions<S3Options>>();
-    Console.WriteLine($"s3: {options.Value.SERVICEURL}/{options.Value.BUCKETNAME}");
     var s3Service = app.Services.GetRequiredService<S3StorageService>();
     await s3Service.CreateBucketIfNotExistsAsync(TimeProvider.System.GetUtcNow(), CancellationToken.None);
 }
