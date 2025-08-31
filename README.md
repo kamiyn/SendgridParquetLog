@@ -52,18 +52,7 @@ git clone <repository-url>
 cd SendgridParquetLog
 ```
 
-### 2. 環境変数の設定
-
-`.env`ファイルを作成:
-
-```bash
-S3__AccessKey=your-access-key
-S3__SecretKey=your-secret-key
-S3__ServiceUrl=https://your-s3-endpoint.com
-S3__BucketName=sendgrid-events
-```
-
-### 3. Dockerイメージのビルドと実行
+### 2. Dockerイメージのビルドと実行
 
 ```bash
 # イメージをビルド
@@ -170,7 +159,7 @@ SELECT
     event,
     COUNT(*) as count,
     DATE_TRUNC('day', timestamp) as day
-FROM read_parquet('s3://sendgrid-events/sendgrid-events/2025/08/29/*.parquet')
+FROM read_parquet('s3://sendgrid-events/v1/2025/08/29/*.parquet')
 GROUP BY event, day
 ORDER BY day DESC, count DESC;
 
@@ -179,7 +168,7 @@ SELECT
     email,
     event,
     timestamp
-FROM read_parquet('s3://sendgrid-events/sendgrid-events/2025/08/29/*.parquet')
+FROM read_parquet('s3://sendgrid-events/v1/2025/08/29/*.parquet')
 WHERE timestamp >= '2025-08-29 00:00:00'
   AND timestamp < '2025-08-30 00:00:00'
 ORDER BY timestamp DESC
@@ -202,7 +191,7 @@ LIMIT 100;
 # .NET Aspire Workloadのインストール
 dotnet workload install aspire
 
-# WSL ターミナル
+# WSL で実行している場合には ホスト側Windows に証明書をインストールするために以下のように作業を行う
 dotnet dev-certs https --clean          # 古いものが残っていたら削除
 # 新規に作成し C:/temp に証明書を保存する
 DOTNET_CLI_HOME=$HOME dotnet dev-certs https -ep /mnt/c/Temp/aspnetcore.pfx -p "MySecretPassword123!"
@@ -225,7 +214,7 @@ dotnet run --project SendgridParquetLog.AppHost
 
 起動後、以下のURLでアクセスできます:
 
-- **Aspire Dashboard**: http://localhost:15000 (開発監視ダッシュボード)
+- **Aspire Dashboard**: https://localhost:17071/ (開発監視ダッシュボード)
 - **SendgridParquetLogger API**: Aspire Dashboard上で確認 (動的ポート)
 - **MinIO Console**: http://localhost:9001
   - ユーザー名: `minioadmin`
@@ -245,7 +234,8 @@ Aspire環境では以下の環境変数が自動的に設定されます:
 
 ```bash
 # Aspire Dashboard でAPIのポートを確認してからテスト実行
-curl -X POST http://localhost:{api-port}/webhook/sendgrid \
+apiport=5206
+curl -X POST http://localhost:${apiport}/webhook/sendgrid \
   -H "Content-Type: application/json" \
   -d '[{"email":"test@example.com","timestamp":1513299569,"event":"delivered"}]'
 ```

@@ -1,6 +1,13 @@
 -- DuckDB Test Script for SendGrid Parquet Files
 -- This script demonstrates how to read and analyze the Parquet files created by the application
 
+-- アプリケーション組み込み時には httpfs のインストールが必要になる可能性がある
+-- Install and load required extensions
+INSTALL httpfs;
+LOAD httpfs;
+
+SET VARIABLE base_url = "s3://sendgrid-events/v1";
+
 CREATE SECRET minio (
     TYPE S3,
     KEY_ID 'minioadmin',
@@ -11,15 +18,15 @@ CREATE SECRET minio (
   );
 
 -- Simple query
-SELECT * FROM parquet_scan("s3://sendgrid-events-dev/sendgrid-events/*/*/*/*");
-SELECT * FROM parquet_scan("s3://sendgrid-events-dev/sendgrid-events/*/*/*/*") LIMIT 5;
-SELECT * FROM parquet_scan("s3://sendgrid-events-dev/sendgrid-events/*/*/*/*") WHERE event = 'delivered';
+SELECT * FROM parquet_scan(concat(getvariable('base_url'), "/*/*/*/*"));
+SELECT * FROM parquet_scan(concat(getvariable('base_url'), "/*/*/*/*")) LIMIT 5;
+SELECT * FROM parquet_scan(concat(getvariable('base_url'), "/*/*/*/*")) WHERE event = 'delivered';
 
 -- GROUP BY
 SELECT 
     event,
     COUNT(*) as event_count
-FROM parquet_scan("s3://sendgrid-events-dev/sendgrid-events/*/*/*/*")
+FROM parquet_scan(concat(getvariable('base_url'), "/*/*/*/*"))
 GROUP BY event
 ORDER BY event_count DESC;
 
@@ -27,7 +34,7 @@ SELECT
     DATE_TRUNC('hour', timestamp) as hour,
     event,
     COUNT(*) as count
-FROM parquet_scan("s3://sendgrid-events-dev/sendgrid-events/*/*/*/*")
+FROM parquet_scan(concat(getvariable('base_url'), "/*/*/*/*"))
 GROUP BY hour, event
 ORDER BY hour, event;
 
@@ -37,7 +44,7 @@ SELECT
     reason,
     response,
     timestamp
-FROM parquet_scan("s3://sendgrid-events-dev/sendgrid-events/*/*/*/*")
+FROM parquet_scan(concat(getvariable('base_url'), "/*/*/*/*"))
 WHERE event = 'bounce'
 ORDER BY timestamp DESC;
 
@@ -46,14 +53,29 @@ SELECT
     marketing_campaign_name,
     event,
     COUNT(*) as count
-FROM parquet_scan("s3://sendgrid-events-dev/sendgrid-events/*/*/*/*")
+FROM parquet_scan(concat(getvariable('base_url'), "/*/*/*/*"))
 WHERE marketing_campaign_name IS NOT NULL
 GROUP BY marketing_campaign_name, event;
 
--- アプリケーション組み込み時には httpfs のインストールが必要になる可能性がある
--- Install and load required extensions
-INSTALL httpfs;
-LOAD httpfs;
+-- データの読み込みと分析
+SELECT 
+    event,
+    COUNT(*) as count,
+    DATE_TRUNC('day', timestamp) as day
+FROM read_parquet(concat(getvariable('base_url'), "/2025/08/31/*.parquet"))
+GROUP BY event, day
+ORDER BY day DESC, count DESC;
+
+-- 特定期間のイベント集計
+SELECT 
+    email,
+    event,
+    timestamp
+FROM read_parquet(concat(getvariable('base_url'), "/2025/08/31/*.parquet"))
+WHERE timestamp >= '2025-08-31 11:00:00'
+ AND  timestamp <  '2025-08-31 13:00:00'
+ORDER BY timestamp DESC
+LIMIT 100;
 
 -- 以下テーブル定義
 -- CREATE TABLE test_sendgrid_events (
