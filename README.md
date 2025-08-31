@@ -281,6 +281,81 @@ curl -X POST http://localhost:5000/webhook/sendgrid \
 ### メモリ使用量が高い
 - 大量のイベントを一度に処理する場合、バッチサイズを調整
 
+## GitHub Actions による自動デプロイ
+
+このプロジェクトは GitHub Actions を使用して自動的にビルドとデプロイを行います。
+
+### 必要な設定
+
+#### 1. Repository Variables の設定
+
+GitHub リポジトリの Settings > Secrets and variables > Actions > Variables タブで以下の変数を設定:
+
+| 変数名 | 説明 | 例 |
+|--------|------|-----|
+| CONTAINER_REGISTRY_URL | コンテナレジストリのURL | registry.example.com |
+| CONTAINER_REGISTRY_USERNAME | レジストリのユーザー名 | your-username |
+| SAKURACLOUD_ACCESS_TOKEN | さくらのクラウドAPIトークン | your-access-token |
+
+#### 2. Repository Secrets の設定
+
+GitHub リポジトリの Settings > Secrets and variables > Actions > Secrets タブで以下のシークレットを設定:
+
+| シークレット名 | 説明 |
+|---------------|------|
+| CONTAINER_REGISTRY_PASSWORD | レジストリのパスワード |
+| SAKURACLOUD_ACCESS_TOKEN_SECRET | さくらのクラウドAPIシークレット |
+
+### 設定手順
+
+1. **GitHub リポジトリの設定画面を開く**
+   - リポジトリのページで「Settings」タブをクリック
+
+2. **Variables の設定**
+   - 左サイドバーの「Secrets and variables」→「Actions」をクリック
+   - 「Variables」タブを選択
+   - 「New repository variable」ボタンをクリック
+   - 各変数を追加:
+     - Name: `CONTAINER_REGISTRY_URL`
+     - Value: コンテナレジストリのURL（例: `registry.example.com`）
+     - 「Add variable」をクリック
+   - 同様に `CONTAINER_REGISTRY_USERNAME` と `SAKURACLOUD_ACCESS_TOKEN` を追加
+
+3. **Secrets の設定**
+   - 「Secrets」タブを選択
+   - 「New repository secret」ボタンをクリック
+   - 各シークレットを追加:
+     - Name: `CONTAINER_REGISTRY_PASSWORD`
+     - Secret: パスワードを入力
+     - 「Add secret」をクリック
+   - 同様に `SAKURACLOUD_ACCESS_TOKEN_SECRET` を追加
+
+### ワークフローのトリガー
+
+GitHub Actions ワークフローは以下の条件でトリガーされます:
+
+- `main` ブランチへのプッシュ時
+- 手動実行（Actions タブから「Run workflow」ボタンをクリック）
+
+### ワークフローの動作
+
+1. リポジトリのコードをチェックアウト
+2. Docker Buildx をセットアップ
+3. コンテナレジストリにログイン
+4. `docker compose build` でイメージをビルド
+5. ビルドしたイメージをレジストリにプッシュ
+6. `02deploy.sh` スクリプトを実行してさくらのクラウドにデプロイ
+
+### デプロイの確認
+
+GitHub Actions の実行状況は以下で確認できます:
+
+1. リポジトリの「Actions」タブをクリック
+2. 実行中または完了したワークフローを選択
+3. 各ステップの詳細ログを確認
+
+エラーが発生した場合は、ログを確認して必要な設定や権限を見直してください。
+
 ## ライセンス
 
 MIT
