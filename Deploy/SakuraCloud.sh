@@ -193,7 +193,10 @@ DEPLOYMENT_PAYLOAD=$(cat <<EOF
       "max_memory": "${APPRUN_MAX_MEMORY}",
       "deploy_source": {
         "container_registry": {
-          "image": "${DOCKER_FULL_IMAGE_URL}"
+          "image": "${DOCKER_FULL_IMAGE_URL}",
+          "server":"${CONTAINER_REGISTRY_URL}",
+          "username": "${CONTAINER_REGISTRY_USERNAME}",
+          "password": "${CONTAINER_REGISTRY_PASSWORD}"
         }
       },
       "env": [
