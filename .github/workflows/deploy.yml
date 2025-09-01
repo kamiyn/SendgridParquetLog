@@ -14,6 +14,10 @@ jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
 
+    env:
+      APP_NAME_SENDGRID_LOGGER: sendgridparquetlog-sendgrid-logger
+      APP_NAME_SENDGRID_VIEWER: sendgridparquetlog-sendgrid-viewer
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -28,11 +32,12 @@ jobs:
           username: ${{ vars.CONTAINER_REGISTRY_USERNAME }}
           password: ${{ secrets.CONTAINER_REGISTRY_PASSWORD }}
 
+      # ここから SendgridParquetLogger
       - name: Extract metadata for Docker
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ vars.CONTAINER_REGISTRY_URL }}/sendgridparquetlog-sendgrid-logger
+          images: ${{ vars.CONTAINER_REGISTRY_URL }}/${{ env.APP_NAME_SENDGRID_LOGGER }}
           tags: |
             type=raw,value=run_number${{ github.run_number }}
 
@@ -63,7 +68,7 @@ jobs:
           S3__ACCESSKEY: ${{ vars.S3__ACCESSKEY }}
           S3__SECRETKEY: ${{ secrets.S3__SECRETKEY }}
           S3__BUCKETNAME: ${{ vars.S3__BUCKETNAME }}
-          APP_NAME: "sendgridparquetlog-sendgrid-logger"
+          APP_NAME: ${{ env.APP_NAME_SENDGRID_LOGGER }}
           APPRUN_PORT: "8080"
           APPRUN_TIMEOUT: "180"
           APPRUN_MAX_SCALE: "10"
@@ -75,3 +80,5 @@ jobs:
             "${APP_NAME}" \
             "${APPRUN_PORT}" \
             "${DOCKER_FULL_IMAGE_URL}"
+
+      # ここから SendgridParquetViewer
