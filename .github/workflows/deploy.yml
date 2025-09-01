@@ -63,9 +63,9 @@ jobs:
           APP_NAME: "sendgridparquetlog-sendgrid-logger"
           APPRUN_PORT: "8080"
           APPRUN_TIMEOUT: "180"
-          APPRUN_MAX_SCALE: "2"
-          APPRUN_MAX_CPU: "0.5"
-          APPRUN_MAX_MEMORY: "512Mi" # 256Mi/512Mi/1Gi/2Gi dotnet 10 の実行は 256Mi だと失敗する
+          APPRUN_MAX_SCALE: "1"
+          APPRUN_MAX_CPU: "1"
+          APPRUN_MAX_MEMORY: "1Gi" # 256Mi/512Mi/1Gi/2Gi dotnet 10 の実行は 256Mi だと失敗する
         run: |
           echo "Deploying image: ${DOCKER_FULL_IMAGE_URL}"
           bash ./Deploy/SakuraCloud.sh \
