@@ -24,6 +24,9 @@ builder.Services.AddFluentUIComponents();
 // Add DuckDB service
 builder.Services.AddTransient<DuckDbService>();
 
+// Add health checks
+builder.Services.AddHealthChecks();
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
@@ -42,5 +45,8 @@ app.UseAntiforgery();
 app.MapStaticAssets();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
+
+// Map health check endpoint
+app.MapHealthChecks("/health6QQl");
 
 app.Run();
