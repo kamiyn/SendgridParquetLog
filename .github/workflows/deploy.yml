@@ -68,6 +68,10 @@ jobs:
           S3__ACCESSKEY: ${{ vars.S3__ACCESSKEY }}
           S3__SECRETKEY: ${{ secrets.S3__SECRETKEY }}
           S3__BUCKETNAME: ${{ vars.S3__BUCKETNAME }}
+          AzureAD__Domain: ${{ vars.AZUREAD__DOMAIN }} # GitHub 側の設定は 大文字
+          AzureAD__TenantId: ${{ vars.AZUREAD__TENANTID }}
+          AzureAD__ClientId: ${{ vars.AZUREAD__CLIENTID }}
+          AzureAD__ClientSecret: ${{ secrets.AZUREAD__CLIENTSECRET }}
           APP_NAME: ${{ env.APP_NAME_SENDGRID_LOGGER }}
           APPRUN_PORT: "8080"
           APPRUN_TIMEOUT: "180"
