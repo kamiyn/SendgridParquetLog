@@ -51,7 +51,13 @@ public class WebhookController(
             var nonOkResults = results.Where(x => x != HttpStatusCode.OK).ToArray();
             return nonOkResults.Any()
                 ? new StatusCodeResult((int)nonOkResults.First())
-                : Ok(new { message = "Events processed successfully", count = events.Count });
+                : Ok(new
+                {
+#if DEBUG
+                    message = "Events processed successfully",
+#endif
+                    count = events.Count
+                });
         }
         catch (Exception ex)
         {
