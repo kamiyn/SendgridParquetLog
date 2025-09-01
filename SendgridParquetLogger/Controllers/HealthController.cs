@@ -3,9 +3,7 @@
 namespace SendgridParquetLogger.Controllers;
 
 [ApiController]
-public class HealthController(
-    ILogger<WebhookController> logger,
-    TimeProvider timeProvider) : ControllerBase
+public class HealthController(TimeProvider timeProvider) : ControllerBase
 {
     [HttpGet("/health6QQl")]
     public IActionResult Health()

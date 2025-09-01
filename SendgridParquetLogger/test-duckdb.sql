@@ -2,12 +2,20 @@
 -- This script demonstrates how to read and analyze the Parquet files created by the application
 
 -- アプリケーション組み込み時には httpfs のインストールが必要になる可能性がある
--- Install and load required extensions
 INSTALL httpfs;
 LOAD httpfs;
 
-SET VARIABLE base_url = "s3://sendgrid-events/v1";
+SET VARIABLE base_url = "s3://sendgrid-events/v1raw";
 
+CREATE SECRET s3_secret (
+    TYPE S3,
+    PROVIDER config,
+    KEY_ID 'your-access-key',
+    SECRET 'your-secret-key',
+    ENDPOINT 'your-s3-endpoint.com',
+    REGION 'jp-north-1'
+  );
+/* 開発環境の場合
 CREATE SECRET minio (
     TYPE S3,
     KEY_ID 'minioadmin',
@@ -16,6 +24,7 @@ CREATE SECRET minio (
     USE_SSL false,
     URL_STYLE 'path'
   );
+*/
 
 -- Simple query
 SELECT * FROM parquet_scan(concat(getvariable('base_url'), "/*/*/*/*")) LIMIT 5;

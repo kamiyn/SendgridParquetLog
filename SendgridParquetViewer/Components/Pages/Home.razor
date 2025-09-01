@@ -136,7 +136,6 @@ else if (_hasSearched)
 
     private Func<Task<IList<SendGridEvent>>> DetermineSearchMethod()
     {
-
         var ymd = _dateSelectionMode switch
         {
             DateSelectionMode.YearMonth => new YearMonthDayOptional(_selectedDate?.Year, _selectedDate?.Month, null),

@@ -153,40 +153,8 @@ Response:
 
 ## DuckDBでの使用例
 
-保存されたParquetファイルはDuckDBで直接クエリできます:
-
-```sql
--- DuckDBの起動
-duckdb
-
--- S3からParquetファイルを読み込み
-INSTALL httpfs;
-LOAD httpfs;
-
-SET s3_access_key_id='your-access-key';
-SET s3_secret_access_key='your-secret-key';
-SET s3_endpoint='your-s3-endpoint.com';
-
--- データの読み込みと分析
-SELECT
-    event,
-    COUNT(*) as count,
-    DATE_TRUNC('day', timestamp) as day
-FROM read_parquet('s3://sendgrid-events/v1/2025/08/29/*.parquet')
-GROUP BY event, day
-ORDER BY day DESC, count DESC;
-
--- 特定期間のイベント集計
-SELECT
-    email,
-    event,
-    timestamp
-FROM read_parquet('s3://sendgrid-events/v1/2025/08/29/*.parquet')
-WHERE timestamp >= '2025-08-29 00:00:00'
-  AND timestamp < '2025-08-30 00:00:00'
-ORDER BY timestamp DESC
-LIMIT 100;
-```
+保存されたParquetファイルはDuckDBで直接クエリできます。
+[DuckDBクエリ例](./SendgridParquetLogger/test-duckdb.sql) を参考にしてください。
 
 ## ローカル開発
 
