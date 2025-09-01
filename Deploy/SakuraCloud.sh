@@ -225,6 +225,22 @@ DEPLOYMENT_PAYLOAD=$(cat <<EOF
         {
           "key": "S3__BUCKETNAME",
           "value": "${S3__BUCKETNAME}"
+        },
+        {
+          "key": "AzureAD__Domain",
+          "value": "${AzureAD__Domain}"
+        },
+        {
+          "key": "AzureAD__TenantId",
+          "value": "${AzureAD__TenantId}"
+        },
+        {
+          "key": "AzureAD__ClientId",
+          "value": "${AzureAD__ClientId}"
+        },
+        {
+          "key": "AzureAD__ClientSecret",
+          "value": "${AzureAD__ClientSecret}"
         }
       ]
     }

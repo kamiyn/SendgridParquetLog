@@ -21,4 +21,9 @@ public class S3Options
 
     [Required(ErrorMessage = "S3 BUCKETNAME is required")]
     public string BUCKETNAME { get; set; } = string.Empty;
+
+    /// <summary>
+    /// SECRET 以外を出力する
+    /// </summary>
+    public override string ToString() => $"SERVICEURL:{SERVICEURL} REGION:{REGION} ACCESSKEY:{ACCESSKEY} BUCKETNAME:{BUCKETNAME}";
 }

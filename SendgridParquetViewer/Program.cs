@@ -1,10 +1,35 @@
-﻿using Microsoft.FluentUI.AspNetCore.Components;
+﻿using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc.Authorization;
+using Microsoft.FluentUI.AspNetCore.Components;
+using Microsoft.Identity.Web;
+using Microsoft.Identity.Web.UI;
 
 using SendgridParquetViewer.Components;
 using SendgridParquetViewer.Options;
 using SendgridParquetViewer.Services;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Add Azure AD authentication
+builder.Services.AddAuthentication(OpenIdConnectDefaults.AuthenticationScheme)
+    .AddMicrosoftIdentityWebApp(builder.Configuration.GetSection("AzureAd"));
+
+// Add authorization with role-based policies
+builder.Services.AddAuthorization(options =>
+{
+    // Require authenticated users by default
+    options.FallbackPolicy = new AuthorizationPolicyBuilder()
+        .RequireAuthenticatedUser()
+        .Build();
+    
+    // Define role-based policies for AppRoles
+    options.AddPolicy("ViewerRole", policy => 
+        policy.RequireRole("Viewer", "Admin"));
+    
+    options.AddPolicy("AdminRole", policy => 
+        policy.RequireRole("Admin"));
+});
 
 // Configure S3 options with validation
 builder.Services.AddOptions<S3Options>()
@@ -16,7 +41,12 @@ builder.Services.AddSingleton(TimeProvider.System);
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
-    .AddInteractiveServerComponents();
+    .AddInteractiveServerComponents()
+    .AddMicrosoftIdentityConsentHandler();
+
+// Add controllers for authentication UI
+builder.Services.AddControllersWithViews()
+    .AddMicrosoftIdentityUI();
 
 // Add Fluent UI
 builder.Services.AddFluentUIComponents();
@@ -40,13 +70,20 @@ app.UseStatusCodePagesWithReExecute("/not-found", createScopeForErrors: true);
 
 app.UseHttpsRedirection();
 
+// Add authentication and authorization middleware
+app.UseAuthentication();
+app.UseAuthorization();
+
 app.UseAntiforgery();
 
 app.MapStaticAssets();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
-// Map health check endpoint
-app.MapHealthChecks("/health6QQl");
+// Map controllers for authentication endpoints
+app.MapControllers();
+
+// Map health check endpoint (allow anonymous access)
+app.MapHealthChecks("/health6QQl").AllowAnonymous();
 
 app.Run();
