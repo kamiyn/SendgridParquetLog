@@ -7,7 +7,7 @@ public class HealthController(
     ILogger<WebhookController> logger,
     TimeProvider timeProvider) : ControllerBase
 {
-    [HttpGet("/health")]
+    [HttpGet("/health6QQl")]
     public IActionResult Health()
     {
         // 起動時 await s3Service.CreateBucketIfNotExistsAsync(); により

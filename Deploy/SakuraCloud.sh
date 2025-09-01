@@ -199,6 +199,12 @@ DEPLOYMENT_PAYLOAD=$(cat <<EOF
           "password": "${CONTAINER_REGISTRY_PASSWORD}"
         }
       },
+      "probe": {
+        "http_get": {
+          "path": "/health6QQl",
+          "port": ${APPRUN_PORT}
+        }
+      },
       "env": [
         {
           "key": "S3__SERVICEURL",
