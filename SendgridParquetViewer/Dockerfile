@@ -7,8 +7,9 @@ RUN dotnet restore
 
 # Publish for linux-x64 so native assets (libduckdb.so) are included
 WORKDIR /src/SendgridParquetViewer
-RUN dotnet publish \
-    -c Release -r linux-x64 --self-contained false -o /app/publish /p:PublishTrimmed=false
+RUN dotnet publish -c Release -r linux-x64 -o /app/publish \
+ --self-contained false \
+ -p:PublishTrimmed=false
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-preview AS runtime
 WORKDIR /app
