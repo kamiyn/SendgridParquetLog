@@ -18,7 +18,7 @@ public class S3StorageService(
 {
     private readonly S3Options _options = options.Value;
 
-    public async Task<bool> UploadFileAsync(byte[] content, string fileName, DateTimeOffset now, CancellationToken ct)
+    public async ValueTask<bool> UploadFileAsync(byte[] content, string fileName, DateTimeOffset now, CancellationToken ct)
     {
         S3SignatureSource s3SignatureSource = new(now, _options.REGION);
         try
@@ -54,7 +54,7 @@ public class S3StorageService(
         }
     }
 
-    private async Task<bool> BucketExistsAsync(DateTimeOffset now, CancellationToken ct)
+    private async ValueTask<bool> BucketExistsAsync(DateTimeOffset now, CancellationToken ct)
     {
         string uriString = $"{_options.SERVICEURL}/{_options.BUCKETNAME}/?max-keys=1";
         logger.ZLogInformation($"Bucket {uriString} checking");
@@ -76,7 +76,7 @@ public class S3StorageService(
         }
     }
 
-    public async Task CreateBucketIfNotExistsAsync(DateTimeOffset now, CancellationToken ct)
+    public async ValueTask CreateBucketIfNotExistsAsync(DateTimeOffset now, CancellationToken ct)
     {
         if (!await BucketExistsAsync(now, ct))
         {

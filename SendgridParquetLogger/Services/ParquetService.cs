@@ -144,7 +144,7 @@ public class ParquetService
         ];
     }
 
-    public async Task<byte[]?> ConvertToParquetAsync(ICollection<SendGridEvent> sendGridEvents)
+    public async ValueTask<byte[]?> ConvertToParquetAsync(ICollection<SendGridEvent> sendGridEvents)
     {
         if (!sendGridEvents.Any())
         {
