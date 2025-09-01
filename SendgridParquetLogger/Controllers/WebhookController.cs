@@ -103,12 +103,4 @@ public class WebhookController(
         // S3 Object key names are case sensitive https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-keys.html
         return $"{SendGridWebHookFields.ParquetSchemaVersion}/{targetDay:yyyy/MM/dd}/{hashString}.parquet";
     }
-
-    [HttpGet("health")]
-    public IActionResult Health()
-    {
-        // 起動時 await s3Service.CreateBucketIfNotExistsAsync(); により
-        // 構成上の問題は検出される
-        return Ok(new { status = "healthy", timestamp = timeProvider.GetUtcNow() });
-    }
 }
