@@ -18,7 +18,7 @@ public class S3StorageService(
 {
     private readonly S3Options _options = options.Value;
 
-    public async ValueTask<bool> UploadFileAsync(byte[] content, string fileName, DateTimeOffset now, CancellationToken ct)
+    public async ValueTask<bool> UploadFileAsync(Stream content, string fileName, DateTimeOffset now, CancellationToken ct)
     {
         S3SignatureSource signatureSource = new(now, _options.REGION);
         try
@@ -28,7 +28,8 @@ public class S3StorageService(
 
             AddAwsSignatureHeaders(request, content, signatureSource);
 
-            request.Content = new ByteArrayContent(content);
+            content.Seek(0, SeekOrigin.Begin);
+            request.Content = new StreamContent(content);
             request.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
             using HttpResponseMessage response = await httpClient.SendAsync(request, ct);
 
@@ -63,7 +64,8 @@ public class S3StorageService(
         {
             var uri = new Uri(uriString);
             using HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Get, uri);
-            AddAwsSignatureHeaders(request, null, signatureSource);
+            using var requestContent = new MemoryStream([]);
+            AddAwsSignatureHeaders(request, requestContent, signatureSource);
             using HttpResponseMessage response = await httpClient.SendAsync(request, ct);
             string content = await response.Content.ReadAsStringAsync(ct);
             logger.ZLogDebug($"Content {content}");
@@ -87,7 +89,8 @@ public class S3StorageService(
             {
                 var uri = new Uri(uriString);
                 var request = new HttpRequestMessage(HttpMethod.Put, uri);
-                AddAwsSignatureHeaders(request, null, signatureSource);
+                using var requestContent = new MemoryStream([]);
+                AddAwsSignatureHeaders(request, requestContent, signatureSource);
                 var response = await httpClient.SendAsync(request, ct);
                 if (response.IsSuccessStatusCode)
                 {
@@ -108,8 +111,9 @@ public class S3StorageService(
         }
     }
 
-    private void AddAwsSignatureHeaders(HttpRequestMessage request, byte[]? content, S3SignatureSource signatureSource)
+    private void AddAwsSignatureHeaders(HttpRequestMessage request, Stream content, S3SignatureSource signatureSource)
     {
+        content.Seek(0, SeekOrigin.Begin);
         var contentHash = CalculateSHA256Hash(content);
         var headers = new KeyValuePair<string, string>[]
         {
@@ -163,20 +167,15 @@ public class S3StorageService(
         return hmac.ComputeHash(Encoding.UTF8.GetBytes(data));
     }
 
-    private static readonly Lazy<string> s_emptySha256Hash = new Lazy<string>(() =>
+    private static string CalculateSHA256Hash(Stream data)
     {
         using var sha256 = SHA256.Create();
-        var hash = sha256.ComputeHash([]);
+        byte[] hash = sha256.ComputeHash(data);
         return Convert.ToHexString(hash).ToLowerInvariant();
-    });
+    }
 
-    private static string CalculateSHA256Hash(byte[]? data)
+    private static string CalculateSHA256Hash(byte[] data)
     {
-        if (data == null)
-        {
-            // AWS S3 は必ず SHA‑256 を計算する
-            return s_emptySha256Hash.Value;
-        }
         using var sha256 = SHA256.Create();
         byte[] hash = sha256.ComputeHash(data);
         return Convert.ToHexString(hash).ToLowerInvariant();

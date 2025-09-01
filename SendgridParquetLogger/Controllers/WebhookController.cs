@@ -72,7 +72,7 @@ public class WebhookController(
         CancellationToken ct)
     {
         var events = eventsEnumerable.ToArray();
-        var parquetData = await parquetService.ConvertToParquetAsync(events);
+        await using var parquetData = await parquetService.ConvertToParquetAsync(events);
         if (parquetData == null)
         {
             logger.ZLogError($"Failed to convert events to Parquet format");
@@ -95,8 +95,9 @@ public class WebhookController(
     /// 書き込み途中で失敗し webhook が再送された場合に上書きされることを期待し
     /// 書き込む内容が一致していれば同じファイル名を生成する
     /// </summary>
-    private static string GetParquetFileName(DateOnly targetDay, byte[] parquetData)
+    private static string GetParquetFileName(DateOnly targetDay, Stream parquetData)
     {
+        parquetData.Seek(0, SeekOrigin.Begin);
         using var sha256 = SHA256.Create();
         byte[] hash = sha256.ComputeHash(parquetData);
         string hashString = WebEncoders.Base64UrlEncode(hash);
