@@ -82,3 +82,50 @@ jobs:
             "${DOCKER_FULL_IMAGE_URL}"
 
       # ここから SendgridParquetViewer
+      - name: Extract metadata for Docker (Viewer)
+        id: meta-viewer
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ vars.CONTAINER_REGISTRY_URL }}/${{ env.APP_NAME_SENDGRID_VIEWER }}
+          tags: |
+            type=raw,value=run_number${{ github.run_number }}
+
+      - name: Build and push Docker image (Viewer)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./SendgridParquetViewer/Dockerfile
+          push: true
+          tags: ${{ steps.meta-viewer.outputs.tags }}
+          labels: ${{ steps.meta-viewer.outputs.labels }}
+          # cache-from: type=gha
+          # cache-to: type=gha,mode=max
+
+      - name: Set Docker image URL for deployment (Viewer)
+        run: |
+          echo "DOCKER_FULL_IMAGE_URL_VIEWER=${{ steps.meta-viewer.outputs.tags }}" >> $GITHUB_ENV
+
+      - name: Deploy to Sakura Cloud (Viewer)
+        env:
+          SAKURACLOUD_ACCESS_TOKEN: ${{ vars.SAKURACLOUD_ACCESS_TOKEN }}
+          SAKURACLOUD_ACCESS_TOKEN_SECRET: ${{ secrets.SAKURACLOUD_ACCESS_TOKEN_SECRET }}
+          CONTAINER_REGISTRY_URL: ${{ vars.CONTAINER_REGISTRY_URL }}
+          CONTAINER_REGISTRY_USERNAME: ${{ vars.CONTAINER_REGISTRY_USERNAME }}
+          CONTAINER_REGISTRY_PASSWORD: ${{ secrets.CONTAINER_REGISTRY_PASSWORD }}
+          S3__SERVICEURL: ${{ vars.S3__SERVICEURL }}
+          S3__REGION: ${{ vars.S3__REGION }}
+          S3__ACCESSKEY: ${{ vars.S3__ACCESSKEY }}
+          S3__SECRETKEY: ${{ secrets.S3__SECRETKEY }}
+          S3__BUCKETNAME: ${{ vars.S3__BUCKETNAME }}
+          APP_NAME: ${{ env.APP_NAME_SENDGRID_VIEWER }}
+          APPRUN_PORT: "5000"
+          APPRUN_TIMEOUT: "180"
+          APPRUN_MAX_SCALE: "1"
+          APPRUN_MAX_CPU: "0.2"
+          APPRUN_MAX_MEMORY: "512Mi" # 256Mi/512Mi/1Gi/2Gi
+        run: |
+          echo "Deploying image: ${DOCKER_FULL_IMAGE_URL_VIEWER}"
+          bash ./Deploy/SakuraCloud.sh \
+            "${APP_NAME}" \
+            "${APPRUN_PORT}" \
+            "${DOCKER_FULL_IMAGE_URL_VIEWER}"
