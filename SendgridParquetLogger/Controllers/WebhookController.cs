@@ -102,6 +102,6 @@ public class WebhookController(
         byte[] hash = sha256.ComputeHash(parquetData);
         string hashString = WebEncoders.Base64UrlEncode(hash);
         // S3 Object key names are case sensitive https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-keys.html
-        return $"{SendGridWebHookFields.ParquetSchemaVersion}/{targetDay:yyyy/MM/dd}/{hashString}.parquet";
+        return $"{SendGridWebHookFields.FolderPrefixNonCompaction}/{targetDay:yyyy/MM/dd}/{hashString}.parquet";
     }
 }

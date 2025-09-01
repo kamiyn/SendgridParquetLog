@@ -64,7 +64,7 @@ public class DuckDbService
 
     private string GetS3Path(YearMonthDayOptional ymd)
     {
-        var basePath = $"s3://{_s3Options.BUCKETNAME}/{SendGridWebHookFields.ParquetSchemaVersion}";
+        var basePath = $"s3://{_s3Options.BUCKETNAME}/{SendGridWebHookFields.FolderPrefixNonCompaction}";
 
         if (ymd.Year.HasValue)
         {

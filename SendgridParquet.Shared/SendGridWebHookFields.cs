@@ -3,9 +3,18 @@
 public static class SendGridWebHookFields
 {
     /// <summary>
-    /// Parquet 列定義のバージョン
+    /// Parquet 列定義のバージョンに合わせて フォルダー名の prefix を付与する
+    ///
+    /// Compaction 前のフォルダー名
     /// </summary>
-    public const string ParquetSchemaVersion = "v1";
+    public const string FolderPrefixNonCompaction = "v1raw";
+
+    /// <summary>
+    /// Parquet 列定義のバージョンに合わせて フォルダー名の prefix を付与する
+    ///
+    /// Compaction 後のフォルダー名
+    /// </summary>
+    public const string FolderPrefixCompaction = "v1compaction";
 
     public const string Email = "email";
     public const string Timestamp = "timestamp";
