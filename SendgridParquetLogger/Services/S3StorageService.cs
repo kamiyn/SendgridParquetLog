@@ -20,13 +20,13 @@ public class S3StorageService(
 
     public async ValueTask<bool> UploadFileAsync(byte[] content, string fileName, DateTimeOffset now, CancellationToken ct)
     {
-        S3SignatureSource s3SignatureSource = new(now, _options.REGION);
+        S3SignatureSource signatureSource = new(now, _options.REGION);
         try
         {
             var uri = new Uri($"{_options.SERVICEURL}/{_options.BUCKETNAME}/{fileName}");
             using var request = new HttpRequestMessage(HttpMethod.Put, uri);
 
-            AddAwsSignatureHeaders(request, content, s3SignatureSource);
+            AddAwsSignatureHeaders(request, content, signatureSource);
 
             request.Content = new ByteArrayContent(content);
             request.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
@@ -58,12 +58,12 @@ public class S3StorageService(
     {
         string uriString = $"{_options.SERVICEURL}/{_options.BUCKETNAME}/?max-keys=1";
         logger.ZLogInformation($"Bucket {uriString} checking");
-        S3SignatureSource s3SignatureSource = new(now, _options.REGION);
+        S3SignatureSource signatureSource = new(now, _options.REGION);
         try
         {
             var uri = new Uri(uriString);
             using HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Get, uri);
-            AddAwsSignatureHeaders(request, null, s3SignatureSource);
+            AddAwsSignatureHeaders(request, null, signatureSource);
             using HttpResponseMessage response = await httpClient.SendAsync(request, ct);
             string content = await response.Content.ReadAsStringAsync(ct);
             logger.ZLogDebug($"Content {content}");
@@ -82,12 +82,12 @@ public class S3StorageService(
         {
             string uriString = $"{_options.SERVICEURL}/{_options.BUCKETNAME}";
             logger.ZLogInformation($"Bucket {uriString} creating");
-            S3SignatureSource s3SignatureSource = new(now, _options.REGION);
+            S3SignatureSource signatureSource = new(now, _options.REGION);
             try
             {
                 var uri = new Uri(uriString);
                 var request = new HttpRequestMessage(HttpMethod.Put, uri);
-                AddAwsSignatureHeaders(request, null, s3SignatureSource);
+                AddAwsSignatureHeaders(request, null, signatureSource);
                 var response = await httpClient.SendAsync(request, ct);
                 if (response.IsSuccessStatusCode)
                 {
@@ -108,13 +108,13 @@ public class S3StorageService(
         }
     }
 
-    private void AddAwsSignatureHeaders(HttpRequestMessage request, byte[]? content, S3SignatureSource s3SignatureSource)
+    private void AddAwsSignatureHeaders(HttpRequestMessage request, byte[]? content, S3SignatureSource signatureSource)
     {
         var contentHash = CalculateSHA256Hash(content);
         var headers = new KeyValuePair<string, string>[]
         {
             new("Host", request.RequestUri!.Host),
-            new("X-Amz-Date", s3SignatureSource.amzDate),
+            new("X-Amz-Date", signatureSource.AmzDate),
             new("X-Amz-Content-Sha256", contentHash)
         };
         foreach (var header in headers)
@@ -123,36 +123,36 @@ public class S3StorageService(
         }
 
         // Create canonical request
-        var s3CanonicalHeaders = new S3CanonicalHeaders(headers);
-        var canonicalRequest = CreateCanonicalRequest(request, contentHash, s3CanonicalHeaders);
+        var canonicalHeaders = new S3CanonicalHeaders(headers);
+        var canonicalRequest = CreateCanonicalRequest(request, contentHash, canonicalHeaders);
         var canonicalRequestHash = CalculateSHA256Hash(Encoding.UTF8.GetBytes(canonicalRequest));
-        var credentialScope = s3SignatureSource.GetCredentialScope();
-        var stringToSign = $"AWS4-HMAC-SHA256\n{s3SignatureSource.amzDate}\n{credentialScope}\n{canonicalRequestHash}";
-        var signature = CalculateSignature(stringToSign, s3SignatureSource);
+        var credentialScope = signatureSource.GetCredentialScope();
+        var stringToSign = $"AWS4-HMAC-SHA256\n{signatureSource.AmzDate}\n{credentialScope}\n{canonicalRequestHash}";
+        var signature = CalculateSignature(stringToSign, signatureSource);
         var authorization = $"AWS4-HMAC-SHA256 " +
                            $"Credential={_options.ACCESSKEY}/{credentialScope}," +
-                           $"SignedHeaders={s3CanonicalHeaders.signedHeaders}," +
+                           $"SignedHeaders={canonicalHeaders.SignedHeaders}," +
                            $"Signature={signature}";
 
         request.Headers.TryAddWithoutValidation("Authorization", authorization);
     }
 
-    private string CreateCanonicalRequest(HttpRequestMessage request, string contentHash, S3CanonicalHeaders s3CanonicalHeaders)
+    private string CreateCanonicalRequest(HttpRequestMessage request, string contentHash, S3CanonicalHeaders canonicalHeaders)
     {
         var method = request.Method.Method;
         var canonicalUri = request.RequestUri!.AbsolutePath;
         var canonicalQueryString = request.RequestUri.Query.TrimStart('?');
-        var canonicalHeaders = s3CanonicalHeaders.canonicalHeaders;
-        var signedHeaders = s3CanonicalHeaders.signedHeaders;
-        return $"{method}\n{canonicalUri}\n{canonicalQueryString}\n{canonicalHeaders}\n{signedHeaders}\n{contentHash}";
+        var canonicalHeadersString = canonicalHeaders.CanonicalHeaders;
+        var signedHeaders = canonicalHeaders.SignedHeaders;
+        return $"{method}\n{canonicalUri}\n{canonicalQueryString}\n{canonicalHeadersString}\n{signedHeaders}\n{contentHash}";
     }
 
-    private string CalculateSignature(string stringToSign, S3SignatureSource s3SignatureSource)
+    private string CalculateSignature(string stringToSign, S3SignatureSource signatureSource)
     {
-        var kDate = HmacSHA256(Encoding.UTF8.GetBytes($"AWS4{_options.SECRETKEY}"), s3SignatureSource.date);
-        var kRegion = HmacSHA256(kDate, s3SignatureSource.region);
-        var kService = HmacSHA256(kRegion, s3SignatureSource.service);
-        var kSigning = HmacSHA256(kService, s3SignatureSource.signing);
+        var kDate = HmacSHA256(Encoding.UTF8.GetBytes($"AWS4{_options.SECRETKEY}"), signatureSource.Date);
+        var kRegion = HmacSHA256(kDate, signatureSource.Region);
+        var kService = HmacSHA256(kRegion, signatureSource.Service);
+        var kSigning = HmacSHA256(kService, signatureSource.Signing);
         var signature = HmacSHA256(kSigning, stringToSign);
         return Convert.ToHexString(signature).ToLowerInvariant();
     }
@@ -197,18 +197,19 @@ internal class S3CanonicalHeaders
         }
     }
 
-    internal string canonicalHeaders => string.Join("\n", _sortedHeaders.Select(h => $"{h.Key}:{h.Value}")) + "\n";
+    internal string CanonicalHeaders => string.Join("\n", _sortedHeaders.Select(h => $"{h.Key}:{h.Value}")) + "\n";
     /// <summary>
     /// セミコロン区切りで ヘッダー名を連結したもの
     /// </summary>
-    internal string signedHeaders => string.Join(";", _sortedHeaders.Keys);
+    internal string SignedHeaders => string.Join(";", _sortedHeaders.Keys);
 }
 
 internal record struct S3SignatureSource(DateTimeOffset now, string region)
 {
-    internal string date => now.ToString("yyyyMMdd");
-    internal string amzDate => now.ToString("yyyyMMddTHHmmssZ");
-    internal string service => "s3";
-    internal string signing => "aws4_request";
-    internal string GetCredentialScope() => $"{date}/{region}/{service}/{signing}";
+    internal string Date => now.ToString("yyyyMMdd");
+    internal string AmzDate => now.ToString("yyyyMMddTHHmmssZ");
+    internal string Region => region;
+    internal string Service => "s3";
+    internal string Signing => "aws4_request";
+    internal string GetCredentialScope() => $"{Date}/{Region}/{Service}/{Signing}";
 }
