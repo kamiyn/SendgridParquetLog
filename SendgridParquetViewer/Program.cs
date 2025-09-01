@@ -1,6 +1,5 @@
 ﻿using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc.Authorization;
 using Microsoft.FluentUI.AspNetCore.Components;
 using Microsoft.Identity.Web;
 using Microsoft.Identity.Web.UI;
@@ -13,7 +12,22 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Add Azure AD authentication
 builder.Services.AddAuthentication(OpenIdConnectDefaults.AuthenticationScheme)
-    .AddMicrosoftIdentityWebApp(builder.Configuration.GetSection("AzureAd"));
+    .AddMicrosoftIdentityWebApp(options =>
+    {
+        builder.Configuration.GetSection("AzureAd").Bind(options);
+        options.Events = new OpenIdConnectEvents
+        {
+            OnRedirectToIdentityProvider = context =>
+            {
+                // リダイレクトURIをHTTPSに強制 EntraID は https しか受け付けない
+                if (context.ProtocolMessage.RedirectUri.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+                {
+                    context.ProtocolMessage.RedirectUri = context.ProtocolMessage.RedirectUri.Replace("http://", "https://", StringComparison.OrdinalIgnoreCase);
+                }
+                return Task.CompletedTask;
+            }
+        };
+    });
 
 // Add authorization with role-based policies
 builder.Services.AddAuthorization(options =>
@@ -22,12 +36,12 @@ builder.Services.AddAuthorization(options =>
     options.FallbackPolicy = new AuthorizationPolicyBuilder()
         .RequireAuthenticatedUser()
         .Build();
-    
+
     // Define role-based policies for AppRoles
-    options.AddPolicy("ViewerRole", policy => 
+    options.AddPolicy("ViewerRole", policy =>
         policy.RequireRole("Viewer", "Admin"));
-    
-    options.AddPolicy("AdminRole", policy => 
+
+    options.AddPolicy("AdminRole", policy =>
         policy.RequireRole("Admin"));
 });
 
