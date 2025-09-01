@@ -4,11 +4,6 @@ using SendgridParquetViewer.Components;
 using SendgridParquetViewer.Options;
 using SendgridParquetViewer.Services;
 
-foreach (string env in new[] { "S3__SERVICEURL", "S3__REGION", "S3__BUCKETNAME" })
-{
-    Console.WriteLine($"EnvironmentVariable: {env}: {Environment.GetEnvironmentVariable(env)}");
-}
-
 var builder = WebApplication.CreateBuilder(args);
 
 // Configure S3 options with validation

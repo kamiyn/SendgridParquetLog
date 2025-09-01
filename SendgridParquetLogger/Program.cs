@@ -6,11 +6,6 @@ using SendgridParquetLogger.Services;
 
 using ZLogger;
 
-foreach (string env in new[] { "S3__SERVICEURL", "S3__REGION", "S3__BUCKETNAME" })
-{
-    Console.WriteLine($"EnvironmentVariable: {env}: {Environment.GetEnvironmentVariable(env)}");
-}
-
 var builder = WebApplication.CreateBuilder(args);
 
 #if UseAspire
@@ -50,11 +45,6 @@ var app = builder.Build();
 
 // if (!app.Environment.IsDevelopment())
 {
-    var options = app.Services.GetRequiredService<IOptions<S3Options>>();
-    Console.WriteLine("======================================================================");
-    Console.WriteLine("S3Options");
-    Console.WriteLine(options.Value.ToString());
-    Console.WriteLine("======================================================================");
     var s3Service = app.Services.GetRequiredService<S3StorageService>();
     await s3Service.CreateBucketIfNotExistsAsync(TimeProvider.System.GetUtcNow(), CancellationToken.None);
 }
