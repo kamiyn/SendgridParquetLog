@@ -10,17 +10,19 @@
     <PackageReference Include="Parquet.Net" Version="5.2.0" />
     <PackageReference Include="ZLogger" Version="2.5.10" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../SendgridParquet.Shared/SendgridParquet.Shared.csproj" />
+  </ItemGroup>
   <!-- Swagger UI はデバッグビルドのみ有効 -->
   <ItemGroup Condition="'$(Configuration)' == 'Debug'">
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.0-preview.7.25380.108" />
     <PackageReference Include="Swashbuckle.AspNetCore.SwaggerUI" Version="9.0.4" />
+    <!-- Aspire はデバッグビルドのみ有効 -->
+    <ProjectReference Include="../SendgridParquetLog.ServiceDefaults/SendgridParquetLog.ServiceDefaults.csproj" />
   </ItemGroup>
   <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
-      <DefineConstants>UseSwagger;$(DefineConstants)</DefineConstants>
+    <DefineConstants>UseSwagger;$(DefineConstants)</DefineConstants>
+    <DefineConstants>UseAspire;$(DefineConstants)</DefineConstants>
   </PropertyGroup>
-  <ItemGroup>
-    <ProjectReference Include="../SendgridParquetLog.ServiceDefaults/SendgridParquetLog.ServiceDefaults.csproj" />
-    <ProjectReference Include="../SendgridParquet.Shared/SendgridParquet.Shared.csproj" />
-  </ItemGroup>
 
 </Project>

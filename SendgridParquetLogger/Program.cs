@@ -13,8 +13,10 @@ foreach (string env in new[] { "S3__SERVICEURL", "S3__REGION", "S3__BUCKETNAME" 
 
 var builder = WebApplication.CreateBuilder(args);
 
+#if UseAspire
 // Add Aspire service defaults
 builder.AddServiceDefaults();
+#endif
 
 // Configure ZLogger
 builder.Logging.ClearProviders();
@@ -71,7 +73,9 @@ app.UseHttpsRedirection();
 app.UseAuthorization();
 app.MapControllers();
 
+#if UseAspire
 // Map Aspire default endpoints (health checks, etc.)
 app.MapDefaultEndpoints();
+#endif
 
 app.Run();
