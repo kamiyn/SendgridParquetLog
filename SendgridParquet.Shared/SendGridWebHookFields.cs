@@ -7,20 +7,21 @@ public static class SendGridWebHookFields
     ///
     /// Compaction 前のフォルダー名
     /// </summary>
-    public const string FolderPrefixNonCompaction = "v1raw";
+    public const string FolderPrefixNonCompaction = "v2raw";
 
     /// <summary>
     /// Parquet 列定義のバージョンに合わせて フォルダー名の prefix を付与する
     ///
     /// Compaction 後のフォルダー名
     /// </summary>
-    public const string FolderPrefixCompaction = "v1compaction";
+    public const string FolderPrefixCompaction = "v2compaction";
 
     public const string Email = "email";
     public const string Timestamp = "timestamp";
     public const string Event = "event";
     public const string Category = "category";
     public const string SgEventId = "sg_event_id";
+    public const string SgTemplateId = "sg_template_id";
     public const string SgMessageId = "sg_message_id";
     public const string SmtpId = "smtp-id";
     public const string UserAgent = "useragent";

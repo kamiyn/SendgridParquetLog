@@ -25,6 +25,7 @@ public class ParquetService
         var categoryField = new DataField(SendGridWebHookFields.Category, typeof(string));
         var sgEventIdField = new DataField(SendGridWebHookFields.SgEventId, typeof(string));
         var sgMessageIdField = new DataField(SendGridWebHookFields.SgMessageId, typeof(string));
+        var sgTemplateIdField = new DataField(SendGridWebHookFields.SgTemplateId, typeof(string));
         var smtpIdField = new DataField(SendGridWebHookFields.SmtpIdParquetColumn, typeof(string));
         var userAgentField = new DataField(SendGridWebHookFields.UserAgent, typeof(string));
         var ipField = new DataField(SendGridWebHookFields.Ip, typeof(string));
@@ -69,6 +70,10 @@ public class ParquetService
             new FieldProcessor(sgMessageIdField,
                 events => new DataColumn(sgMessageIdField,
                     events.Select(e => e.SgMessageId ?? string.Empty).ToArray())),
+
+            new FieldProcessor(sgTemplateIdField,
+                events => new DataColumn(sgTemplateIdField,
+                    events.Select(e => e.SgTemplateId ?? string.Empty).ToArray())),
 
             new FieldProcessor(smtpIdField,
                 events => new DataColumn(smtpIdField,

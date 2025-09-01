@@ -15,6 +15,10 @@ public class SendGridEvent
     [JsonPropertyName(SendGridWebHookFields.Event)]
     public string? Event { get; set; }
 
+    /// <summary>
+    /// 送信時に string array として送るケースで問題
+    /// Categories are custom tags that you set for the purpose of organizing your emails. If you send single categories as an array, they will be returned by the webhook as an array. If you send single categories as a string, they will be returned by the webhook as a string.
+    /// </summary>
     [JsonPropertyName(SendGridWebHookFields.Category)]
     public string? Category { get; set; }
 
@@ -23,6 +27,9 @@ public class SendGridEvent
 
     [JsonPropertyName(SendGridWebHookFields.SgMessageId)]
     public string? SgMessageId { get; set; }
+
+    [JsonPropertyName(SendGridWebHookFields.SgTemplateId)]
+    public string? SgTemplateId { get; set; }
 
     [JsonPropertyName(SendGridWebHookFields.SmtpId)]
     public string? SmtpId { get; set; }

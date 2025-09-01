@@ -10,6 +10,7 @@ public class SendGridEvent
     public string? Category { get; set; }
     public string? SgEventId { get; set; }
     public string? SgMessageId { get; set; }
+    public string? SgTemplateId { get; set; }
     public string? SmtpId { get; set; }
     public string? UserAgent { get; set; }
     public string? Ip { get; set; }
@@ -36,6 +37,7 @@ public class SendGridEvent
         {SendGridWebHookFields.Category} AS {nameof(Category)},
         {SendGridWebHookFields.SgEventId} AS {nameof(SgEventId)},
         {SendGridWebHookFields.SgMessageId} AS {nameof(SgMessageId)},
+        {SendGridWebHookFields.SgTemplateId} AS {nameof(SgTemplateId)},
         {SendGridWebHookFields.SmtpIdParquetColumn} AS {nameof(SmtpId)},
         {SendGridWebHookFields.UserAgent} AS {nameof(UserAgent)},
         {SendGridWebHookFields.Ip} AS {nameof(Ip)},
