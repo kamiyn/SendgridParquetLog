@@ -18,7 +18,6 @@ CREATE SECRET minio (
   );
 
 -- Simple query
-SELECT * FROM parquet_scan(concat(getvariable('base_url'), "/*/*/*/*"));
 SELECT * FROM parquet_scan(concat(getvariable('base_url'), "/*/*/*/*")) LIMIT 5;
 SELECT * FROM parquet_scan(concat(getvariable('base_url'), "/*/*/*/*")) WHERE event = 'delivered';
 
