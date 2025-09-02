@@ -4,6 +4,9 @@ namespace SendgridParquetLogger.Models;
 
 public class RunStatus
 {
+    [JsonPropertyName("lockId")]
+    public string LockId { get; init; } = string.Empty;
+
     [JsonPropertyName("startTime")]
     public DateTimeOffset StartTime { get; init; }
 

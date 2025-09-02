@@ -51,27 +51,17 @@ public class CompactionService(
             }
 
             var targetDays = await GetTargetDaysAsync(cancellationToken);
-
             var runStatus = new RunStatus
             {
+                LockId = lockId,
                 StartTime = startTime,
                 EndTime = null,
                 TargetDays = targetDays.Select(x => x.dateOnly).ToArray(),
                 TargetPaths = targetDays.Select(x => x.path).ToArray(),
             };
 
-            await SaveRunStatusAsync(runStatus, cancellationToken);
-
-            logger.ZLogInformation($"Compaction process started at {startTime:s} with {targetDays.Count} target dates");
-
             // 実行開始するだけで、完了は待たない
-            _ = Task.Run(async () =>
-            {
-                await ExecuteCompactionAsync(lockId, cancellationToken);
-                runStatus.EndTime = timeProvider.GetUtcNow();
-                await SaveRunStatusAsync(runStatus, cancellationToken);
-                logger.ZLogInformation($"Compaction process completed at {runStatus.EndTime:s}");
-            }, cancellationToken);
+            _ = Task.Run(() => StartExecuteCompactionAsync(runStatus), CancellationToken.None /* 要求元の CancellationRequested に影響されない */);
 
             return new CompactionStartResult
             {
@@ -86,6 +76,39 @@ public class CompactionService(
             await ReleaseLockAsync(lockId, cancellationToken);
             throw;
         }
+    }
+
+    private async Task StartExecuteCompactionAsync(RunStatus runStatus)
+    {
+        await SaveRunStatusAsync(runStatus, CancellationToken.None);
+        logger.ZLogInformation($"Compaction process started at {runStatus.StartTime:s} with {runStatus.TargetDays.Count} target dates");
+
+        // Periodically extend lock while processing
+        var cts = new CancellationTokenSource();
+        _ = Task.Run(async () =>
+        {
+            while (!cts.Token.IsCancellationRequested)
+            {
+                await ExtendLockAsync(runStatus.LockId, cts.Token);
+                // Extend halfway before expiry
+                await Task.Delay(TimeSpan.FromMilliseconds(s_lockFileDuration.TotalMilliseconds / 2), cts.Token);
+            }
+        }, cts.Token);
+
+        try
+        {
+            await ExecuteCompactionAsync(cts);
+        }
+        finally
+        {
+            // ExtendLockAsync のループを停止してロックを解放
+            await cts.CancelAsync();
+            await ReleaseLockAsync(runStatus.LockId, CancellationToken.None /* 要求元の CancellationRequested に影響されない */);
+        }
+
+        runStatus.EndTime = timeProvider.GetUtcNow();
+        await SaveRunStatusAsync(runStatus, CancellationToken.None /* 要求元の CancellationRequested に影響されない */);
+        logger.ZLogInformation($"Compaction process completed at {runStatus.EndTime:s}");
     }
 
     public async Task<RunStatus?> GetRunStatusAsync(CancellationToken cancellationToken)
@@ -210,9 +233,10 @@ public class CompactionService(
         }
     }
 
-    private async Task ExtendLockAsync(string lockPath, string lockId, CancellationToken cancellationToken)
+    private async Task ExtendLockAsync(string lockId, CancellationToken cancellationToken)
     {
         var now = timeProvider.GetUtcNow();
+        var (_, lockPath) = SendGridPathUtility.GetS3CompactionRunFile();
         var existingLockJson = await s3StorageService.GetObjectAsByteArrayAsync(lockPath, now, cancellationToken);
 
         if (existingLockJson.Any())
@@ -229,32 +253,7 @@ public class CompactionService(
         }
     }
 
-    private async Task ExecuteCompactionAsync(string lockId, CancellationToken cancellationToken)
-    {
-        // Periodically extend lock while processing
-        var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        _ = Task.Run(async () =>
-        {
-            var (_, lockPath) = SendGridPathUtility.GetS3CompactionRunFile();
-            while (!cts.Token.IsCancellationRequested)
-            {
-                await ExtendLockAsync(lockPath, lockId, cts.Token);
-                // Extend halfway before expiry
-                await Task.Delay(TimeSpan.FromMilliseconds(s_lockFileDuration.TotalMilliseconds / 2), cts.Token);
-            }
-        }, cts.Token);
-        try
-        {
-            // Simulate work
-            await Task.Delay(1000, cts.Token);
-        }
-        finally
-        {
-            // ExtendLockAsync のループを停止してロックを解放
-            await cts.CancelAsync();
-            await ReleaseLockAsync(lockId, CancellationToken.None /* 要求元の CancellationRequested に影響されない */);
-        }
-    }
+    private static async Task ExecuteCompactionAsync(CancellationTokenSource cts) => await Task.Delay(1000, cts.Token);
 }
 
 public class CompactionStartResult
