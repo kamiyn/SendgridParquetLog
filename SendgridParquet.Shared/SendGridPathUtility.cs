@@ -16,14 +16,14 @@ public static class SendGridPathUtility
     ///
     /// Compaction 前のフォルダー名
     /// </summary>
-    const string FolderPrefixNonCompaction = "v2raw";
+    const string FolderPrefixNonCompaction = "v3raw";
 
     /// <summary>
     /// Parquet 列定義のバージョンに合わせて フォルダー名の prefix を付与する
     ///
     /// Compaction 後のフォルダー名
     /// </summary>
-    const string FolderPrefixCompaction = "v2compaction";
+    const string FolderPrefixCompaction = "v3compaction";
 
     /// <summary>
     /// Base64Url エンコードを行う（ASP.NET Core依存を避けるため独自実装）

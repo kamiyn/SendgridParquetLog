@@ -20,8 +20,6 @@ public class WebhookController(
     S3StorageService s3StorageService
 ) : ControllerBase
 {
-    private static readonly TimeSpan s_jstOffset = TimeSpan.FromHours(9);
-
     [HttpPost("sendgrid")]
     public async Task<IActionResult> ReceiveSendGridEvents([FromBody] List<SendGridEvent> events, CancellationToken ct)
     {
@@ -38,7 +36,7 @@ public class WebhookController(
 
             var results = new List<HttpStatusCode>();
             foreach (var grp in events
-                .Select(sendgridEvent => (sendgridEvent, timestamp: DateTimeOffset.FromUnixTimeSeconds(sendgridEvent.Timestamp).ToOffset(s_jstOffset)))
+                .Select(sendgridEvent => (sendgridEvent, timestamp: JstExtension.JstUnixTimeSeconds(sendgridEvent.Timestamp)))
                 .GroupBy(pair => new DateOnly(pair.timestamp.Year, pair.timestamp.Month, pair.timestamp.Day) /* 日単位で分割 */, pair => pair.sendgridEvent))
             {
                 DateOnly targetDay = grp.Key;

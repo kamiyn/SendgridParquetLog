@@ -14,15 +14,15 @@
 
 <div style="padding: 20px; background-color: #f8f9fa; border-radius: 8px; margin-bottom: 20px;">
     <h3>検索条件</h3>
-    
+
     <!-- Search Form with Flow Layout -->
     <FluentStack Orientation="Orientation.Horizontal" Wrap="true" Style="gap: 20px; align-items: flex-start;">
-        
+
         <!-- Email Address Field -->
         <div style="min-width: 250px;">
             <FluentTextField @bind-Value="_selectedEmail" @oninput="OnInputChange" Label="email（LIKE句）" Style="width: 100%;" Placeholder="example@domain.com" />
         </div>
-        
+
         <!-- Date Selection Mode -->
         <div style="min-width: 250px;">
             <FluentLabel>日付の扱い</FluentLabel>
@@ -31,7 +31,7 @@
                 <FluentRadio Value="@DateSelectionMode.YearMonthDay">年月日すべて使用</FluentRadio>
             </FluentRadioGroup>
         </div>
-        
+
         <!-- Date Picker - Always Visible -->
         <div style="min-width: 200px;">
             <FluentDatePicker @bind-Value="_selectedDate" @oninput="OnInputChange" Label="日付選択" Style="width: 100%;" />
@@ -40,7 +40,7 @@
                 <small style="color: #666; margin-top: 5px; display: block;">※ 日付部分は検索で無視されます</small>
             }
         </div>
-        
+
         @if (_dateSelectionMode == DateSelectionMode.YearMonthDay)
         {
             <!-- Hour Selection (Optional) -->
@@ -56,12 +56,12 @@
                 </FluentSelect>
             </div>
         }
-        
+
         <!-- Search Button -->
         <div style="margin-top: 25px;">
             <FluentButton Appearance="Appearance.Accent" OnClick="SearchAsync">検索</FluentButton>
         </div>
-        
+
     </FluentStack>
 </div>
 
@@ -83,7 +83,7 @@ else if (_sendGridEvents.Any())
 {
     <div style="margin-top: 10px;">
         <p>検索結果: @_sendGridEvents.Count() 件</p>
-        
+
         <FluentDataGrid Items="@_sendGridEvents" Pagination="@_pagination">
             <TemplateColumn Title="詳細" Style="width: 40px;">
                 <FluentButton Appearance="Appearance.Lightweight" @onclick="() => ShowEventDetails(context)">表示</FluentButton>
@@ -98,7 +98,7 @@ else if (_sendGridEvents.Any())
             <PropertyColumn Property="@(e => e.MarketingCampaignName)" Title="キャンペーン名" Sortable="true" />
             <PropertyColumn Property="@(e => e.Url)" Title="URL" />
         </FluentDataGrid>
-        
+
         <FluentPaginator State="@_pagination" />
     </div>
 }
@@ -108,7 +108,7 @@ else if (_hasSearched)
 }
 
 <!-- Event Details Dialog -->
-<FluentDialog @ref="_eventDetailsDialog" Hidden="@(!_showEventDetailsDialog)" Modal="true" TrapFocus="true">
+<FluentDialog Hidden="@(!ShowEventDetailsDialog)" Modal="true" TrapFocus="true">
     <FluentDialogHeader>
         <FluentStack VerticalAlignment="VerticalAlignment.Center">
             <FluentLabel Typo="Typography.Header">イベント詳細</FluentLabel>
@@ -120,8 +120,12 @@ else if (_hasSearched)
             <div style="max-height: 500px; overflow-y: auto;">
                 <FluentStack Orientation="Orientation.Vertical" Style="gap: 10px;">
                     <div><strong>Email:</strong> @_selectedEvent.Email</div>
-                    <div><strong>Timestamp:</strong> @_selectedEvent.Timestamp.ToString("yyyy-MM-dd HH:mm:ss")</div>
+                    <div><strong>Timestamp:</strong> @ToJst(_selectedEvent.Timestamp).ToString("yyyy-MM-dd HH:mm:ss")</div>
                     <div><strong>Event:</strong> @_selectedEvent.Event</div>
+                    @if (_selectedEvent.SendAt.HasValue)
+                    {
+                        <div><strong>Send At:</strong> @ToJst(_selectedEvent.SendAt.Value).ToString("yyyy-MM-dd HH:mm:ss"))</div>
+                    }
                     @if (!string.IsNullOrEmpty(_selectedEvent.Category))
                     {
                         <div><strong>Category:</strong> @_selectedEvent.Category</div>
@@ -206,10 +210,6 @@ else if (_hasSearched)
                     {
                         <div><strong>Pool ID:</strong> @_selectedEvent.PoolId</div>
                     }
-                    @if (_selectedEvent.SendAt.HasValue)
-                    {
-                        <div><strong>Send At:</strong> @_selectedEvent.SendAt.Value.ToString("yyyy-MM-dd HH:mm:ss")</div>
-                    }
                 </FluentStack>
             </div>
         }
@@ -237,14 +237,13 @@ else if (_hasSearched)
     private DateSelectionMode _dateSelectionMode = DateSelectionMode.YearMonth;
     private DateTime? _selectedDate;
     private string _selectedHourString = "";
-    private int? _selectedHour => string.IsNullOrEmpty(_selectedHourString) ? null : int.Parse(_selectedHourString);
-    
-    // Dialog
-    private FluentDialog? _eventDetailsDialog;
-    private bool _showEventDetailsDialog;
-    private SendGridEvent? _selectedEvent;
+    private int? SelectedHour => string.IsNullOrEmpty(_selectedHourString) ? null : int.Parse(_selectedHourString);
 
-    private readonly PaginationState _pagination = new PaginationState { ItemsPerPage = 50 };
+    // Dialog
+    private SendGridEvent? _selectedEvent;
+    private bool ShowEventDetailsDialog => _selectedEvent != null;
+
+    private readonly PaginationState _pagination = new() { ItemsPerPage = 50 };
 
     protected override async Task OnInitializedAsync()
     {
@@ -264,7 +263,7 @@ else if (_hasSearched)
         // Reset search state when date selection mode changes
         OnInputChange();
     }
-    
+
     private void OnHourSelectionChange()
     {
         // Reset search state when hour selection changes
@@ -281,7 +280,7 @@ else if (_hasSearched)
             var ymd = _dateSelectionMode switch
             {
                 DateSelectionMode.YearMonth => new YearMonthDayOptional(_selectedDate?.Year, _selectedDate?.Month, null, null),
-                DateSelectionMode.YearMonthDay => new YearMonthDayOptional(_selectedDate?.Year, _selectedDate?.Month, _selectedDate?.Day, _selectedHour),
+                DateSelectionMode.YearMonthDay => new YearMonthDayOptional(_selectedDate?.Year, _selectedDate?.Month, _selectedDate?.Day, SelectedHour),
                 _ => throw new ArgumentOutOfRangeException()
             };
             _sendGridEvents = (await ExecuteSearchAsync(ymd, CancellationToken.None)).AsQueryable();
@@ -305,7 +304,8 @@ else if (_hasSearched)
         const int limit = 1000;
         var now = TimeProvider.GetUtcNow();
 
-        async ValueTask<IList<SendGridEvent>> GetFromCompactionFolder(){
+        async ValueTask<IList<SendGridEvent>> GetFromCompactionFolder()
+        {
             var prefix = SendGridPathUtility.GetS3CompactionPrefix(ymd.Year, ymd.Month, ymd.Day, ymd.Hour);
             var directories = await S3StorageService.ListDirectoriesAsync(prefix, now, ct);
             if (directories.Any())
@@ -333,41 +333,18 @@ else if (_hasSearched)
 
         return (await GetFromCompactionFolder()).Concat(await GetFromNonCompactionFolder());
     }
-    
+
     private void ShowEventDetails(SendGridEvent sendGridEvent)
     {
         _selectedEvent = sendGridEvent;
-        _showEventDetailsDialog = true;
         StateHasChanged();
     }
-    
+
     private void CloseEventDetailsDialog()
     {
-        _showEventDetailsDialog = false;
         _selectedEvent = null;
         StateHasChanged();
     }
 
-    /// <summary>
-    /// DateTime を指定の targetOffset を持つ DateTimeOffset に変換する。
-    /// - Kind == Utc : UTC として解釈し瞬間を targetOffset に変換して返す。
-    /// - Kind == Local: ローカル時刻として解釈し瞬間を targetOffset に変換して返す。
-    /// - Kind == Unspecified: treatUnspecifiedAsLocal の値に従って Local または Utc として扱う。
-    /// </summary>
-    public static DateTimeOffset ToOffset(
-        DateTime dt,
-        TimeSpan targetOffset,
-        bool treatUnspecifiedAsLocal = true) =>
-        dt.Kind switch
-        {
-            DateTimeKind.Utc => new DateTimeOffset(DateTime.SpecifyKind(dt, DateTimeKind.Utc)).ToOffset(targetOffset),
-            DateTimeKind.Local => new DateTimeOffset(DateTime.SpecifyKind(dt, DateTimeKind.Local)).ToOffset(targetOffset),
-            DateTimeKind.Unspecified =>
-                treatUnspecifiedAsLocal
-                    ? new DateTimeOffset(DateTime.SpecifyKind(dt, DateTimeKind.Local)).ToOffset(targetOffset)
-                    : new DateTimeOffset(DateTime.SpecifyKind(dt, DateTimeKind.Utc)).ToOffset(targetOffset),
-            _ => throw new ArgumentOutOfRangeException(nameof(dt))
-        };
-
-    DateTimeOffset ToJst(DateTime dt) => ToOffset(dt, TimeSpan.FromHours(9), treatUnspecifiedAsLocal: false);
+    DateTimeOffset ToJst(long u) => JstExtension.JstUnixTimeSeconds(u);
 }

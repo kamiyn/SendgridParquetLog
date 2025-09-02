@@ -315,7 +315,8 @@ public class CompactionService(
         var outputFiles = new List<string>(24);
 
         // Create compacted parquet file for each hour that has data
-        foreach (var hourGroup in allEvents.GroupBy(e => e.Timestamp.Hour))
+        foreach (var hourGroup in allEvents
+                     .GroupBy(e => JstExtension.JstUnixTimeSeconds(e.Timestamp).Hour))
         {
             int hour = hourGroup.Key;
             var hourEvents = hourGroup.ToArray(); // GroupBy の結果なので必ず1件以上ある
@@ -412,7 +413,7 @@ public class CompactionService(
             yield return new SendGridEvent
             {
                 Email = emailColumn.Data.GetValue(idx)?.ToString() ?? string.Empty,
-                Timestamp = ConvertToDateTime(timestampColumn.Data.GetValue(idx)),
+                Timestamp = ConvertToNullableLong(timestampColumn.Data.GetValue(idx)) ?? 0,
                 Event = eventColumn.Data.GetValue(idx)?.ToString() ?? string.Empty,
                 Category = categoryColumn?.Data.GetValue(idx)?.ToString(),
                 SgEventId = sgEventIdColumn?.Data.GetValue(idx)?.ToString(),
@@ -435,7 +436,7 @@ public class CompactionService(
                 MarketingCampaignName = marketingCampaignNameColumn?.Data.GetValue(idx)?.ToString(),
                 PoolName = poolNameColumn?.Data.GetValue(idx)?.ToString(),
                 PoolId = ConvertToNullableInt(poolIdColumn?.Data.GetValue(idx)),
-                SendAt = ConvertToNullableDateTime(sendAtColumn?.Data.GetValue(idx))
+                SendAt = ConvertToNullableLong(sendAtColumn?.Data.GetValue(idx))
             };
         }
     }
@@ -453,14 +454,6 @@ public class CompactionService(
         }
     }
 
-    private static DateTime ConvertToDateTime(object? value) =>
-        value switch
-        {
-            DateTime dt => dt,
-            long timestamp => DateTimeOffset.FromUnixTimeSeconds(timestamp).DateTime,
-            _ => DateTime.MinValue
-        };
-
     private static int? ConvertToNullableInt(object? value) =>
         value switch
         {
@@ -469,11 +462,11 @@ public class CompactionService(
             _ => null
         };
 
-    private static DateTime? ConvertToNullableDateTime(object? value) =>
+    private static long? ConvertToNullableLong(object? value) =>
         value switch
         {
-            DateTime dt => dt,
-            long timestamp => DateTimeOffset.FromUnixTimeSeconds(timestamp).DateTime,
+            int i => i,
+            long l => (int)l,
             _ => null
         };
 
@@ -485,7 +478,7 @@ public class CompactionService(
     private static FieldProcessor[] CreateFieldProcessors()
     {
         var emailField = new DataField(SendGridWebHookFields.Email, typeof(string));
-        var timestampField = new DataField(SendGridWebHookFields.Timestamp, typeof(DateTime));
+        var timestampField = new DataField(SendGridWebHookFields.Timestamp, typeof(long));
         var eventField = new DataField(SendGridWebHookFields.Event, typeof(string));
         var categoryField = new DataField(SendGridWebHookFields.Category, typeof(string));
         var sgEventIdField = new DataField(SendGridWebHookFields.SgEventId, typeof(string));
@@ -508,7 +501,7 @@ public class CompactionService(
         var marketingCampaignNameField = new DataField(SendGridWebHookFields.MarketingCampaignName, typeof(string));
         var poolNameField = new DataField(SendGridWebHookFields.PoolNameParquetColumn, typeof(string));
         var poolIdField = new DataField(SendGridWebHookFields.PoolIdParquetColumn, typeof(int?));
-        var sendAtField = new DataField(SendGridWebHookFields.SendAt, typeof(DateTime?));
+        var sendAtField = new DataField(SendGridWebHookFields.SendAt, typeof(long?));
 
         return
         [

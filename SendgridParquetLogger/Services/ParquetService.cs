@@ -20,7 +20,7 @@ public class ParquetService
     private static FieldProcessor[] CreateFieldProcessors()
     {
         var emailField = new DataField(SendGridWebHookFields.Email, typeof(string));
-        var timestampField = new DataField(SendGridWebHookFields.Timestamp, typeof(DateTime));
+        var timestampField = new DataField(SendGridWebHookFields.Timestamp, typeof(long));
         var eventField = new DataField(SendGridWebHookFields.Event, typeof(string));
         var categoryField = new DataField(SendGridWebHookFields.Category, typeof(string));
         var sgEventIdField = new DataField(SendGridWebHookFields.SgEventId, typeof(string));
@@ -43,7 +43,7 @@ public class ParquetService
         var marketingCampaignNameField = new DataField(SendGridWebHookFields.MarketingCampaignName, typeof(string));
         var poolNameField = new DataField(SendGridWebHookFields.PoolNameParquetColumn, typeof(string));
         var poolIdField = new DataField(SendGridWebHookFields.PoolIdParquetColumn, typeof(int?));
-        var sendAtField = new DataField(SendGridWebHookFields.SendAt, typeof(DateTime?));
+        var sendAtField = new DataField(SendGridWebHookFields.SendAt, typeof(long?));
 
         return
         [
@@ -53,7 +53,7 @@ public class ParquetService
 
             new FieldProcessor(timestampField,
                 events => new DataColumn(timestampField,
-                    events.Select(e => e.GetDateTime()).ToArray())),
+                    events.Select(e => e.Timestamp).ToArray())),
 
             new FieldProcessor(eventField,
                 events => new DataColumn(eventField,
@@ -145,7 +145,7 @@ public class ParquetService
 
             new FieldProcessor(sendAtField,
                 events => new DataColumn(sendAtField,
-                    events.Select(e => e.SendAt.HasValue ? DateTimeOffset.FromUnixTimeSeconds(e.SendAt.Value).DateTime : (DateTime?)null).ToArray()))
+                    events.Select(e => e.SendAt).ToArray()))
         ];
     }
 
