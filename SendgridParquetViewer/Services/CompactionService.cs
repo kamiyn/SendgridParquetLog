@@ -1,11 +1,8 @@
 ﻿using System.Text.Json;
 
-using Microsoft.Extensions.Options;
-
 using SendgridParquet.Shared;
 
 using SendgridParquetViewer.Models;
-using SendgridParquetViewer.Options;
 
 namespace SendgridParquetViewer.Services;
 
