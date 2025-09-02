@@ -93,45 +93,13 @@ CREATE SECRET s3_secret (
 );";
     }
 
-    private string GetS3Path(YearMonthDayOptional ymd)
-    {
-        var basePath = $"s3://{_s3Options.BUCKETNAME}/{SendGridWebHookFields.FolderPrefixNonCompaction}";
-
-        if (ymd.Year.HasValue)
-        {
-            basePath += $"/{ymd.Year:D4}";
-            if (ymd.Month.HasValue)
-            {
-                basePath += $"/{ymd.Month:D2}";
-                if (ymd.Day.HasValue)
-                {
-                    basePath += $"/{ymd.Day:D2}";
-                }
-                else
-                {
-                    basePath += "/*";
-                }
-            }
-            else
-            {
-                basePath += "/*/*";
-            }
-        }
-        else
-        {
-            basePath += "/*/*/*";
-        }
-
-        basePath += "/*";
-        return basePath;
-    }
-
     public async ValueTask<IList<SendGridEvent>> GetEventsByDateAsync(YearMonthDayOptional ymd, string? email, int? limit, CancellationToken ct = default)
     {
         try
         {
             using var connection = await CreateConnection(ct);
-            var s3Path = GetS3Path(ymd);
+            string nonCompactionFolder = SendGridPathUtility.GetS3NonCompactionFolder(ymd.Year, ymd.Month, ymd.Day);
+            var s3Path = $"s3://{_s3Options.BUCKETNAME}/{nonCompactionFolder}/*";
 
             // 現時点では 日付が path として表現されているため WHERE 句での絞り込みは email のみ
             var emailFilter = !string.IsNullOrWhiteSpace(email)

@@ -10,6 +10,9 @@ public class RunStatus
     [JsonPropertyName("endTime")]
     public DateTimeOffset? EndTime { get; set; }
 
-    [JsonPropertyName("processedDates")]
-    public List<string> ProcessedDates { get; set; } = new();
+    [JsonPropertyName("targetDays")]
+    public IList<DateOnly> TargetDays { get; set; } = [];
+
+    [JsonPropertyName("targetPaths")]
+    public IList<string> TargetPaths { get; set; } = [];
 }

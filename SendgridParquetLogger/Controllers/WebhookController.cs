@@ -1,8 +1,6 @@
 ﻿using System.Net;
-using System.Security.Cryptography;
 
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.WebUtilities;
 
 using SendgridParquet.Shared;
 
@@ -80,7 +78,7 @@ public class WebhookController(
         }
 
         string fileName = GetParquetFileName(targetDay, parquetData);
-        bool uploadSuccess = await s3StorageService.UploadFileAsync(parquetData, fileName, now, ct);
+        bool uploadSuccess = await s3StorageService.PutObjectAsync(parquetData, fileName, now, ct);
         if (!uploadSuccess)
         {
             logger.ZLogError($"Failed to upload Parquet file to S3");
@@ -97,11 +95,8 @@ public class WebhookController(
     /// </summary>
     private static string GetParquetFileName(DateOnly targetDay, Stream parquetData)
     {
-        parquetData.Seek(0, SeekOrigin.Begin);
-        using var sha256 = SHA256.Create();
-        byte[] hash = sha256.ComputeHash(parquetData);
-        string hashString = WebEncoders.Base64UrlEncode(hash);
-        // S3 Object key names are case sensitive https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-keys.html
-        return $"{SendGridWebHookFields.FolderPrefixNonCompaction}/{targetDay:yyyy/MM/dd}/{hashString}.parquet";
+        // DateOnlyをDateTimeに変換してユーティリティクラスに渡す
+        var dateTime = targetDay.ToDateTime(TimeOnly.MinValue);
+        return SendGridPathUtility.GetParquetNonCompactionFileName(dateTime, parquetData);
     }
 }

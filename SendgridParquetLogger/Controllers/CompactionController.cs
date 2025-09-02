@@ -1,5 +1,4 @@
 ﻿using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Logging;
 
 using SendgridParquetLogger.Services;
 
@@ -9,38 +8,34 @@ namespace SendgridParquetLogger.Controllers;
 
 [ApiController]
 [Route("[controller]")]
-public class CompactionController : ControllerBase
+public class CompactionController(
+    ILogger<CompactionController> logger,
+    TimeProvider timeProvider,
+    CompactionService compactionService
+) : ControllerBase
 {
-    private readonly ILogger<CompactionController> _logger;
-    private readonly CompactionService _compactionService;
-
-    public CompactionController(ILogger<CompactionController> logger, CompactionService compactionService)
-    {
-        _logger = logger;
-        _compactionService = compactionService;
-    }
-
     [HttpPost("start")]
     public async Task<IActionResult> StartCompaction(CancellationToken cancellationToken)
     {
+        var now = timeProvider.GetUtcNow();
         try
         {
-            _logger.ZLogInformation($"Compaction start request received");
+            logger.ZLogInformation($"Compaction start request received");
 
-            var result = await _compactionService.StartCompactionAsync(cancellationToken);
+            var result = await compactionService.StartCompactionAsync(now, cancellationToken);
 
             if (!result.CanStart)
             {
-                _logger.ZLogWarning($"Compaction cannot start: {result.Reason}");
+                logger.ZLogWarning($"Compaction cannot start: {result.Reason}");
                 return Conflict(new { message = result.Reason });
             }
 
-            _logger.ZLogInformation($"Compaction process initiated successfully");
+            logger.ZLogInformation($"Compaction process initiated successfully");
             return Ok(new { message = "Compaction process initiated", startTime = result.StartTime });
         }
         catch (Exception ex)
         {
-            _logger.ZLogError(ex, $"Error starting compaction process");
+            logger.ZLogError(ex, $"Error starting compaction process");
             return StatusCode(500, new { message = "Internal server error occurred while starting compaction" });
         }
     }
@@ -50,7 +45,7 @@ public class CompactionController : ControllerBase
     {
         try
         {
-            var status = await _compactionService.GetCompactionStatusAsync(cancellationToken);
+            var status = await compactionService.GetRunStatusAsync(cancellationToken);
 
             if (status == null)
             {
@@ -61,7 +56,7 @@ public class CompactionController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.ZLogError(ex, $"Error retrieving compaction status");
+            logger.ZLogError(ex, $"Error retrieving compaction status");
             return StatusCode(500, new { message = "Internal server error occurred while retrieving status" });
         }
     }
