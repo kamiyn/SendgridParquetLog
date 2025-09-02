@@ -4,8 +4,11 @@ using DuckDB.NET.Data;
 
 using Microsoft.Extensions.Options;
 
+using SendgridParquet.Shared;
+
 using SendgridParquetViewer.Models;
-using SendgridParquetViewer.Options;
+
+using ZLogger;
 
 namespace SendgridParquetViewer.Services;
 
@@ -35,7 +38,7 @@ public class DuckDbService(IOptions<S3Options> s3Options, ILogger<DuckDbService>
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Failed to create DuckDB connection");
+            logger.ZLogError(ex, $"Failed to create DuckDB connection");
             throw;
         }
     }
@@ -105,7 +108,7 @@ CREATE SECRET s3_secret (
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Error querying events by {folder}", folder);
+            logger.ZLogError(ex, $"Error querying events by {folder}");
             throw;
         }
     }

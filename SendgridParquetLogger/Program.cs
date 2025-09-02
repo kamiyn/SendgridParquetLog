@@ -1,7 +1,5 @@
-﻿using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Options;
+﻿using SendgridParquet.Shared;
 
-using SendgridParquetLogger.Options;
 using SendgridParquetLogger.Services;
 
 using ZLogger;
@@ -22,6 +20,7 @@ builder.Services.AddOptions<S3Options>()
     .Bind(builder.Configuration.GetSection(S3Options.SectionName))
     .ValidateDataAnnotations()
     .ValidateOnStart();
+
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
