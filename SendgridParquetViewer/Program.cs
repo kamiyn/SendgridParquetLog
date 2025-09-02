@@ -1,4 +1,6 @@
-﻿using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+﻿using System.Security.Claims;
+
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.FluentUI.AspNetCore.Components;
 using Microsoft.Identity.Web;
@@ -10,6 +12,7 @@ using SendgridParquetViewer.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
+#if !DEBUG
 // Add Azure AD authentication
 builder.Services.AddAuthentication(OpenIdConnectDefaults.AuthenticationScheme)
     .AddMicrosoftIdentityWebApp(options =>
@@ -28,6 +31,7 @@ builder.Services.AddAuthentication(OpenIdConnectDefaults.AuthenticationScheme)
             }
         };
     });
+#endif
 
 // Add authorization with role-based policies
 builder.Services.AddAuthorization(options =>
@@ -68,6 +72,12 @@ builder.Services.AddFluentUIComponents();
 // Add DuckDB service
 builder.Services.AddTransient<DuckDbService>();
 
+// Add S3 storage service
+builder.Services.AddHttpClient<S3StorageService>();
+
+// Add Compaction service
+builder.Services.AddScoped<CompactionService>();
+
 // Add health checks
 builder.Services.AddHealthChecks();
 
@@ -86,6 +96,28 @@ app.UseHttpsRedirection();
 
 // Add authentication and authorization middleware
 app.UseAuthentication();
+
+#if DEBUG
+// DEBUG 時: 認証されていないリクエストに対してデバッグ用の ClaimsPrincipal を自動割当
+app.Use(async (context, next) =>
+{
+    if (!(context.User?.Identity?.IsAuthenticated ?? false))
+    {
+        var claims = new List<Claim>
+        {
+            new Claim(ClaimTypes.NameIdentifier, "debug-user"),
+            new Claim(ClaimTypes.Name, "Debug User"),
+            new Claim(ClaimTypes.Email, "debug@example.com"),
+            // デフォルトで Viewer ロールを付与（ポリシーに適合）
+            new Claim(ClaimTypes.Role, "Viewer")
+        };
+        var identity = new ClaimsIdentity(claims, "Debug");
+        context.User = new ClaimsPrincipal(identity);
+    }
+    await next();
+});
+#endif
+
 app.UseAuthorization();
 
 app.UseAntiforgery();

@@ -5,11 +5,11 @@ using System.Xml.Linq;
 
 using Microsoft.Extensions.Options;
 
-using SendgridParquetLogger.Options;
+using SendgridParquetViewer.Options;
 
 using ZLogger;
 
-namespace SendgridParquetLogger.Services;
+namespace SendgridParquetViewer.Services;
 
 public class S3StorageService(
     ILogger<S3StorageService> logger,
@@ -272,13 +272,39 @@ public class S3StorageService(
     /// <returns></returns>
     public async ValueTask<IEnumerable<string>> ListDirectoriesAsync(string prefix, DateTimeOffset now, CancellationToken ct)
     {
-        S3SignatureSource signatureSource = new(now, _options.REGION);
+        var content = await ListObjectsAsync(new ListObjectsRequest(prefix, Delimiter: "/", now), ct);
+        XDocument doc = XDocument.Parse(content);
+        XNamespace ns = doc.Root?.GetDefaultNamespace() ?? XNamespace.None;
+        return doc.Descendants(ns + "CommonPrefixes")
+            .Select(cp => cp.Element(ns + "Prefix")?.Value)
+            .Where(p => !string.IsNullOrEmpty(p))
+            .Select(p => p!.TrimEnd('/').Split('/').LastOrDefault() ?? string.Empty)
+            .Where(d => !string.IsNullOrEmpty(d));
+    }
 
+    public async ValueTask<IEnumerable<string>> ListFilesAsync(string prefix, DateTimeOffset now, CancellationToken ct)
+    {
+        var content = await ListObjectsAsync(new ListObjectsRequest(prefix, Delimiter: null, now), ct);
+        XDocument doc = XDocument.Parse(content);
+        XNamespace ns = doc.Root?.GetDefaultNamespace() ?? XNamespace.None;
+        return doc.Descendants(ns + "Contents")
+            .Select(cp => cp.Element(ns + "Key")?.Value!)
+            .Where(p => !string.IsNullOrEmpty(p));
+    }
+
+    public record struct ListObjectsRequest(string Prefix, string? Delimiter, DateTimeOffset Now)
+    {
+        internal string GetQueryString() =>
+            $"prefix={Uri.EscapeDataString(Prefix.TrimEnd('/') + "/")}" +
+            (string.IsNullOrEmpty(Delimiter) ? string.Empty : $"&delimiter={Uri.EscapeDataString(Delimiter)}");
+    }
+
+    private async ValueTask<string> ListObjectsAsync(ListObjectsRequest req, CancellationToken ct)
+    {
+        S3SignatureSource signatureSource = new(req.Now, _options.REGION);
         try
         {
-            var delimiter = "/";
-            var encodedPrefix = Uri.EscapeDataString(prefix + "/");
-            var uriString = $"{_options.SERVICEURL}/{_options.BUCKETNAME}/?prefix={encodedPrefix}&delimiter={delimiter}";
+            var uriString = $"{_options.SERVICEURL}/{_options.BUCKETNAME}/?{req.GetQueryString()}";
             var uri = new Uri(uriString);
             using var request = new HttpRequestMessage(HttpMethod.Get, uri);
             using var requestContent = new MemoryStream([]);
@@ -288,25 +314,18 @@ public class S3StorageService(
 
             if (response.IsSuccessStatusCode)
             {
-                // Parse XML response using LINQ to XML
-                XDocument doc = XDocument.Parse(content);
-                XNamespace ns = doc.Root?.GetDefaultNamespace() ?? XNamespace.None;
-                return doc.Descendants(ns + "CommonPrefixes")
-                    .Select(cp => cp.Element(ns + "Prefix")?.Value)
-                    .Where(p => !string.IsNullOrEmpty(p))
-                    .Select(p => p!.TrimEnd('/').Split('/').LastOrDefault() ?? string.Empty)
-                    .Where(d => !string.IsNullOrEmpty(d));
+                return content;
             }
             else
             {
-                logger.ZLogError($"Error listing directories for prefix {prefix}. Status: {response.StatusCode}, Response: {content}");
-                return [];
+                logger.ZLogError($"Error listing directories for prefix {req.Prefix}. Status: {response.StatusCode}, Response: {content}");
+                return string.Empty;
             }
         }
         catch (Exception ex)
         {
-            logger.ZLogError(ex, $"Error listing directories for prefix {prefix}", prefix);
-            return [];
+            logger.ZLogError(ex, $"Error listing directories for prefix {req.Prefix}");
+            return string.Empty;
         }
     }
 
@@ -549,8 +568,8 @@ internal class S3CanonicalHeaders
 
 internal record struct S3SignatureSource(DateTimeOffset now, string region)
 {
-    internal string Date => now.ToString("yyyyMMdd");
-    internal string AmzDate => now.ToString("yyyyMMddTHHmmssZ");
+    internal string Date => now.UtcDateTime.ToString("yyyyMMdd");
+    internal string AmzDate => now.UtcDateTime.ToString("yyyyMMddTHHmmssZ");
     internal string Region => region;
     internal string Service => "s3";
     internal string Signing => "aws4_request";

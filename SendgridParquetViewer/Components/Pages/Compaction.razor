@@ -1,0 +1,152 @@
+@page "/compaction"
+@rendermode InteractiveServer
+@using SendgridParquetViewer.Models
+@inject ILogger<Compaction> Logger
+@inject CompactionService CompactionService
+
+<PageTitle>Compaction Management</PageTitle>
+
+<FluentCard class="main-card">
+    <FluentHeader>
+        <FluentSpacer />
+        <FluentLabel Typo="Typography.PageTitle">Compaction Management</FluentLabel>
+        <FluentSpacer />
+    </FluentHeader>
+
+    <p>Manage Parquet file compaction processes for SendGrid webhook data.</p>
+
+    <FluentGrid>
+        <FluentGridItem xs="12" md="6">
+            <FluentCard>
+                <FluentHeader>
+                    <FluentLabel Typo="Typography.Subject">Current Status</FluentLabel>
+                </FluentHeader>
+                
+                @if (_runStatus != null)
+                {
+                    <p>
+                        <strong>Start Time:</strong> @_runStatus.StartTime.ToString("yyyy-MM-dd HH:mm:ss UTC")<br />
+                        @if (_runStatus.EndTime.HasValue)
+                        {
+                            <strong>End Time:</strong> @_runStatus.EndTime.Value.ToString("yyyy-MM-dd HH:mm:ss UTC")<br />
+                            <strong>Status:</strong> <FluentBadge BackgroundColor="var(--success)" Color="white">Completed</FluentBadge>
+                        }
+                        else
+                        {
+                            <strong>Status:</strong> <FluentBadge BackgroundColor="var(--accent-fill-rest)">Running</FluentBadge>
+                        }
+                        <br />
+                        <strong>Target Days:</strong> @_runStatus.TargetDays.Count<br />
+                        <strong>Target Paths:</strong> @string.Join(", ", _runStatus.TargetPathPrefixes.Take(3))
+                        @if (_runStatus.TargetPathPrefixes.Count > 3)
+                        {
+                            <text> and @(_runStatus.TargetPathPrefixes.Count - 3) more...</text>
+                        }
+                    </p>
+                }
+                else if (_isLoadingStatus)
+                {
+                    <FluentProgressRing />
+                    <p>Loading status...</p>
+                }
+                else
+                {
+                    <p>No active compaction process found.</p>
+                }
+
+                <FluentButton Appearance="Appearance.Neutral" OnClick="RefreshStatus" Loading="_isLoadingStatus">
+                    Refresh
+                </FluentButton>
+            </FluentCard>
+        </FluentGridItem>
+
+        <FluentGridItem xs="12" md="6">
+            <FluentCard>
+                <FluentHeader>
+                    <FluentLabel Typo="Typography.Subject">Start New Compaction</FluentLabel>
+                </FluentHeader>
+                
+                <p>Start a new compaction process. This will process all available non-compacted Parquet files.</p>
+
+                <FluentButton Appearance="Appearance.Accent" 
+                             OnClick="StartCompaction" 
+                             Loading="_isStarting"
+                             Disabled="@(_runStatus?.EndTime == null && _runStatus != null)">
+                    Start Compaction
+                </FluentButton>
+            </FluentCard>
+        </FluentGridItem>
+    </FluentGrid>
+
+    @if (!string.IsNullOrEmpty(_message))
+    {
+        <FluentMessageBar Intent="@_messageIntent" OnDismiss="() => message = string.Empty">
+            @_message
+        </FluentMessageBar>
+    }
+</FluentCard>
+
+@code {
+    private RunStatus? _runStatus;
+    private bool _isLoadingStatus;
+    private bool _isStarting;
+    private string _message = string.Empty;
+    private MessageIntent _messageIntent = MessageIntent.Info;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshStatus();
+    }
+
+    private async Task RefreshStatus()
+    {
+        _isLoadingStatus = true;
+        try
+        {
+            _runStatus = await CompactionService.GetRunStatusAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error refreshing compaction status");
+            ShowMessage("Error refreshing status", MessageIntent.Error);
+        }
+        finally
+        {
+            _isLoadingStatus = false;
+        }
+    }
+
+    private async Task StartCompaction()
+    {
+        _isStarting = true;
+        try
+        {
+            var result = await CompactionService.StartCompactionAsync();
+            if (result.CanStart)
+            {
+                ShowMessage($"Compaction started successfully at {result.StartTime}", MessageIntent.Success);
+                await RefreshStatus();
+            }
+            else
+            {
+                ShowMessage($"Cannot start compaction: {result.Reason}", MessageIntent.Warning);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error starting compaction");
+            ShowMessage("Error starting compaction", MessageIntent.Error);
+        }
+        finally
+        {
+            _isStarting = false;
+        }
+    }
+
+    private void ShowMessage(string msg, MessageIntent intent)
+    {
+        _message = msg;
+        _messageIntent = intent;
+        StateHasChanged();
+    }
+}

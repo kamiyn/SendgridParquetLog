@@ -2,20 +2,6 @@
 
 public static class SendGridWebHookFields
 {
-    /// <summary>
-    /// Parquet 列定義のバージョンに合わせて フォルダー名の prefix を付与する
-    ///
-    /// Compaction 前のフォルダー名
-    /// </summary>
-    public const string FolderPrefixNonCompaction = "v2raw";
-
-    /// <summary>
-    /// Parquet 列定義のバージョンに合わせて フォルダー名の prefix を付与する
-    ///
-    /// Compaction 後のフォルダー名
-    /// </summary>
-    public const string FolderPrefixCompaction = "v2compaction";
-
     public const string Email = "email";
     public const string Timestamp = "timestamp";
     public const string Event = "event";
