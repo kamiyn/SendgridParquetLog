@@ -25,7 +25,7 @@ public class CompactionController : ControllerBase
     {
         try
         {
-            _logger.ZLogInformation("Compaction start request received");
+            _logger.ZLogInformation($"Compaction start request received");
 
             var result = await _compactionService.StartCompactionAsync(cancellationToken);
 
@@ -40,7 +40,7 @@ public class CompactionController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.ZLogError(ex, "Error starting compaction process");
+            _logger.ZLogError(ex, $"Error starting compaction process");
             return StatusCode(500, new { message = "Internal server error occurred while starting compaction" });
         }
     }
@@ -61,7 +61,7 @@ public class CompactionController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.ZLogError(ex, "Error retrieving compaction status");
+            _logger.ZLogError(ex, $"Error retrieving compaction status");
             return StatusCode(500, new { message = "Internal server error occurred while retrieving status" });
         }
     }

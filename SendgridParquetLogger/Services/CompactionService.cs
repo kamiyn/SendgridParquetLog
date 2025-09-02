@@ -103,7 +103,7 @@ public class CompactionService
         }
         catch (Exception ex)
         {
-            _logger.ZLogError(ex, "Error during compaction start");
+            _logger.ZLogError(ex, $"Error during compaction start");
             await ReleaseLockAsync(lockPath, lockId, cancellationToken);
             throw;
         }
@@ -167,7 +167,7 @@ public class CompactionService
         }
         catch (Exception ex)
         {
-            _logger.ZLogError(ex, "Error retrieving target dates for compaction");
+            _logger.ZLogError(ex, $"Error retrieving target dates for compaction");
         }
 
         return targetDates;
@@ -216,7 +216,7 @@ public class CompactionService
         }
         catch (Exception ex)
         {
-            _logger.ZLogError(ex, "Error acquiring lock");
+            _logger.ZLogError(ex, $"Error acquiring lock");
             return false;
         }
     }
@@ -243,7 +243,7 @@ public class CompactionService
         }
         catch (Exception ex)
         {
-            _logger.ZLogError(ex, "Error releasing lock");
+            _logger.ZLogError(ex, $"Error releasing lock");
             return false;
         }
     }
@@ -271,7 +271,7 @@ public class CompactionService
         }
         catch (Exception ex)
         {
-            _logger.ZLogError(ex, "Error extending lock");
+            _logger.ZLogError(ex, $"Error extending lock");
             return false;
         }
     }
@@ -280,7 +280,7 @@ public class CompactionService
     {
         try
         {
-            _logger.ZLogInformation("Starting compaction execution (placeholder implementation)");
+            _logger.ZLogInformation($"Starting compaction execution (placeholder implementation)");
 
             // Periodically extend lock while processing
             using var lockExtensionTimer = new PeriodicTimer(TimeSpan.FromMinutes(10));
@@ -304,7 +304,7 @@ public class CompactionService
         }
         catch (Exception ex)
         {
-            _logger.ZLogError(ex, "Error during compaction execution");
+            _logger.ZLogError(ex, $"Error during compaction execution");
         }
         finally
         {

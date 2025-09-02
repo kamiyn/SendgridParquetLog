@@ -5,7 +5,9 @@
       "Bash(wsl docker compose:*)",
       "Bash(wsl docker:*)",
       "WebFetch(domain:manual.sakura.ad.jp)",
-      "Bash(dotnet add:*)"
+      "Bash(dotnet add:*)",
+      "Bash(dotnet format:*)",
+      "Bash(dotnet build)"
     ],
     "deny": [],
     "ask": []
