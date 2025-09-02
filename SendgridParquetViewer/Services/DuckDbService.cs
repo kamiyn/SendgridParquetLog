@@ -98,7 +98,7 @@ CREATE SECRET s3_secret (
         try
         {
             using var connection = await CreateConnection(ct);
-            string nonCompactionFolder = SendGridPathUtility.GetS3NonCompactionFolder(ymd.Year, ymd.Month, ymd.Day);
+            string nonCompactionFolder = SendGridPathUtility.GetS3NonCompactionWildcard(ymd.Year, ymd.Month, ymd.Day);
             var s3Path = $"s3://{_s3Options.BUCKETNAME}/{nonCompactionFolder}/*";
 
             // 現時点では 日付が path として表現されているため WHERE 句での絞り込みは email のみ

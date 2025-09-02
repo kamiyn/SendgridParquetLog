@@ -22,9 +22,9 @@ public class S3StorageService(
     public async ValueTask<bool> PutObjectAsync(Stream content, string key, DateTimeOffset now, CancellationToken ct)
     {
         S3SignatureSource signatureSource = new(now, _options.REGION);
+        var uri = new Uri($"{_options.SERVICEURL}/{_options.BUCKETNAME}/{key}");
         try
         {
-            var uri = new Uri($"{_options.SERVICEURL}/{_options.BUCKETNAME}/{key}");
             using var request = new HttpRequestMessage(HttpMethod.Put, uri);
 
             AddAwsSignatureHeaders(request, content, signatureSource);
@@ -39,19 +39,19 @@ public class S3StorageService(
                 // 成功時には Content は空のため Read しなくてよい
                 //string responseContent = await response.Content.ReadAsStringAsync(ct);
                 string? etag = response.Headers.ETag?.Tag;
-                logger.ZLogInformation($"File {key} uploaded successfully to S3. ETag: {etag}", key, etag);
+                logger.ZLogInformation($"File {uri} uploaded successfully to S3. ETag: {etag}");
                 return true;
             }
             else
             {
                 string responseContent = await response.Content.ReadAsStringAsync(ct);
-                logger.ZLogError($"Error uploading file {key} to S3. Status: {response.StatusCode}, Response: {responseContent}");
+                logger.ZLogError($"Error uploading file {uri} to S3. Status: {response.StatusCode}, Response: {responseContent}");
                 return false;
             }
         }
         catch (Exception ex)
         {
-            logger.ZLogError(ex, $"Error uploading file {key} to S3", key);
+            logger.ZLogError(ex, $"Error uploading file {uri} to S3");
             return false;
         }
     }
@@ -144,7 +144,7 @@ public class S3StorageService(
             else
             {
                 string responseContent = Encoding.UTF8.GetString(content);
-                logger.ZLogError($"Error getting object {key} from S3. Status: {response.StatusCode}, Response: {responseContent}");
+                logger.ZLogError($"Error getting object {uri} from S3. Status: {response.StatusCode}, Response: {responseContent}");
                 throw new InvalidOperationException($"Failed to get object: {response.StatusCode}");
             }
         }
@@ -158,9 +158,9 @@ public class S3StorageService(
     public async ValueTask<bool> DeleteObjectAsync(string key, DateTimeOffset now, CancellationToken ct)
     {
         S3SignatureSource signatureSource = new(now, _options.REGION);
+        var uri = new Uri($"{_options.SERVICEURL}/{_options.BUCKETNAME}/{key}");
         try
         {
-            var uri = new Uri($"{_options.SERVICEURL}/{_options.BUCKETNAME}/{key}");
             using var request = new HttpRequestMessage(HttpMethod.Delete, uri);
             using var requestContent = new MemoryStream([]);
             AddAwsSignatureHeaders(request, requestContent, signatureSource);
@@ -168,19 +168,19 @@ public class S3StorageService(
 
             if (response.IsSuccessStatusCode || response.StatusCode == HttpStatusCode.NoContent)
             {
-                logger.ZLogInformation($"Object {key} deleted successfully from S3", key);
+                logger.ZLogInformation($"Object {uri} deleted successfully from S3");
                 return true;
             }
             else
             {
                 string responseContent = await response.Content.ReadAsStringAsync(ct);
-                logger.ZLogError($"Error deleting object {key} from S3. Status: {response.StatusCode}, Response: {responseContent}");
+                logger.ZLogError($"Error deleting object {uri} from S3. Status: {response.StatusCode}, Response: {responseContent}");
                 return false;
             }
         }
         catch (Exception ex)
         {
-            logger.ZLogError(ex, $"Error deleting object {key} from S3", key);
+            logger.ZLogError(ex, $"Error deleting object {uri} from S3");
             return false;
         }
     }
@@ -188,13 +188,14 @@ public class S3StorageService(
     public async ValueTask<bool> PutObjectWithConditionAsync(string key, byte[] content, byte[] expectedContent, DateTimeOffset now, CancellationToken ct)
     {
         S3SignatureSource signatureSource = new(now, _options.REGION);
+        var uri = new Uri($"{_options.SERVICEURL}/{_options.BUCKETNAME}/{key}");
         try
         {
             // First, get the current ETag if object exists
             string? currentETag = null;
             if (expectedContent.Any())
             {
-                currentETag = await GetCurrentEtag(key, signatureSource, ct);
+                currentETag = await GetCurrentEtag(uri, signatureSource, ct);
                 // Expected content but no current object - should fail
                 if (string.IsNullOrEmpty(currentETag))
                 {
@@ -203,7 +204,6 @@ public class S3StorageService(
             }
 
             // Now do conditional PUT
-            var uri = new Uri($"{_options.SERVICEURL}/{_options.BUCKETNAME}/{key}");
             using var request = new HttpRequestMessage(HttpMethod.Put, uri);
             using var stream = new MemoryStream(content);
 
@@ -228,32 +228,34 @@ public class S3StorageService(
             if (response.IsSuccessStatusCode)
             {
                 string? etag = response.Headers.ETag?.Tag;
-                logger.ZLogInformation($"Object {key} uploaded conditionally to S3. ETag: {etag}", key, etag);
+                logger.ZLogInformation($"Object {uri} uploaded conditionally to S3. ETag: {etag}");
                 return true;
             }
             else if (response.StatusCode == HttpStatusCode.PreconditionFailed)
             {
-                logger.ZLogInformation($"Conditional PUT failed for {key} - precondition not met", key);
+                logger.ZLogInformation($"Conditional PUT failed for {uri} - precondition not met");
                 return false;
             }
             else
             {
                 string responseContent = await response.Content.ReadAsStringAsync(ct);
-                logger.ZLogError($"Error uploading object {key} to S3. Status: {response.StatusCode}, Response: {responseContent}");
+                logger.ZLogError($"Error uploading object {uri} to S3. Status: {response.StatusCode}, Response: {responseContent}");
                 return false;
             }
         }
         catch (Exception ex)
         {
-            logger.ZLogError(ex, $"Error uploading object {key} to S3", key);
+            logger.ZLogError(ex, $"Error uploading object {uri} to S3", key);
             return false;
         }
     }
 
-    private async ValueTask<string?> GetCurrentEtag(string key, S3SignatureSource signatureSource, CancellationToken ct)
+    /// <summary>
+    /// HEAD リクエストを送り、ETag ヘッダーを取得する
+    /// </summary>
+    private async ValueTask<string?> GetCurrentEtag(Uri uri, S3SignatureSource signatureSource, CancellationToken ct)
     {
-        var headUri = new Uri($"{_options.SERVICEURL}/{_options.BUCKETNAME}/{key}");
-        using var headRequest = new HttpRequestMessage(HttpMethod.Head, headUri);
+        using var headRequest = new HttpRequestMessage(HttpMethod.Head, uri);
         using var headRequestContent = new MemoryStream([]);
         AddAwsSignatureHeaders(headRequest, headRequestContent, signatureSource);
         using HttpResponseMessage headResponse = await httpClient.SendAsync(headRequest, ct);
@@ -268,7 +270,7 @@ public class S3StorageService(
     /// <param name="now"></param>
     /// <param name="ct"></param>
     /// <returns></returns>
-    public async ValueTask<IList<string>> ListDirectoriesAsync(string prefix, DateTimeOffset now, CancellationToken ct)
+    public async ValueTask<IEnumerable<string>> ListDirectoriesAsync(string prefix, DateTimeOffset now, CancellationToken ct)
     {
         S3SignatureSource signatureSource = new(now, _options.REGION);
 
@@ -293,8 +295,7 @@ public class S3StorageService(
                     .Select(cp => cp.Element(ns + "Prefix")?.Value)
                     .Where(p => !string.IsNullOrEmpty(p))
                     .Select(p => p!.TrimEnd('/').Split('/').LastOrDefault() ?? string.Empty)
-                    .Where(d => !string.IsNullOrEmpty(d))
-                    .ToList();
+                    .Where(d => !string.IsNullOrEmpty(d));
             }
             else
             {
@@ -343,10 +344,155 @@ public class S3StorageService(
     {
         var method = request.Method.Method;
         var canonicalUri = request.RequestUri!.AbsolutePath;
-        var canonicalQueryString = request.RequestUri.Query.TrimStart('?');
+        var canonicalQueryString = CanonicalizeQuery(request.RequestUri.Query.TrimStart('?'));
         var canonicalHeadersString = canonicalHeaders.CanonicalHeaders;
         var signedHeaders = canonicalHeaders.SignedHeaders;
         return $"{method}\n{canonicalUri}\n{canonicalQueryString}\n{canonicalHeadersString}\n{signedHeaders}\n{contentHash}";
+    }
+
+    private string CanonicalizeQuery(string rawQuery)
+    {
+        if (string.IsNullOrEmpty(rawQuery))
+        {
+            return string.Empty;
+        }
+        var sortedSegment = GetQueryKeyValuePairs(rawQuery)
+            .OrderBy(p => p.Key, ByteArrayComparer.Instance)
+            .ThenBy(p => p.Value, ByteArrayComparer.Instance)
+            .Select(kv => $"{Encoding.UTF8.GetString(kv.Key)}={Encoding.UTF8.GetString(kv.Value)}");
+        return string.Join("&", sortedSegment);
+    }
+
+    private static IEnumerable<(byte[] Key, byte[] Value)> GetQueryKeyValuePairs(string rawQuery)
+    {
+        foreach (var seg in rawQuery.Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var span = seg.AsSpan();
+            int idx = span.IndexOf('=');
+            ReadOnlySpan<char> keySpan = idx >= 0 ? span[..idx] : span;
+            ReadOnlySpan<char> valueSpan = idx >= 0 ? span.Slice(idx + 1) : ReadOnlySpan<char>.Empty;
+            yield return (CanonicalizeString(keySpan), CanonicalizeString(valueSpan));
+        }
+    }
+
+    /// <summary>
+    /// RFC3986 にしたがってパーセントエンコードする 結果は UTF-8 のバイト列
+    /// </summary>
+    private static byte[] CanonicalizeString(ReadOnlySpan<char> s) =>
+        CanonicalizedPercentEncode(UrlDecodeToUtf8Bytes(s)).ToArray();
+
+    /// <summary>
+    /// input を走査して URL デコードを行い、結果を UTF-8 バイト列として返す。
+    /// '+' -> ' '、'%XX' -> バイト、その他は UTF-8 にエンコードして追加する。
+    /// サロゲートペアも扱う。
+    /// </summary>
+    private static IList<byte> UrlDecodeToUtf8Bytes(ReadOnlySpan<char> input)
+    {
+        var bytes = new List<byte>(input.Length);
+        int idx = 0;
+        while (idx < input.Length)
+        {
+            char c = input[idx];
+            switch (c)
+            {
+                case '%':
+                    // % の後に 2 つの hex があればバイトとして追加
+                    byte? percentDecodeValue = GetPercentDecodeValue(input, idx);
+                    if (percentDecodeValue.HasValue)
+                    {
+                        bytes.Add(percentDecodeValue.Value);
+                        idx += 3;
+                    }
+                    else
+                    {
+                        // 不正な % シーケンスはリテラル '%' として扱う
+                        bytes.Add((byte)'%');
+                        idx++;
+                    }
+                    break;
+                case '+':
+                    // + はスペースに変換
+                    bytes.Add((byte)' ');
+                    idx++;
+                    break;
+                default:
+                    if (c <= 0x7F)
+                    {
+                        // ASCII はそのまま 1 バイト
+                        bytes.Add((byte)c);
+                        idx++;
+                    }
+                    else
+                    {
+                        if (char.IsHighSurrogate(c) && idx + 1 < input.Length && char.IsLowSurrogate(input[idx + 1]))
+                        {
+                            // 非 ASCII: 2 文字のサロゲートペア
+                            bytes.AddRange(Encoding.UTF8.GetBytes([c, input[idx + 1]]));
+                            idx += 2;
+                        }
+                        else
+                        {
+                            // 非 ASCII: 単一の非 ASCII 文字
+                            bytes.AddRange(Encoding.UTF8.GetBytes([c]));
+                            idx++;
+                        }
+                    }
+                    break;
+            }
+        }
+
+        return bytes;
+    }
+
+    private static byte? GetPercentDecodeValue(ReadOnlySpan<char> input, int idx)
+    {
+        if (idx + 2 < input.Length)
+        {
+            int hi = FromHex(input[idx + 1]);
+            int lo = FromHex(input[idx + 2]);
+            return hi >= 0 && lo >= 0
+                ? (byte)((hi << 4) | lo)
+                : null;
+        }
+
+        return null;
+
+        static int FromHex(char ch) =>
+            ch switch
+            {
+                >= '0' and <= '9' => ch - '0',
+                >= 'a' and <= 'f' => ch - 'a' + 10,
+                >= 'A' and <= 'F' => ch - 'A' + 10,
+                _ => -1,
+            };
+    }
+
+    private static IEnumerable<byte> CanonicalizedPercentEncode(IEnumerable<byte> decodedBytes)
+    {
+        foreach (byte b in decodedBytes)
+        {
+            if (b switch
+            {
+                // RFC3986 の unreserved characters
+                0x2D or 0x2E or 0x5F or 0x7E => true,
+                >= 0x41 and <= 0x5A => true,
+                >= 0x61 and <= 0x7A => true,
+                >= 0x30 and <= 0x39 => true,
+                _ => false,
+            })
+            {
+                // エンコード不要な文字はそのまま
+                yield return b;
+            }
+            else
+            {
+                // それ以外は %XX にエンコード (A-F は大文字)
+                foreach (byte c in Encoding.UTF8.GetBytes($"%{b:X2}"))
+                {
+                    yield return c;
+                }
+            }
+        }
     }
 
     private string CalculateSignature(string stringToSign, S3SignatureSource signatureSource)

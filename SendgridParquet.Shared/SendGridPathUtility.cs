@@ -69,9 +69,9 @@ public static class SendGridPathUtility
         (year, month, day) switch
         {
             (null, null, null) => "",
-            (int y, int m, int d) => $"/{y:D4}/{m:D2}/{d:D2}",
-            (int y, int m, null) => $"/{y:D4}/{m:D2}/*",
-            (int y, null, _) => $"/{y:D4}/*/*",
+            ({ /* NOT NULL pattern */ } y, { } m, { } d) => $"/{y:D4}/{m:D2}/{d:D2}",
+            ({ } y, { } m, null) => $"/{y:D4}/{m:D2}/*",
+            ({ } y, null, _) => $"/{y:D4}/*/*",
             (null, _, _) => "/*/*/*"
         };
 
@@ -82,9 +82,8 @@ public static class SendGridPathUtility
     /// <param name="month">月（nullの場合は全月対象）</param>
     /// <param name="day">日（nullの場合は全日対象）</param>
     /// <returns>完全なS3パス</returns>
-    public static string GetS3NonCompactionFolder(int? year, int? month, int? day) =>
+    public static string GetS3NonCompactionWildcard(int? year, int? month, int? day) =>
         $"{FolderPrefixNonCompaction}{GetYmdWildcard(year, month, day)}";
-
 
     /// <summary>
     /// パス（prefix/path/*）を生成する（Compaction用のオーバーロード）
@@ -93,8 +92,27 @@ public static class SendGridPathUtility
     /// <param name="month">月（nullの場合は全月対象）</param>
     /// <param name="day">日（nullの場合は全日対象）</param>
     /// <returns>完全なS3パス</returns>
-    public static string GetS3CompactionFolder(int? year, int? month, int? day) =>
+    public static string GetS3CompactionWildcard(int? year, int? month, int? day) =>
         $"{FolderPrefixCompaction}{GetYmdWildcard(year, month, day)}";
+    private static string GetYmdPrefix(int? year, int? month, int? day) =>
+        (year, month, day) switch
+        {
+            (null, null, null) => "",
+            ({ } y, { } m, { } d) => $"/{y:D4}/{m:D2}/{d:D2}",
+            ({ } y, { } m, null) => $"/{y:D4}/{m:D2}",
+            ({ } y, null, _) => $"/{y:D4}",
+            (null, _, _) => ""
+        };
+
+    /// <summary>
+    /// パス（prefix/path/*）を生成する（NonCompaction用のオーバーロード）
+    /// </summary>
+    /// <param name="year">年（nullの場合は全年対象）</param>
+    /// <param name="month">月（nullの場合は全月対象）</param>
+    /// <param name="day">日（nullの場合は全日対象）</param>
+    /// <returns>完全なS3パス</returns>
+    public static string GetS3NonCompactionPrefix(int? year, int? month, int? day) =>
+        $"{FolderPrefixNonCompaction}{GetYmdPrefix(year, month, day)}";
 
     public static (string runJsonPath, string lockPath) GetS3CompactionRunFile() =>
         ($"{FolderPrefixCompaction}/run.json", $"{FolderPrefixCompaction}/run.lock");

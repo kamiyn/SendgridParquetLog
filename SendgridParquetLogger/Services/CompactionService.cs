@@ -52,7 +52,7 @@ public class CompactionService(
 
             var targetDays = await GetTargetDaysAsync(cancellationToken);
 
-            var newStatus = new RunStatus
+            var runStatus = new RunStatus
             {
                 StartTime = startTime,
                 EndTime = null,
@@ -60,11 +60,18 @@ public class CompactionService(
                 TargetPaths = targetDays.Select(x => x.path).ToArray(),
             };
 
-            await SaveRunStatusAsync(newStatus, cancellationToken);
+            await SaveRunStatusAsync(runStatus, cancellationToken);
 
             logger.ZLogInformation($"Compaction process started at {startTime:s} with {targetDays.Count} target dates");
 
-             await ExecuteCompactionAsync(newStatus, lockId, cancellationToken);
+            // 実行開始するだけで、完了は待たない
+            _ = Task.Run(async () =>
+            {
+                await ExecuteCompactionAsync(lockId, cancellationToken);
+                runStatus.EndTime = timeProvider.GetUtcNow();
+                await SaveRunStatusAsync(runStatus, cancellationToken);
+                logger.ZLogInformation($"Compaction process completed at {runStatus.EndTime:s}");
+            }, cancellationToken);
 
             return new CompactionStartResult
             {
@@ -117,24 +124,23 @@ public class CompactionService(
     private async Task<IList<(DateOnly dateOnly, string path)>> GetTargetDaysAsync(CancellationToken cancellationToken)
     {
         var now = timeProvider.GetUtcNow();
-        var targetDates = new List<(DateOnly dateOnly, string path)>();
-
+        var targetDays = new List<(DateOnly dateOnly, string path)>();
         try
         {
-            IList<string> yearDir = await s3StorageService.ListDirectoriesAsync(SendGridPathUtility.GetS3CompactionFolder(null, null, null), now, cancellationToken);
+            var yearDir = await s3StorageService.ListDirectoriesAsync(SendGridPathUtility.GetS3NonCompactionPrefix(null, null, null), now, cancellationToken);
             foreach (int year in yearDir.Select(d => int.TryParse(d, out int v) ? v : 0).Where(year => year > 0))
             {
-                var yearPath = SendGridPathUtility.GetS3CompactionFolder(year, null, null);
+                var yearPath = SendGridPathUtility.GetS3NonCompactionPrefix(year, null, null);
                 var monthDirs = await s3StorageService.ListDirectoriesAsync(yearPath, now, cancellationToken);
                 foreach (var month in monthDirs.Select(d => int.TryParse(d, out int v) ? v : 0).Where(month => month > 0))
                 {
-                    var monthPath = SendGridPathUtility.GetS3CompactionFolder(year, month, null);
+                    var monthPath = SendGridPathUtility.GetS3NonCompactionPrefix(year, month, null);
                     var dayDirs = await s3StorageService.ListDirectoriesAsync(monthPath, now, cancellationToken);
                     foreach (var day in dayDirs.Select(d => int.TryParse(d, out int v) ? v : 0).Where(day => day > 0))
                     {
-                        var dayPath = SendGridPathUtility.GetS3CompactionFolder(year, month, day);
+                        var dayPath = SendGridPathUtility.GetS3NonCompactionPrefix(year, month, day);
                         DateOnly dateOnly = new(year, month, day);
-                        targetDates.Add((dateOnly, dayPath));
+                        targetDays.Add((dateOnly, dayPath));
                     }
                 }
             }
@@ -144,7 +150,7 @@ public class CompactionService(
             logger.ZLogError(ex, $"Error retrieving target dates for compaction");
         }
 
-        return targetDates;
+        return targetDays;
     }
 
     private async Task<bool> TryAcquireLockAsync(string lockId, CancellationToken cancellationToken)
@@ -223,34 +229,30 @@ public class CompactionService(
         }
     }
 
-    private async Task ExecuteCompactionAsync(RunStatus status, string lockId, CancellationToken cancellationToken)
+    private async Task ExecuteCompactionAsync(string lockId, CancellationToken cancellationToken)
     {
         // Periodically extend lock while processing
-        using var lockExtensionTask = Task.Run(async () =>
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        _ = Task.Run(async () =>
         {
             var (_, lockPath) = SendGridPathUtility.GetS3CompactionRunFile();
-            while (!cancellationToken.IsCancellationRequested)
+            while (!cts.Token.IsCancellationRequested)
             {
-                await ExtendLockAsync(lockPath, lockId, cancellationToken);
+                await ExtendLockAsync(lockPath, lockId, cts.Token);
                 // Extend halfway before expiry
-                await Task.Delay(TimeSpan.FromMilliseconds(s_lockFileDuration.TotalMilliseconds / 2), cancellationToken);
+                await Task.Delay(TimeSpan.FromMilliseconds(s_lockFileDuration.TotalMilliseconds / 2), cts.Token);
             }
-        }, cancellationToken);
+        }, cts.Token);
         try
         {
-            logger.ZLogInformation($"Starting compaction execution at {status.StartTime:s}");
-
             // Simulate work
-            await Task.Delay(1000, cancellationToken);
-
-            status.EndTime = timeProvider.GetUtcNow();
-            await SaveRunStatusAsync(status, cancellationToken);
-            logger.ZLogInformation($"Compaction process completed at {status.EndTime:s}");
+            await Task.Delay(1000, cts.Token);
         }
         finally
         {
-            // Always release lock when done
-            await ReleaseLockAsync(lockId, cancellationToken);
+            // ExtendLockAsync のループを停止してロックを解放
+            await cts.CancelAsync();
+            await ReleaseLockAsync(lockId, CancellationToken.None /* 要求元の CancellationRequested に影響されない */);
         }
     }
 }
