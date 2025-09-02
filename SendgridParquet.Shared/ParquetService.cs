@@ -1,14 +1,16 @@
-﻿using System.Text.Json;
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
 
 using Parquet;
 using Parquet.Data;
 using Parquet.Schema;
 
-using SendgridParquet.Shared;
-
-using SendgridParquetLogger.Models;
-
-namespace SendgridParquetLogger.Services;
+namespace SendgridParquet.Shared;
 
 public class ParquetService
 {
@@ -167,4 +169,107 @@ public class ParquetService
         }
         return stream;
     }
+
+    public async IAsyncEnumerable<SendGridEvent> ReadRowGroupEventsAsync(
+        ParquetRowGroupReader rowGroupReader,
+        ParquetReader parquetReader,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken token = default)
+    {
+        ParquetSchema schema = parquetReader.Schema;
+        // Read all columns from the row group
+        var emailColumn = await rowGroupReader.ReadColumnAsync(schema.GetDataFields().First(f => f.Name == SendGridWebHookFields.Email), token);
+        var timestampColumn = await rowGroupReader.ReadColumnAsync(schema.GetDataFields().First(f => f.Name == SendGridWebHookFields.Timestamp), token);
+        var eventColumn = await rowGroupReader.ReadColumnAsync(schema.GetDataFields().First(f => f.Name == SendGridWebHookFields.Event), token);
+
+        // Get optional columns
+        var categoryColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Category);
+        var sgEventIdColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.SgEventId);
+        var sgMessageIdColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.SgMessageId);
+        var sgTemplateIdColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.SgTemplateId);
+        var smtpIdColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.SmtpIdParquetColumn);
+        var userAgentColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.UserAgent);
+        var ipColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Ip);
+        var urlColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Url);
+        var reasonColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Reason);
+        var statusColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Status);
+        var responseColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Response);
+        var tlsColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Tls);
+        var attemptColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Attempt);
+        var typeColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Type);
+        var bounceClassificationColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.BounceClassification);
+        var asmGroupIdColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.AsmGroupId);
+        var uniqueArgsColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.UniqueArgs);
+        var marketingCampaignIdColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.MarketingCampaignId);
+        var marketingCampaignNameColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.MarketingCampaignName);
+        var poolNameColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.PoolNameParquetColumn);
+        var poolIdColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.PoolIdParquetColumn);
+        var sendAtColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.SendAt);
+
+        int rowCount = emailColumn.Data.Length;
+        for (int idx = 0; idx < rowCount; idx++)
+        {
+            yield return new SendGridEvent
+            {
+                Email = emailColumn.Data.GetValue(idx)?.ToString() ?? string.Empty,
+                Timestamp = ConvertToNullableLong(timestampColumn.Data.GetValue(idx)) ?? 0,
+                Event = eventColumn.Data.GetValue(idx)?.ToString() ?? string.Empty,
+                Category = categoryColumn?.Data.GetValue(idx)?.ToString(),
+                SgEventId = sgEventIdColumn?.Data.GetValue(idx)?.ToString(),
+                SgMessageId = sgMessageIdColumn?.Data.GetValue(idx)?.ToString(),
+                SgTemplateId = sgTemplateIdColumn?.Data.GetValue(idx)?.ToString(),
+                SmtpId = smtpIdColumn?.Data.GetValue(idx)?.ToString(),
+                UserAgent = userAgentColumn?.Data.GetValue(idx)?.ToString(),
+                Ip = ipColumn?.Data.GetValue(idx)?.ToString(),
+                Url = urlColumn?.Data.GetValue(idx)?.ToString(),
+                Reason = reasonColumn?.Data.GetValue(idx)?.ToString(),
+                Status = statusColumn?.Data.GetValue(idx)?.ToString(),
+                Response = responseColumn?.Data.GetValue(idx)?.ToString(),
+                Tls = ConvertToNullableInt(tlsColumn?.Data.GetValue(idx)),
+                Attempt = attemptColumn?.Data.GetValue(idx)?.ToString(),
+                Type = typeColumn?.Data.GetValue(idx)?.ToString(),
+                BounceClassification = bounceClassificationColumn?.Data.GetValue(idx)?.ToString(),
+                AsmGroupId = ConvertToNullableInt(asmGroupIdColumn?.Data.GetValue(idx)),
+                UniqueArgs = uniqueArgsColumn?.Data.GetValue(idx)?.ToString() is { } jsonStr && !string.IsNullOrEmpty(jsonStr)
+                    ? JsonSerializer.Deserialize<Dictionary<string, object>>(jsonStr)
+                    : null,
+                MarketingCampaignId = ConvertToNullableInt(marketingCampaignIdColumn?.Data.GetValue(idx)),
+                MarketingCampaignName = marketingCampaignNameColumn?.Data.GetValue(idx)?.ToString(),
+                Pool = new Pool
+                {
+                    Name = poolNameColumn?.Data.GetValue(idx)?.ToString(),
+                    Id = ConvertToNullableInt(poolIdColumn?.Data.GetValue(idx)) ?? 0
+                },
+                SendAt = ConvertToNullableLong(sendAtColumn?.Data.GetValue(idx))
+            };
+        }
+    }
+
+    private async Task<DataColumn?> TryReadColumnAsync(ParquetRowGroupReader rowGroupReader, ParquetSchema schema, string fieldName)
+    {
+        try
+        {
+            DataField? field = schema.GetDataFields().FirstOrDefault(f => f.Name == fieldName);
+            return field == null ? null : await rowGroupReader.ReadColumnAsync(field);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static int? ConvertToNullableInt(object? value) =>
+        value switch
+        {
+            int i => i,
+            long l => (int)l,
+            _ => null
+        };
+
+    private static long? ConvertToNullableLong(object? value) =>
+        value switch
+        {
+            int i => i,
+            long l => l,
+            _ => null
+        };
 }

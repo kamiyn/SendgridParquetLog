@@ -4,9 +4,6 @@ using Microsoft.AspNetCore.Mvc;
 
 using SendgridParquet.Shared;
 
-using SendgridParquetLogger.Models;
-using SendgridParquetLogger.Services;
-
 using ZLogger;
 
 namespace SendgridParquetLogger.Controllers;
