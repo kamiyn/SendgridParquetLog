@@ -5,7 +5,7 @@ namespace SendgridParquetViewer.Models;
 public class SendGridEvent
 {
     public string Email { get; set; } = string.Empty;
-    public DateTime Timestamp { get; set; }
+    public long Timestamp { get; set; }
     public string Event { get; set; } = string.Empty;
     public string? Category { get; set; }
     public string? SgEventId { get; set; }
@@ -28,7 +28,7 @@ public class SendGridEvent
     public string? MarketingCampaignName { get; set; }
     public string? PoolName { get; set; }
     public int? PoolId { get; set; }
-    public DateTime? SendAt { get; set; }
+    public long? SendAt { get; set; }
 
     public static readonly string SelectColumns = $@"
         {SendGridWebHookFields.Email} AS {nameof(Email)},

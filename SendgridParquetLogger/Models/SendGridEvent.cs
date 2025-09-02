@@ -9,6 +9,9 @@ public class SendGridEvent
     [JsonPropertyName(SendGridWebHookFields.Email)]
     public string? Email { get; set; }
 
+    /// <summary>
+    /// UnixTime seconds
+    /// </summary>
     [JsonPropertyName(SendGridWebHookFields.Timestamp)]
     public long Timestamp { get; set; }
 
@@ -81,11 +84,6 @@ public class SendGridEvent
 
     [JsonPropertyName(SendGridWebHookFields.SendAt)]
     public long? SendAt { get; set; }
-
-    public DateTime GetDateTime()
-    {
-        return DateTimeOffset.FromUnixTimeSeconds(Timestamp).DateTime;
-    }
 }
 
 public class Pool

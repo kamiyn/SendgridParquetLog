@@ -20,8 +20,6 @@ public class WebhookController(
     S3StorageService s3StorageService
 ) : ControllerBase
 {
-    private static readonly TimeSpan s_jstOffset = TimeSpan.FromHours(9);
-
     [HttpPost("sendgrid")]
     public async Task<IActionResult> ReceiveSendGridEvents([FromBody] List<SendGridEvent> events, CancellationToken ct)
     {
@@ -38,7 +36,7 @@ public class WebhookController(
 
             var results = new List<HttpStatusCode>();
             foreach (var grp in events
-                .Select(sendgridEvent => (sendgridEvent, timestamp: DateTimeOffset.FromUnixTimeSeconds(sendgridEvent.Timestamp).ToOffset(s_jstOffset)))
+                .Select(sendgridEvent => (sendgridEvent, timestamp: JstExtension.JstUnixTimeSeconds(sendgridEvent.Timestamp)))
                 .GroupBy(pair => new DateOnly(pair.timestamp.Year, pair.timestamp.Month, pair.timestamp.Day) /* 日単位で分割 */, pair => pair.sendgridEvent))
             {
                 DateOnly targetDay = grp.Key;
@@ -77,7 +75,7 @@ public class WebhookController(
             return HttpStatusCode.InternalServerError;
         }
 
-        string fileName = GetParquetFileName(targetDay, parquetData);
+        string fileName = SendGridPathUtility.GetParquetNonCompactionFileName(targetDay, parquetData);
         bool uploadSuccess = await s3StorageService.PutObjectAsync(parquetData, fileName, now, ct);
         if (!uploadSuccess)
         {
@@ -87,16 +85,5 @@ public class WebhookController(
 
         logger.ZLogInformation($"Successfully processed and stored {targetDay:yyyy/MM/dd} events in {fileName}");
         return HttpStatusCode.OK;
-    }
-
-    /// <summary>
-    /// 書き込み途中で失敗し webhook が再送された場合に上書きされることを期待し
-    /// 書き込む内容が一致していれば同じファイル名を生成する
-    /// </summary>
-    private static string GetParquetFileName(DateOnly targetDay, Stream parquetData)
-    {
-        // DateOnlyをDateTimeに変換してユーティリティクラスに渡す
-        var dateTime = targetDay.ToDateTime(TimeOnly.MinValue);
-        return SendGridPathUtility.GetParquetNonCompactionFileName(dateTime, parquetData);
     }
 }

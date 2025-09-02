@@ -1,6 +1,8 @@
 ﻿using System.Runtime.CompilerServices;
 using System.Text.Json;
 
+using Microsoft.Extensions.Options;
+
 using Parquet;
 using Parquet.Data;
 using Parquet.Schema;
@@ -14,9 +16,11 @@ namespace SendgridParquetViewer.Services;
 public class CompactionService(
     ILogger<CompactionService> logger,
     TimeProvider timeProvider,
-    S3StorageService s3StorageService
+    S3StorageService s3StorageService,
+    IOptions<CompactionOptions> compactionOptions
 )
 {
+    private readonly CompactionOptions _compactionOptions = compactionOptions.Value;
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
     private static readonly TimeSpan LockDuration = TimeSpan.FromMinutes(30);
     private static readonly TimeSpan MaxRunningDuration = TimeSpan.FromDays(3);
@@ -256,9 +260,9 @@ public class CompactionService(
         logger.LogInformation("Compaction process completed at {EndTime}", runStatus.EndTime);
     }
 
-    private async Task ExecuteCompactionOneDayAsync(DateOnly dateOnly, string pathPrefix, CancellationToken token)
+    private async Task ExecuteCompactionOneDayAsync(DateOnly targetDate, string pathPrefix, CancellationToken token)
     {
-        logger.LogInformation("Starting compaction for {DateOnly} at path {PathPrefix}", dateOnly, pathPrefix);
+        logger.LogInformation("Starting compaction for {DateOnly} at path {PathPrefix}", targetDate, pathPrefix);
 
         var now = timeProvider.GetUtcNow();
         var allObjects = await s3StorageService.ListFilesAsync(pathPrefix, now, token);
@@ -272,53 +276,94 @@ public class CompactionService(
             return;
         }
 
-        logger.LogInformation("Found {Count} parquet files to compact", targetParquetFiles.Count());
+        var totalFiles = targetParquetFiles.Count();
+        logger.LogInformation("Found {Count} parquet files to compact", totalFiles);
 
-        // Read all events from parquet files
-        var allEvents = new List<SendGridEvent>();
-        foreach (string parquetFile in targetParquetFiles)
+        var remainFiles = new LinkedList<string>(targetParquetFiles); // CompactionBatchAsync は先頭から順番に処理するので LinkedList で良い
+        while (remainFiles.Any())
         {
-            try
+            int previousCount = remainFiles.Count;
+            var processedFiles = await CompactionBatchAsync(targetDate, targetParquetFiles, token);
+            RemoveProcessedFiles(remainFiles, processedFiles);
+            if (previousCount == remainFiles.Count)
             {
-                logger.LogInformation("Reading Parquet file: {ParquetFile}", parquetFile);
-                byte[] parquetData = await s3StorageService.GetObjectAsByteArrayAsync(parquetFile, now, token);
-                if (parquetData.Any())
-                {
-                    await using var ms = new MemoryStream(parquetData);
-                    using ParquetReader parquetReader = await ParquetReader.CreateAsync(ms, cancellationToken: token);
-                    for (int rowGroupIndex = 0; rowGroupIndex < parquetReader.RowGroupCount; rowGroupIndex++)
-                    {
-                        using ParquetRowGroupReader rowGroupReader = parquetReader.OpenRowGroupReader(rowGroupIndex);
-                        await foreach (SendGridEvent e in ReadRowGroupEventsAsync(rowGroupReader, parquetReader, token))
-                        {
-                            allEvents.Add(e);
-                        }
-                    }
-                    //validFiles.Add(parquetFile); // valid でなくても 書き込み完了後にファイルを削除する
-                    logger.LogInformation("Successfully read {EventCount} events from {ParquetFile}", allEvents.Count, parquetFile);
-                }
-                else
-                {
-                    logger.LogWarning("Empty parquet file: {ParquetFile}", parquetFile);
-                }
+                // 何も処理できなかった場合は無限ループ防止のため while を終了する
+                break;
             }
-            catch (Exception ex)
+            logger.LogInformation("Compaction progress: {ProcessedCount}/{TotalCount} files",
+                totalFiles - remainFiles.Count, totalFiles);
+        }
+    }
+
+    private static void RemoveProcessedFiles(LinkedList<string> remainFiles, IEnumerable<string> processedFiles)
+    {
+        foreach (string file in processedFiles)
+        {
+            LinkedListNode<string>? node = remainFiles.Find(file);
+            if (node != null)
             {
-                logger.LogError(ex, "Failed to read parquet file: {ParquetFile}", parquetFile);
-                // 読めなくても処理を続け 無効なファイルとして後で削除する
+                remainFiles.Remove(node);
+            }
+        }
+    }
+
+    class CompactionBatchContext
+    {
+        /// <summary>
+        /// 読み込み済みのファイル
+        /// </summary>
+        internal List<string> ProcessingFiles { get; } = new();
+
+        /// <summary>
+        /// 読み込み済みのバイト数
+        /// </summary>
+        internal long ProcessedBytes { get; set; } = 0;
+        /// <summary>
+        /// 読み込み失敗したファイル
+        /// </summary>
+        internal List<string> FailedFiles { get; } = new();
+        internal List<string> OutputFiles { get; } = new(24 /* 24時間 */);
+        internal List<SendGridEvent> SendGridEvents { get; } = new();
+    }
+
+    /// <summary>
+    /// 読み込みファイル量が 512MB 達しない範囲でまとめてコンパクションを実行する
+    /// </summary>
+    /// <returns>対処したファイル</returns>
+    private async Task<ICollection<string>> CompactionBatchAsync(DateOnly targetDate, ICollection<string> candidateParquetFiles, CancellationToken token)
+    {
+        var ctx = new CompactionBatchContext();
+        await ReadParquetFilesAsync(candidateParquetFiles, ctx, token);
+        logger.LogInformation("Total events loaded: {TotalEvents}", ctx.SendGridEvents.Count);
+        await CreateCompactedParquetAsync(ctx, token);
+        if (await VerifyOutputFilesAsync(ctx, token))
+        {
+            // Delete original files after successful verification
+            var now = timeProvider.GetUtcNow();
+            foreach (string originalFile in ctx.ProcessingFiles)
+            {
+                await s3StorageService.DeleteObjectAsync(originalFile, now, token);
             }
         }
 
-        logger.LogInformation("Total events loaded: {TotalEvents}", allEvents.Count);
+        logger.LogInformation("Completed compaction for {targetDate}: failed {failedCount} files, created {OutputCount} files, processed {TotalEvents} events",
+            targetDate, ctx.FailedFiles.Count, ctx.OutputFiles.Count, ctx.SendGridEvents.Count);
+        return ctx.ProcessingFiles;
+    }
 
-        var targetDate = dateOnly.ToDateTime(TimeOnly.MinValue);
-        var outputFiles = new List<string>(24);
-
-        // Create compacted parquet file for each hour that has data
-        foreach (var hourGroup in allEvents.GroupBy(e => e.Timestamp.Hour))
+    /// <summary>
+    /// Create compacted parquet file for each hour that has data
+    /// </summary>
+    private async Task CreateCompactedParquetAsync(CompactionBatchContext ctx, CancellationToken token)
+    {
+        foreach (var hourGroup in ctx.SendGridEvents.GroupBy(e => e.Timestamp / 3600 /* 1時間単位に分割 */))
         {
-            int hour = hourGroup.Key;
+            var now = timeProvider.GetUtcNow();
+            DateTimeOffset timestampFirst = JstExtension.JstUnixTimeSeconds(hourGroup.Select(x => x.Timestamp).First());
+            var date = new DateOnly(timestampFirst.Year, timestampFirst.Month, timestampFirst.Day);
+            int hour = timestampFirst.Hour;
             var hourEvents = hourGroup.ToArray(); // GroupBy の結果なので必ず1件以上ある
+            string outputFileName = string.Empty;
             try
             {
                 logger.LogInformation("Creating compacted file for hour {Hour} with {EventCount} events", hour, hourEvents.Count());
@@ -330,22 +375,29 @@ public class CompactionService(
                     continue;
                 }
 
-                string outputFileName = SendGridPathUtility.GetParquetCompactionFileName(targetDate, hour, outputStream);
+                outputFileName = SendGridPathUtility.GetParquetCompactionFileName(date, hour, outputStream);
                 outputStream.Seek(0, SeekOrigin.Begin);
                 await s3StorageService.PutObjectAsync(outputStream, outputFileName, now, token);
-                outputFiles.Add(outputFileName);
+                ctx.OutputFiles.Add(outputFileName);
 
                 logger.LogInformation("Created compacted file: {OutputFileName} for hour {Hour}", outputFileName, hour);
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Failed to create compacted file for hour {Hour}", hour);
+                logger.LogError(ex, "Failed to create compacted file: {outputFileName} for hour {Hour}", outputFileName, hour);
                 throw;
             }
         }
+    }
 
-        // Verify all output files are readable as parquet
-        foreach (string outputFile in outputFiles)
+    /// <summary>
+    /// Verify all output files are readable as parquet
+    /// </summary>
+    private async Task<bool> VerifyOutputFilesAsync(CompactionBatchContext ctx, CancellationToken token)
+    {
+        var now = timeProvider.GetUtcNow();
+        var failedFiles = new List<string>();
+        foreach (string outputFile in ctx.OutputFiles)
         {
             try
             {
@@ -357,19 +409,57 @@ public class CompactionService(
             }
             catch (Exception ex)
             {
+                failedFiles.Add(outputFile);
                 logger.LogError(ex, "Failed to verify compacted file: {OutputFile}", outputFile);
-                throw;
+                await s3StorageService.DeleteObjectAsync(outputFile, now, token);
             }
         }
 
-        // Delete original files after successful verification
-        foreach (string originalFile in targetParquetFiles)
-        {
-            await s3StorageService.DeleteObjectAsync(originalFile, now, token);
-        }
+        return !failedFiles.Any();
+    }
 
-        logger.LogInformation("Completed compaction for {DateOnly}: created {OutputCount} files, processed {TotalEvents} events",
-            dateOnly, outputFiles.Count, allEvents.Count);
+    private async Task ReadParquetFilesAsync(ICollection<string> files, CompactionBatchContext ctx, CancellationToken token)
+    {
+        var now = timeProvider.GetUtcNow();
+        foreach (string parquetFile in files)
+        {
+            try
+            {
+                logger.LogInformation("Reading Parquet file: {ParquetFile}", parquetFile);
+                byte[] parquetData = await s3StorageService.GetObjectAsByteArrayAsync(parquetFile, now, token);
+                if (ctx.ProcessedBytes + parquetData.Length > _compactionOptions.MaxBatchSizeBytes)
+                {
+                    logger.LogInformation($"Reached read limit {_compactionOptions.MaxBatchSizeBytes}, stopping further reads in this batch");
+                    break;
+                }
+                if (parquetData.Any())
+                {
+                    await using var ms = new MemoryStream(parquetData);
+                    using ParquetReader parquetReader = await ParquetReader.CreateAsync(ms, cancellationToken: token);
+                    for (int rowGroupIndex = 0; rowGroupIndex < parquetReader.RowGroupCount; rowGroupIndex++)
+                    {
+                        using ParquetRowGroupReader rowGroupReader = parquetReader.OpenRowGroupReader(rowGroupIndex);
+                        await foreach (SendGridEvent e in ReadRowGroupEventsAsync(rowGroupReader, parquetReader, token))
+                        {
+                            ctx.SendGridEvents.Add(e);
+                        }
+                    }
+                    ctx.ProcessingFiles.Add(parquetFile);
+                    ctx.ProcessedBytes += parquetData.Length;
+                    logger.LogInformation("Successfully read {EventCount} events from {ParquetFile}", ctx.SendGridEvents.Count, parquetFile);
+                }
+                else
+                {
+                    logger.LogWarning("Empty parquet file: {ParquetFile}", parquetFile);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Failed to read parquet file: {ParquetFile}", parquetFile);
+                ctx.FailedFiles.Add(parquetFile);
+                // 読めなくても処理を続け 無効なファイルとして後で削除する
+            }
+        }
     }
 
     private async IAsyncEnumerable<SendGridEvent> ReadRowGroupEventsAsync(ParquetRowGroupReader rowGroupReader,
@@ -412,7 +502,7 @@ public class CompactionService(
             yield return new SendGridEvent
             {
                 Email = emailColumn.Data.GetValue(idx)?.ToString() ?? string.Empty,
-                Timestamp = ConvertToDateTime(timestampColumn.Data.GetValue(idx)),
+                Timestamp = ConvertToNullableLong(timestampColumn.Data.GetValue(idx)) ?? 0,
                 Event = eventColumn.Data.GetValue(idx)?.ToString() ?? string.Empty,
                 Category = categoryColumn?.Data.GetValue(idx)?.ToString(),
                 SgEventId = sgEventIdColumn?.Data.GetValue(idx)?.ToString(),
@@ -435,7 +525,7 @@ public class CompactionService(
                 MarketingCampaignName = marketingCampaignNameColumn?.Data.GetValue(idx)?.ToString(),
                 PoolName = poolNameColumn?.Data.GetValue(idx)?.ToString(),
                 PoolId = ConvertToNullableInt(poolIdColumn?.Data.GetValue(idx)),
-                SendAt = ConvertToNullableDateTime(sendAtColumn?.Data.GetValue(idx))
+                SendAt = ConvertToNullableLong(sendAtColumn?.Data.GetValue(idx))
             };
         }
     }
@@ -453,14 +543,6 @@ public class CompactionService(
         }
     }
 
-    private static DateTime ConvertToDateTime(object? value) =>
-        value switch
-        {
-            DateTime dt => dt,
-            long timestamp => DateTimeOffset.FromUnixTimeSeconds(timestamp).DateTime,
-            _ => DateTime.MinValue
-        };
-
     private static int? ConvertToNullableInt(object? value) =>
         value switch
         {
@@ -469,11 +551,11 @@ public class CompactionService(
             _ => null
         };
 
-    private static DateTime? ConvertToNullableDateTime(object? value) =>
+    private static long? ConvertToNullableLong(object? value) =>
         value switch
         {
-            DateTime dt => dt,
-            long timestamp => DateTimeOffset.FromUnixTimeSeconds(timestamp).DateTime,
+            int i => i,
+            long l => l,
             _ => null
         };
 
@@ -485,7 +567,7 @@ public class CompactionService(
     private static FieldProcessor[] CreateFieldProcessors()
     {
         var emailField = new DataField(SendGridWebHookFields.Email, typeof(string));
-        var timestampField = new DataField(SendGridWebHookFields.Timestamp, typeof(DateTime));
+        var timestampField = new DataField(SendGridWebHookFields.Timestamp, typeof(long));
         var eventField = new DataField(SendGridWebHookFields.Event, typeof(string));
         var categoryField = new DataField(SendGridWebHookFields.Category, typeof(string));
         var sgEventIdField = new DataField(SendGridWebHookFields.SgEventId, typeof(string));
@@ -508,7 +590,7 @@ public class CompactionService(
         var marketingCampaignNameField = new DataField(SendGridWebHookFields.MarketingCampaignName, typeof(string));
         var poolNameField = new DataField(SendGridWebHookFields.PoolNameParquetColumn, typeof(string));
         var poolIdField = new DataField(SendGridWebHookFields.PoolIdParquetColumn, typeof(int?));
-        var sendAtField = new DataField(SendGridWebHookFields.SendAt, typeof(DateTime?));
+        var sendAtField = new DataField(SendGridWebHookFields.SendAt, typeof(long?));
 
         return
         [

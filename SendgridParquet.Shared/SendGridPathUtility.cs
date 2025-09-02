@@ -16,14 +16,14 @@ public static class SendGridPathUtility
     ///
     /// Compaction 前のフォルダー名
     /// </summary>
-    const string FolderPrefixNonCompaction = "v2raw";
+    const string FolderPrefixNonCompaction = "v3raw";
 
     /// <summary>
     /// Parquet 列定義のバージョンに合わせて フォルダー名の prefix を付与する
     ///
     /// Compaction 後のフォルダー名
     /// </summary>
-    const string FolderPrefixCompaction = "v2compaction";
+    const string FolderPrefixCompaction = "v3compaction";
 
     /// <summary>
     /// Base64Url エンコードを行う（ASP.NET Core依存を避けるため独自実装）
@@ -32,39 +32,38 @@ public static class SendGridPathUtility
         Convert.ToBase64String(input).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 
     /// <summary>
-    /// ディレクトリパスを生成する（ファイル名を除く）
-    /// </summary>
-    /// <param name="folderPrefix">フォルダープレフィックス</param>
-    /// <param name="targetDay">対象の日付</param>
-    /// <returns>ディレクトリパス</returns>
-    private static string GetDirectoryPath(string folderPrefix, DateTime targetDay) =>
-        $"{folderPrefix}/{targetDay:yyyy/MM/dd}";
-
-    /// <summary>
     /// Parquetファイル名を生成する（NonCompaction用のオーバーロード）
+    ///
+    /// 書き込み途中で失敗し webhook が再送された場合に上書きされることを期待し
+    /// 書き込む内容が一致していれば同じファイル名を生成する
     /// </summary>
     /// <param name="targetDay">対象の日付</param>
     /// <param name="parquetData">Parquetデータのストリーム</param>
     /// <returns>S3オブジェクトキー</returns>
-    public static string GetParquetNonCompactionFileName(DateTime targetDay, Stream parquetData)
+    public static string GetParquetNonCompactionFileName(DateOnly targetDay, Stream parquetData)
     {
         // S3 Object key names are case sensitive https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-keys.html
+        string ymdPrefix = GetYmdPrefix(targetDay.Year, targetDay.Month, targetDay.Day);
         string hashString = GetHashString(parquetData);
-        return $"{GetDirectoryPath(FolderPrefixNonCompaction, targetDay)}/{hashString}{ParquetFileExtension}";
+        return $"{FolderPrefixNonCompaction}{ymdPrefix}/{hashString}{ParquetFileExtension}";
     }
 
     /// <summary>
     /// Parquetファイル名を生成する（Compaction用のオーバーロード）
+    ///
+    /// 書き込み途中で失敗し webhook が再送された場合に上書きされることを期待し
+    /// 書き込む内容が一致していれば同じファイル名を生成する
     /// </summary>
     /// <param name="targetDay">対象の日付</param>
     /// <param name="targetHour">対称の時刻</param>
     /// <param name="parquetData">Parquetデータのストリーム</param>
     /// <returns>S3オブジェクトキー</returns>
-    public static string GetParquetCompactionFileName(DateTime targetDay, int targetHour, Stream parquetData)
+    public static string GetParquetCompactionFileName(DateOnly targetDay, int targetHour, Stream parquetData)
     {
         // S3 Object key names are case sensitive https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-keys.html
+        string ymdhPrefix = GetYmdhPrefix(targetDay.Year, targetDay.Month, targetDay.Day, targetHour);
         string hashString = GetHashString(parquetData);
-        return $"{GetDirectoryPath(FolderPrefixCompaction, targetDay)}/{targetHour:D2}/{hashString}{ParquetFileExtension}";
+        return $"{FolderPrefixCompaction}{ymdhPrefix}/{hashString}{ParquetFileExtension}";
     }
 
     private static string GetHashString(Stream parquetData)
