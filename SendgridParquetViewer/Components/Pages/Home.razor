@@ -23,6 +23,17 @@
             <FluentTextField @bind-Value="_selectedEmail" @oninput="OnInputChange" Label="email（LIKE句）" Style="width: 100%;" Placeholder="example@domain.com" />
         </div>
 
+        <!-- Event Type Selection -->
+        <div style="min-width: 200px;">
+            <FluentLabel>イベントタイプ</FluentLabel>
+            <FluentSelect TOption="string" @bind-Value="_selectedEventType" @onchange="OnEventTypeChange" Style="width: 100%; margin-top: 5px;">
+                @foreach (var eventType in SendGridEventTypes.AllEventTypes)
+                {
+                    <FluentOption TOption="string" Value="@eventType.Value">@eventType.Display</FluentOption>
+                }
+            </FluentSelect>
+        </div>
+
         <!-- Date Selection Mode -->
         <div style="min-width: 250px;">
             <FluentLabel>日付の扱い</FluentLabel>
@@ -234,6 +245,7 @@ else if (_hasSearched)
 
     // Search parameters
     private string _selectedEmail = "";
+    private string _selectedEventType = "";
     private DateSelectionMode _dateSelectionMode = DateSelectionMode.YearMonth;
     private DateTime? _selectedDate;
     private string _selectedHourString = "";
@@ -267,6 +279,12 @@ else if (_hasSearched)
     private void OnHourSelectionChange()
     {
         // Reset search state when hour selection changes
+        OnInputChange();
+    }
+
+    private void OnEventTypeChange()
+    {
+        // Reset search state when event type selection changes
         OnInputChange();
     }
 
@@ -310,7 +328,8 @@ else if (_hasSearched)
             if (await ExistsAsync(prefix, now, ct))
             {
                 var folder = SendGridPathUtility.GetS3CompactionWildcard(ymd.Year, ymd.Month, ymd.Day, ymd.Hour);
-                var events = await DuckDbService.GetEventsByDateAsync(folder, _selectedEmail, limit, ct);
+                var condition = CreateSearchCondition();
+                var events = await DuckDbService.GetEventsByDateAsync(folder, condition, limit, ct);
                 Logger.LogDebug("Compaction count: {count}", events.Count);
                 return events;
             }
@@ -322,7 +341,8 @@ else if (_hasSearched)
             if (await ExistsAsync(prefix, now, ct))
             {
                 var folder = SendGridPathUtility.GetS3NonCompactionWildcard(ymd.Year, ymd.Month, ymd.Day);
-                var events = await DuckDbService.GetEventsByDateAsync(folder, _selectedEmail, limit, ct);
+                var condition = CreateSearchCondition();
+                var events = await DuckDbService.GetEventsByDateAsync(folder, condition, limit, ct);
                 Logger.LogDebug("NonCompaction count: {count}", events.Count);
                 return events;
             }
@@ -348,6 +368,25 @@ else if (_hasSearched)
             return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// Create search condition from current UI state
+    /// </summary>
+    /// <returns>Search condition object</returns>
+    private SendGridSearchCondition CreateSearchCondition()
+    {
+        // Return null if no search conditions are specified
+        if (string.IsNullOrWhiteSpace(_selectedEmail) && string.IsNullOrWhiteSpace(_selectedEventType))
+        {
+            return SendGridSearchCondition.Empty;
+        }
+
+        return new SendGridSearchCondition
+        {
+            Email = string.IsNullOrWhiteSpace(_selectedEmail) ? null : _selectedEmail,
+            Event = string.IsNullOrWhiteSpace(_selectedEventType) ? null : _selectedEventType
+        };
     }
 
     private void ShowEventDetails(SendGridEvent sendGridEvent)

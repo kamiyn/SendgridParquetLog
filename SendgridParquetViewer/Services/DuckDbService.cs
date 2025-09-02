@@ -82,26 +82,21 @@ CREATE SECRET s3_secret (
 );";
     }
 
-    public async ValueTask<IList<SendGridEvent>> GetEventsByDateAsync(string folder, string? email, int? limit,
+    public async ValueTask<IList<SendGridEvent>> GetEventsByDateAsync(string folder, SendGridSearchCondition condition, int? limit,
         CancellationToken ct = default)
     {
         try
         {
             using var connection = await CreateConnection(ct);
             var s3Path = $"s3://{_s3Options.BUCKETNAME}/{folder}/*";
-
-            // 現時点では 日付が path として表現されているため WHERE 句での絞り込みは email のみ
-            var emailFilter = !string.IsNullOrWhiteSpace(email)
-                ? $"WHERE email LIKE '{email.Replace("'", "''") /* シングルクオートを除去して safe にする */}'"
-                : string.Empty;
-
+            var whereClause = condition.BuildWhereClause();
             var limitClause = limit.HasValue ? $"LIMIT {limit.Value}" : string.Empty;
 
             // 複数のParquetを読んだ後に timestamp で ORDER BY をかけている
             var sql = $@"
                 SELECT {SendGridEvent.SelectColumns}
                 FROM parquet_scan('{s3Path}')
-                {emailFilter}
+                {whereClause}
                 ORDER BY timestamp DESC
                 {limitClause}";
 
