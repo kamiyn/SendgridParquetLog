@@ -1,7 +1,4 @@
 ﻿using SendgridParquet.Shared;
-
-using SendgridParquetLogger.Services;
-
 using ZLogger;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -27,6 +24,9 @@ builder.Services.AddControllers()
         options.JsonSerializerOptions.PropertyNamingPolicy = null;
         options.JsonSerializerOptions.WriteIndented = false;
     });
+
+// Add Parquet service
+builder.Services.AddScoped<ParquetService>();
 
 #if UseSwagger
 // Learn more about configuring OpenAPI at https://aka.ms/aspnetcore/openapi

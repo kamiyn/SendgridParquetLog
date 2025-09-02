@@ -1,8 +1,8 @@
 ﻿@page "/"
 @rendermode InteractiveServer
 @attribute [Authorize]
-@using SendgridParquet.Shared
 @using SendgridParquetViewer.Models
+@using SendgridParquetViewer.Services
 @inject DuckDbService DuckDbService
 @inject TimeProvider TimeProvider
 @inject S3StorageService S3StorageService
@@ -201,9 +201,9 @@ else if (_hasSearched)
                     {
                         <div><strong>ASM Group ID:</strong> @_selectedEvent.AsmGroupId</div>
                     }
-                    @if (!string.IsNullOrEmpty(_selectedEvent.UniqueArgs))
+                    @if (_selectedEvent.UniqueArgs != null && _selectedEvent.UniqueArgs.Any())
                     {
-                        <div><strong>Unique Args:</strong> @_selectedEvent.UniqueArgs</div>
+                        <div><strong>Unique Args:</strong> @JsonSerializer.Serialize(_selectedEvent.UniqueArgs)</div>
                     }
                     @if (_selectedEvent.MarketingCampaignId.HasValue)
                     {

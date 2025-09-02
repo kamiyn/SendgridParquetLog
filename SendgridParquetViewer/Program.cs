@@ -1,8 +1,9 @@
 ﻿using System.Security.Claims;
 
+#if !DEBUG
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+#endif
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.Extensions.Options;
 using Microsoft.FluentUI.AspNetCore.Components;
 using Microsoft.Identity.Web;
 using Microsoft.Identity.Web.UI;
@@ -85,6 +86,9 @@ builder.Services.AddTransient<DuckDbService>();
 // Add S3 storage service
 builder.Services.AddHttpClient<S3StorageService>();
 
+// Add Parquet service
+builder.Services.AddScoped<ParquetService>();
+
 // Add Compaction service
 builder.Services.AddScoped<CompactionService>();
 
@@ -111,7 +115,7 @@ app.UseAuthentication();
 // DEBUG 時: 認証されていないリクエストに対してデバッグ用の ClaimsPrincipal を自動割当
 app.Use(async (context, next) =>
 {
-    if (!(context.User?.Identity?.IsAuthenticated ?? false))
+    if (!(context.User.Identity?.IsAuthenticated ?? false))
     {
         var claims = new List<Claim>
         {

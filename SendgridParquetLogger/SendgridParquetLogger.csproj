@@ -7,10 +7,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Parquet.Net" Version="5.2.0" />
-    <PackageReference Include="ZLogger" Version="2.5.10" />
-  </ItemGroup>
-  <ItemGroup>
     <ProjectReference Include="../SendgridParquet.Shared/SendgridParquet.Shared.csproj" />
   </ItemGroup>
   <!-- Swagger UI はデバッグビルドのみ有効 -->
