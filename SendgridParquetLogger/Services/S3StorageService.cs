@@ -111,6 +111,145 @@ public class S3StorageService(
         }
     }
 
+    public async Task<string> GetObjectAsStringAsync(string key, CancellationToken ct)
+    {
+        var now = DateTimeOffset.UtcNow;
+        S3SignatureSource signatureSource = new(now, _options.REGION);
+        try
+        {
+            var uri = new Uri($"{_options.SERVICEURL}/{_options.BUCKETNAME}/{key}");
+            using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+            using var requestContent = new MemoryStream([]);
+            AddAwsSignatureHeaders(request, requestContent, signatureSource);
+            using HttpResponseMessage response = await httpClient.SendAsync(request, ct);
+
+            if (response.IsSuccessStatusCode)
+            {
+                string content = await response.Content.ReadAsStringAsync(ct);
+                return content;
+            }
+            else if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                return string.Empty;
+            }
+            else
+            {
+                string responseContent = await response.Content.ReadAsStringAsync(ct);
+                logger.ZLogError($"Error getting object {key} from S3. Status: {response.StatusCode}, Response: {responseContent}");
+                throw new InvalidOperationException($"Failed to get object: {response.StatusCode}");
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.ZLogError(ex, $"Error getting object {key} from S3", key);
+            throw;
+        }
+    }
+
+    public async Task<bool> PutObjectAsync(string key, string content, CancellationToken ct)
+    {
+        var now = DateTimeOffset.UtcNow;
+        S3SignatureSource signatureSource = new(now, _options.REGION);
+        try
+        {
+            var uri = new Uri($"{_options.SERVICEURL}/{_options.BUCKETNAME}/{key}");
+            using var request = new HttpRequestMessage(HttpMethod.Put, uri);
+            using var stream = new MemoryStream(Encoding.UTF8.GetBytes(content));
+
+            AddAwsSignatureHeaders(request, stream, signatureSource);
+
+            stream.Seek(0, SeekOrigin.Begin);
+            request.Content = new StreamContent(stream);
+            request.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+            using HttpResponseMessage response = await httpClient.SendAsync(request, ct);
+
+            if (response.IsSuccessStatusCode)
+            {
+                string? etag = response.Headers.ETag?.Tag;
+                logger.ZLogInformation($"Object {key} uploaded successfully to S3. ETag: {etag}", key, etag);
+                return true;
+            }
+            else
+            {
+                string responseContent = await response.Content.ReadAsStringAsync(ct);
+                logger.ZLogError($"Error uploading object {key} to S3. Status: {response.StatusCode}, Response: {responseContent}");
+                return false;
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.ZLogError(ex, $"Error uploading object {key} to S3", key);
+            return false;
+        }
+    }
+
+    public async Task<List<string>> ListDirectoriesAsync(string prefix, CancellationToken ct)
+    {
+        var now = DateTimeOffset.UtcNow;
+        S3SignatureSource signatureSource = new(now, _options.REGION);
+        var directories = new List<string>();
+
+        try
+        {
+            var delimiter = "/";
+            var encodedPrefix = Uri.EscapeDataString(prefix + "/");
+            var uriString = $"{_options.SERVICEURL}/{_options.BUCKETNAME}/?prefix={encodedPrefix}&delimiter={delimiter}";
+            var uri = new Uri(uriString);
+            using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+            using var requestContent = new MemoryStream([]);
+            AddAwsSignatureHeaders(request, requestContent, signatureSource);
+            using HttpResponseMessage response = await httpClient.SendAsync(request, ct);
+
+            if (response.IsSuccessStatusCode)
+            {
+                string content = await response.Content.ReadAsStringAsync(ct);
+
+                // Parse XML response to extract CommonPrefixes
+                var startTag = "<CommonPrefixes>";
+                var endTag = "</CommonPrefixes>";
+                var prefixTag = "<Prefix>";
+                var prefixEndTag = "</Prefix>";
+
+                int startIndex = 0;
+                while ((startIndex = content.IndexOf(startTag, startIndex)) != -1)
+                {
+                    var endIndex = content.IndexOf(endTag, startIndex);
+                    if (endIndex == -1) break;
+
+                    var commonPrefix = content.Substring(startIndex, endIndex - startIndex + endTag.Length);
+                    var prefixStart = commonPrefix.IndexOf(prefixTag) + prefixTag.Length;
+                    var prefixEnd = commonPrefix.IndexOf(prefixEndTag);
+
+                    if (prefixStart > prefixTag.Length - 1 && prefixEnd > prefixStart)
+                    {
+                        var fullPrefix = commonPrefix.Substring(prefixStart, prefixEnd - prefixStart);
+                        // Extract just the directory name from the full path
+                        var parts = fullPrefix.TrimEnd('/').Split('/');
+                        if (parts.Length > 0)
+                        {
+                            directories.Add(parts[parts.Length - 1]);
+                        }
+                    }
+
+                    startIndex = endIndex + endTag.Length;
+                }
+
+                return directories;
+            }
+            else
+            {
+                string responseContent = await response.Content.ReadAsStringAsync(ct);
+                logger.ZLogError($"Error listing directories for prefix {prefix}. Status: {response.StatusCode}, Response: {responseContent}");
+                return directories;
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.ZLogError(ex, $"Error listing directories for prefix {prefix}", prefix);
+            return directories;
+        }
+    }
+
     private void AddAwsSignatureHeaders(HttpRequestMessage request, Stream content, S3SignatureSource signatureSource)
     {
         content.Seek(0, SeekOrigin.Begin);

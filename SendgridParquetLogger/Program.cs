@@ -40,6 +40,7 @@ builder.Services.AddOpenApi();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<ParquetService>();
 builder.Services.AddHttpClient<S3StorageService>();
+builder.Services.AddScoped<CompactionService>();
 
 var app = builder.Build();
 
