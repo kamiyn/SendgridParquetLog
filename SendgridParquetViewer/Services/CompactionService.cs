@@ -1,5 +1,9 @@
 ﻿using System.Text.Json;
 
+using Parquet;
+using Parquet.Data;
+using Parquet.Schema;
+
 using SendgridParquet.Shared;
 
 using SendgridParquetViewer.Models;
@@ -83,7 +87,8 @@ public class CompactionService(
             await SaveRunStatusAsync(runStatusNew, cancellationToken);
 
             // Start background processing
-            _ = Task.Run(() => ExecuteCompactionAsync(runStatusNew), CancellationToken.None);
+            var ctsForExecuteCompactionAsync = new CancellationTokenSource();
+            _ = Task.Run(() => ExecuteCompactionAsync(runStatusNew, ctsForExecuteCompactionAsync.Token), ctsForExecuteCompactionAsync.Token);
 
             return new CompactionStartResult
             {
@@ -106,18 +111,18 @@ public class CompactionService(
         var targetDays = new List<(DateOnly dateOnly, string pathPrefix)>();
         try
         {
-            var yearDir = await s3StorageService.ListDirectoriesAsync(
+            var yearDir = await s3StorageService.ListObjectsAsync(
                 SendGridPathUtility.GetS3NonCompactionPrefix(null, null, null), now, cancellationToken);
 
             foreach (int year in yearDir.Select(d => int.TryParse(d, out int v) ? v : 0).Where(year => year > 0))
             {
                 var yearPath = SendGridPathUtility.GetS3NonCompactionPrefix(year, null, null);
-                var monthDirs = await s3StorageService.ListDirectoriesAsync(yearPath, now, cancellationToken);
+                var monthDirs = await s3StorageService.ListObjectsAsync(yearPath, now, cancellationToken);
 
                 foreach (var month in monthDirs.Select(d => int.TryParse(d, out int v) ? v : 0).Where(month => month > 0))
                 {
                     var monthPath = SendGridPathUtility.GetS3NonCompactionPrefix(year, month, null);
-                    var dayDirs = await s3StorageService.ListDirectoriesAsync(monthPath, now, cancellationToken);
+                    var dayDirs = await s3StorageService.ListObjectsAsync(monthPath, now, cancellationToken);
 
                     foreach (var day in dayDirs.Select(d => int.TryParse(d, out int v) ? v : 0).Where(day => day > 0))
                     {
@@ -206,7 +211,7 @@ public class CompactionService(
         }
     }
 
-    private async Task ExecuteCompactionAsync(RunStatus runStatus)
+    private async Task ExecuteCompactionAsync(RunStatus runStatus, CancellationToken token)
     {
         logger.LogInformation("Compaction process started at {StartTime} with {TargetDaysCount} target dates",
             runStatus.StartTime, runStatus.TargetDays.Count);
@@ -218,8 +223,7 @@ public class CompactionService(
                 logger.LogInformation("Starting compaction for date {Date} at path {Path}", dateOnly, pathPrefix);
                 try
                 {
-                    // TODO: Implement actual compaction logic
-                    await Task.Delay(1000);
+                    await ExecuteCompactionOneDayAsync(dateOnly, pathPrefix, token);
                     logger.LogInformation("Completed compaction for date {Date} at path {Path}", dateOnly, pathPrefix);
                 }
                 catch (Exception ex)
@@ -238,4 +242,347 @@ public class CompactionService(
         await SaveRunStatusAsync(runStatus, CancellationToken.None);
         logger.LogInformation("Compaction process completed at {EndTime}", runStatus.EndTime);
     }
+
+    private async Task ExecuteCompactionOneDayAsync(DateOnly dateOnly, string pathPrefix, CancellationToken token)
+    {
+        logger.LogInformation("Starting compaction for {DateOnly} at path {PathPrefix}", dateOnly, pathPrefix);
+
+        var now = timeProvider.GetUtcNow();
+        var allObjects = await s3StorageService.ListObjectsAsync(pathPrefix, now, token);
+        var targetParquetFiles = allObjects
+            .Where(key => key.EndsWith(SendGridPathUtility.ParquetFileExtension, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (!targetParquetFiles.Any())
+        {
+            logger.LogInformation("No parquet files found at {PathPrefix}", pathPrefix);
+            return;
+        }
+
+        logger.LogInformation("Found {Count} parquet files to compact", targetParquetFiles.Count);
+
+        // Read all events from parquet files
+        var allEvents = new List<Models.SendGridEvent>();
+        var validFiles = new List<string>();
+
+        foreach (var parquetFile in targetParquetFiles)
+        {
+            try
+            {
+                logger.LogInformation("Reading Parquet file: {ParquetFile}", parquetFile);
+                var parquetData = await s3StorageService.GetObjectAsByteArrayAsync(parquetFile, now, token);
+
+                if (!parquetData.Any())
+                {
+                    logger.LogWarning("Empty parquet file: {ParquetFile}", parquetFile);
+                    continue;
+                }
+
+                using var ms = new MemoryStream(parquetData);
+                using var parquetReader = await ParquetReader.CreateAsync(ms);
+
+                for (int i = 0; i < parquetReader.RowGroupCount; i++)
+                {
+                    using var rowGroupReader = parquetReader.OpenRowGroupReader(i);
+                    var events = await ReadRowGroupEventsAsync(rowGroupReader, parquetReader.Schema);
+                    allEvents.AddRange(events);
+                }
+
+                validFiles.Add(parquetFile);
+                logger.LogInformation("Successfully read {EventCount} events from {ParquetFile}", allEvents.Count, parquetFile);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Failed to read parquet file: {ParquetFile}", parquetFile);
+                continue;
+            }
+        }
+
+        if (!allEvents.Any())
+        {
+            logger.LogWarning("No valid events found in any parquet files");
+            return;
+        }
+
+        logger.LogInformation("Total events loaded: {TotalEvents}", allEvents.Count);
+
+        // Group events by hour (0-23)
+        var eventsByHour = allEvents
+            .GroupBy(e => e.Timestamp.Hour)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        logger.LogInformation("Events grouped into {HourCount} different hours", eventsByHour.Count);
+
+        var targetDateTime = dateOnly.ToDateTime(TimeOnly.MinValue);
+        var outputFiles = new List<string>();
+
+        // Create compacted parquet file for each hour that has data
+        foreach (var hourGroup in eventsByHour.OrderBy(kvp => kvp.Key))
+        {
+            int hour = hourGroup.Key;
+            var hourEvents = hourGroup.Value;
+
+            try
+            {
+                logger.LogInformation("Creating compacted file for hour {Hour} with {EventCount} events", hour, hourEvents.Count);
+
+                using var outputStream = await CreateCompactedParquetAsync(hourEvents);
+                if (outputStream == null)
+                {
+                    logger.LogWarning("Failed to create parquet data for hour {Hour}", hour);
+                    continue;
+                }
+
+                var outputFileName = SendGridPathUtility.GetParquetCompactionFileName(targetDateTime, hour, outputStream);
+                outputStream.Seek(0, SeekOrigin.Begin);
+
+                await s3StorageService.PutObjectAsync(outputStream, outputFileName, now, token);
+                outputFiles.Add(outputFileName);
+
+                logger.LogInformation("Created compacted file: {OutputFileName} for hour {Hour}", outputFileName, hour);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Failed to create compacted file for hour {Hour}", hour);
+                throw;
+            }
+        }
+
+        // Verify all output files are readable as parquet
+        foreach (var outputFile in outputFiles)
+        {
+            try
+            {
+                var verifyData = await s3StorageService.GetObjectAsByteArrayAsync(outputFile, now, token);
+                if (!verifyData.Any())
+                {
+                    logger.LogError("Compacted file is empty: {OutputFile}", outputFile);
+                    throw new InvalidOperationException($"Compacted file is empty: {outputFile}");
+                }
+
+                // Verify it's readable as parquet
+                using var verifyMs = new MemoryStream(verifyData);
+                using var verifyReader = await ParquetReader.CreateAsync(verifyMs);
+
+                logger.LogInformation("Verified compacted file: {OutputFile} (RowGroups: {RowGroupCount})",
+                    outputFile, verifyReader.RowGroupCount);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Failed to verify compacted file: {OutputFile}", outputFile);
+                throw;
+            }
+        }
+
+        // Delete original files after successful verification
+        foreach (var originalFile in validFiles)
+        {
+            try
+            {
+                await s3StorageService.DeleteObjectAsync(originalFile, now, token);
+                logger.LogInformation("Deleted original file: {OriginalFile}", originalFile);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Failed to delete original file: {OriginalFile}", originalFile);
+            }
+        }
+
+        logger.LogInformation("Completed compaction for {DateOnly}: created {OutputCount} files from {InputCount} original files, processed {TotalEvents} events",
+            dateOnly, outputFiles.Count, validFiles.Count, allEvents.Count);
+    }
+
+    private async Task<List<Models.SendGridEvent>> ReadRowGroupEventsAsync(ParquetRowGroupReader rowGroupReader, ParquetSchema schema)
+    {
+        var events = new List<Models.SendGridEvent>();
+
+        // Read all columns from the row group
+        var emailColumn = await rowGroupReader.ReadColumnAsync(schema.GetDataFields().First(f => f.Name == SendGridWebHookFields.Email));
+        var timestampColumn = await rowGroupReader.ReadColumnAsync(schema.GetDataFields().First(f => f.Name == SendGridWebHookFields.Timestamp));
+        var eventColumn = await rowGroupReader.ReadColumnAsync(schema.GetDataFields().First(f => f.Name == SendGridWebHookFields.Event));
+
+        // Get optional columns
+        var categoryColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Category);
+        var sgEventIdColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.SgEventId);
+        var sgMessageIdColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.SgMessageId);
+        var sgTemplateIdColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.SgTemplateId);
+        var smtpIdColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.SmtpIdParquetColumn);
+        var userAgentColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.UserAgent);
+        var ipColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Ip);
+        var urlColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Url);
+        var reasonColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Reason);
+        var statusColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Status);
+        var responseColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Response);
+        var tlsColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Tls);
+        var attemptColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Attempt);
+        var typeColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Type);
+        var bounceClassificationColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.BounceClassification);
+        var asmGroupIdColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.AsmGroupId);
+        var uniqueArgsColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.UniqueArgs);
+        var marketingCampaignIdColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.MarketingCampaignId);
+        var marketingCampaignNameColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.MarketingCampaignName);
+        var poolNameColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.PoolNameParquetColumn);
+        var poolIdColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.PoolIdParquetColumn);
+        var sendAtColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.SendAt);
+
+        int rowCount = emailColumn.Data.Length;
+
+        for (int i = 0; i < rowCount; i++)
+        {
+            var sendGridEvent = new Models.SendGridEvent
+            {
+                Email = emailColumn.Data.GetValue(i)?.ToString() ?? string.Empty,
+                Timestamp = ConvertToDateTime(timestampColumn.Data.GetValue(i)),
+                Event = eventColumn.Data.GetValue(i)?.ToString() ?? string.Empty,
+                Category = categoryColumn?.Data.GetValue(i)?.ToString(),
+                SgEventId = sgEventIdColumn?.Data.GetValue(i)?.ToString(),
+                SgMessageId = sgMessageIdColumn?.Data.GetValue(i)?.ToString(),
+                SgTemplateId = sgTemplateIdColumn?.Data.GetValue(i)?.ToString(),
+                SmtpId = smtpIdColumn?.Data.GetValue(i)?.ToString(),
+                UserAgent = userAgentColumn?.Data.GetValue(i)?.ToString(),
+                Ip = ipColumn?.Data.GetValue(i)?.ToString(),
+                Url = urlColumn?.Data.GetValue(i)?.ToString(),
+                Reason = reasonColumn?.Data.GetValue(i)?.ToString(),
+                Status = statusColumn?.Data.GetValue(i)?.ToString(),
+                Response = responseColumn?.Data.GetValue(i)?.ToString(),
+                Tls = ConvertToNullableInt(tlsColumn?.Data.GetValue(i)),
+                Attempt = attemptColumn?.Data.GetValue(i)?.ToString(),
+                Type = typeColumn?.Data.GetValue(i)?.ToString(),
+                BounceClassification = bounceClassificationColumn?.Data.GetValue(i)?.ToString(),
+                AsmGroupId = ConvertToNullableInt(asmGroupIdColumn?.Data.GetValue(i)),
+                UniqueArgs = uniqueArgsColumn?.Data.GetValue(i)?.ToString(),
+                MarketingCampaignId = ConvertToNullableInt(marketingCampaignIdColumn?.Data.GetValue(i)),
+                MarketingCampaignName = marketingCampaignNameColumn?.Data.GetValue(i)?.ToString(),
+                PoolName = poolNameColumn?.Data.GetValue(i)?.ToString(),
+                PoolId = ConvertToNullableInt(poolIdColumn?.Data.GetValue(i)),
+                SendAt = ConvertToNullableDateTime(sendAtColumn?.Data.GetValue(i))
+            };
+
+            events.Add(sendGridEvent);
+        }
+
+        return events;
+    }
+
+    private async Task<DataColumn?> TryReadColumnAsync(ParquetRowGroupReader rowGroupReader, ParquetSchema schema, string fieldName)
+    {
+        try
+        {
+            var field = schema.GetDataFields().FirstOrDefault(f => f.Name == fieldName);
+            if (field == null) return null;
+
+            return await rowGroupReader.ReadColumnAsync(field);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static DateTime ConvertToDateTime(object? value)
+    {
+        return value switch
+        {
+            DateTime dt => dt,
+            long timestamp => DateTimeOffset.FromUnixTimeSeconds(timestamp).DateTime,
+            _ => DateTime.MinValue
+        };
+    }
+
+    private static int? ConvertToNullableInt(object? value)
+    {
+        return value switch
+        {
+            int i => i,
+            long l => (int)l,
+            null => null,
+            _ => null
+        };
+    }
+
+    private static DateTime? ConvertToNullableDateTime(object? value)
+    {
+        return value switch
+        {
+            DateTime dt => dt,
+            long timestamp => DateTimeOffset.FromUnixTimeSeconds(timestamp).DateTime,
+            null => null,
+            _ => null
+        };
+    }
+
+    private async Task<Stream?> CreateCompactedParquetAsync(ICollection<Models.SendGridEvent> events)
+    {
+        if (!events.Any()) return null;
+
+        var stream = new MemoryStream();
+
+        // Create field definitions matching the original ParquetService implementation
+        var emailField = new DataField(SendGridWebHookFields.Email, typeof(string));
+        var timestampField = new DataField(SendGridWebHookFields.Timestamp, typeof(DateTime));
+        var eventField = new DataField(SendGridWebHookFields.Event, typeof(string));
+        var categoryField = new DataField(SendGridWebHookFields.Category, typeof(string));
+        var sgEventIdField = new DataField(SendGridWebHookFields.SgEventId, typeof(string));
+        var sgMessageIdField = new DataField(SendGridWebHookFields.SgMessageId, typeof(string));
+        var sgTemplateIdField = new DataField(SendGridWebHookFields.SgTemplateId, typeof(string));
+        var smtpIdField = new DataField(SendGridWebHookFields.SmtpIdParquetColumn, typeof(string));
+        var userAgentField = new DataField(SendGridWebHookFields.UserAgent, typeof(string));
+        var ipField = new DataField(SendGridWebHookFields.Ip, typeof(string));
+        var urlField = new DataField(SendGridWebHookFields.Url, typeof(string));
+        var reasonField = new DataField(SendGridWebHookFields.Reason, typeof(string));
+        var statusField = new DataField(SendGridWebHookFields.Status, typeof(string));
+        var responseField = new DataField(SendGridWebHookFields.Response, typeof(string));
+        var tlsField = new DataField(SendGridWebHookFields.Tls, typeof(int?));
+        var attemptField = new DataField(SendGridWebHookFields.Attempt, typeof(string));
+        var typeField = new DataField(SendGridWebHookFields.Type, typeof(string));
+        var bounceClassificationField = new DataField(SendGridWebHookFields.BounceClassification, typeof(string));
+        var asmGroupIdField = new DataField(SendGridWebHookFields.AsmGroupId, typeof(int?));
+        var uniqueArgsField = new DataField(SendGridWebHookFields.UniqueArgs, typeof(string));
+        var marketingCampaignIdField = new DataField(SendGridWebHookFields.MarketingCampaignId, typeof(int?));
+        var marketingCampaignNameField = new DataField(SendGridWebHookFields.MarketingCampaignName, typeof(string));
+        var poolNameField = new DataField(SendGridWebHookFields.PoolNameParquetColumn, typeof(string));
+        var poolIdField = new DataField(SendGridWebHookFields.PoolIdParquetColumn, typeof(int?));
+        var sendAtField = new DataField(SendGridWebHookFields.SendAt, typeof(DateTime?));
+
+        Field[] fields = [
+            emailField, timestampField, eventField, categoryField, sgEventIdField, sgMessageIdField,
+            sgTemplateIdField, smtpIdField, userAgentField, ipField, urlField, reasonField, statusField,
+            responseField, tlsField, attemptField, typeField, bounceClassificationField, asmGroupIdField,
+            uniqueArgsField, marketingCampaignIdField, marketingCampaignNameField, poolNameField,
+            poolIdField, sendAtField
+        ];
+
+        await using var writer = await ParquetWriter.CreateAsync(new ParquetSchema(fields), stream);
+        using var groupWriter = writer.CreateRowGroup();
+
+        // Write data columns
+        await groupWriter.WriteColumnAsync(new DataColumn(emailField, events.Select(e => e.Email).ToArray()));
+        await groupWriter.WriteColumnAsync(new DataColumn(timestampField, events.Select(e => e.Timestamp).ToArray()));
+        await groupWriter.WriteColumnAsync(new DataColumn(eventField, events.Select(e => e.Event).ToArray()));
+        await groupWriter.WriteColumnAsync(new DataColumn(categoryField, events.Select(e => e.Category ?? string.Empty).ToArray()));
+        await groupWriter.WriteColumnAsync(new DataColumn(sgEventIdField, events.Select(e => e.SgEventId ?? string.Empty).ToArray()));
+        await groupWriter.WriteColumnAsync(new DataColumn(sgMessageIdField, events.Select(e => e.SgMessageId ?? string.Empty).ToArray()));
+        await groupWriter.WriteColumnAsync(new DataColumn(sgTemplateIdField, events.Select(e => e.SgTemplateId ?? string.Empty).ToArray()));
+        await groupWriter.WriteColumnAsync(new DataColumn(smtpIdField, events.Select(e => e.SmtpId ?? string.Empty).ToArray()));
+        await groupWriter.WriteColumnAsync(new DataColumn(userAgentField, events.Select(e => e.UserAgent ?? string.Empty).ToArray()));
+        await groupWriter.WriteColumnAsync(new DataColumn(ipField, events.Select(e => e.Ip ?? string.Empty).ToArray()));
+        await groupWriter.WriteColumnAsync(new DataColumn(urlField, events.Select(e => e.Url ?? string.Empty).ToArray()));
+        await groupWriter.WriteColumnAsync(new DataColumn(reasonField, events.Select(e => e.Reason ?? string.Empty).ToArray()));
+        await groupWriter.WriteColumnAsync(new DataColumn(statusField, events.Select(e => e.Status ?? string.Empty).ToArray()));
+        await groupWriter.WriteColumnAsync(new DataColumn(responseField, events.Select(e => e.Response ?? string.Empty).ToArray()));
+        await groupWriter.WriteColumnAsync(new DataColumn(tlsField, events.Select(e => e.Tls).ToArray()));
+        await groupWriter.WriteColumnAsync(new DataColumn(attemptField, events.Select(e => e.Attempt ?? string.Empty).ToArray()));
+        await groupWriter.WriteColumnAsync(new DataColumn(typeField, events.Select(e => e.Type ?? string.Empty).ToArray()));
+        await groupWriter.WriteColumnAsync(new DataColumn(bounceClassificationField, events.Select(e => e.BounceClassification ?? string.Empty).ToArray()));
+        await groupWriter.WriteColumnAsync(new DataColumn(asmGroupIdField, events.Select(e => e.AsmGroupId).ToArray()));
+        await groupWriter.WriteColumnAsync(new DataColumn(uniqueArgsField, events.Select(e => e.UniqueArgs ?? string.Empty).ToArray()));
+        await groupWriter.WriteColumnAsync(new DataColumn(marketingCampaignIdField, events.Select(e => e.MarketingCampaignId).ToArray()));
+        await groupWriter.WriteColumnAsync(new DataColumn(marketingCampaignNameField, events.Select(e => e.MarketingCampaignName ?? string.Empty).ToArray()));
+        await groupWriter.WriteColumnAsync(new DataColumn(poolNameField, events.Select(e => e.PoolName ?? string.Empty).ToArray()));
+        await groupWriter.WriteColumnAsync(new DataColumn(poolIdField, events.Select(e => e.PoolId).ToArray()));
+        await groupWriter.WriteColumnAsync(new DataColumn(sendAtField, events.Select(e => e.SendAt).ToArray()));
+
+        return stream;
+    }
+
 }

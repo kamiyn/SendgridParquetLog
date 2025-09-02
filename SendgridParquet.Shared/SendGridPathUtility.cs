@@ -9,7 +9,7 @@ namespace SendgridParquet.Shared;
 /// </summary>
 public static class SendGridPathUtility
 {
-    const string ParquetFileExtension = ".parquet";
+    public const string ParquetFileExtension = ".parquet";
 
     /// <summary>
     /// Parquet 列定義のバージョンに合わせて フォルダー名の prefix を付与する
@@ -64,7 +64,7 @@ public static class SendGridPathUtility
     {
         // S3 Object key names are case sensitive https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-keys.html
         string hashString = GetHashString(parquetData);
-        return $"{GetDirectoryPath(FolderPrefixNonCompaction, targetDay)}/{targetHour}/{hashString}{ParquetFileExtension}";
+        return $"{GetDirectoryPath(FolderPrefixCompaction, targetDay)}/{targetHour}/{hashString}{ParquetFileExtension}";
     }
 
     private static string GetHashString(Stream parquetData)

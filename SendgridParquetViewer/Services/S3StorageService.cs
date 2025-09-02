@@ -263,14 +263,14 @@ public class S3StorageService(
     }
 
     /// <summary>
-    /// prefix の下にある直下の "ディレクトリ"（CommonPrefixes）を列挙する
+    /// prefix の下にある直下（CommonPrefixes）を列挙する
     /// 再帰的な列挙はしない
     /// </summary>
     /// <param name="prefix"></param>
     /// <param name="now"></param>
     /// <param name="ct"></param>
     /// <returns></returns>
-    public async ValueTask<IEnumerable<string>> ListDirectoriesAsync(string prefix, DateTimeOffset now, CancellationToken ct)
+    public async ValueTask<IEnumerable<string>> ListObjectsAsync(string prefix, DateTimeOffset now, CancellationToken ct)
     {
         S3SignatureSource signatureSource = new(now, _options.REGION);
 
