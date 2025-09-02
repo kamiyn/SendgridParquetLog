@@ -256,9 +256,9 @@ public class CompactionService(
         logger.LogInformation("Compaction process completed at {EndTime}", runStatus.EndTime);
     }
 
-    private async Task ExecuteCompactionOneDayAsync(DateOnly dateOnly, string pathPrefix, CancellationToken token)
+    private async Task ExecuteCompactionOneDayAsync(DateOnly targetDate, string pathPrefix, CancellationToken token)
     {
-        logger.LogInformation("Starting compaction for {DateOnly} at path {PathPrefix}", dateOnly, pathPrefix);
+        logger.LogInformation("Starting compaction for {DateOnly} at path {PathPrefix}", targetDate, pathPrefix);
 
         var now = timeProvider.GetUtcNow();
         var allObjects = await s3StorageService.ListFilesAsync(pathPrefix, now, token);
@@ -311,7 +311,6 @@ public class CompactionService(
 
         logger.LogInformation("Total events loaded: {TotalEvents}", allEvents.Count);
 
-        var targetDate = dateOnly.ToDateTime(TimeOnly.MinValue);
         var outputFiles = new List<string>(24);
 
         // Create compacted parquet file for each hour that has data
@@ -370,7 +369,7 @@ public class CompactionService(
         }
 
         logger.LogInformation("Completed compaction for {DateOnly}: created {OutputCount} files, processed {TotalEvents} events",
-            dateOnly, outputFiles.Count, allEvents.Count);
+            targetDate, outputFiles.Count, allEvents.Count);
     }
 
     private async IAsyncEnumerable<SendGridEvent> ReadRowGroupEventsAsync(ParquetRowGroupReader rowGroupReader,

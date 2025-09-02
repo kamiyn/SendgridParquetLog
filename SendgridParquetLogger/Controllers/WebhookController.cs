@@ -75,7 +75,7 @@ public class WebhookController(
             return HttpStatusCode.InternalServerError;
         }
 
-        string fileName = GetParquetFileName(targetDay, parquetData);
+        string fileName = SendGridPathUtility.GetParquetNonCompactionFileName(targetDay, parquetData);
         bool uploadSuccess = await s3StorageService.PutObjectAsync(parquetData, fileName, now, ct);
         if (!uploadSuccess)
         {
@@ -85,16 +85,5 @@ public class WebhookController(
 
         logger.ZLogInformation($"Successfully processed and stored {targetDay:yyyy/MM/dd} events in {fileName}");
         return HttpStatusCode.OK;
-    }
-
-    /// <summary>
-    /// 書き込み途中で失敗し webhook が再送された場合に上書きされることを期待し
-    /// 書き込む内容が一致していれば同じファイル名を生成する
-    /// </summary>
-    private static string GetParquetFileName(DateOnly targetDay, Stream parquetData)
-    {
-        // DateOnlyをDateTimeに変換してユーティリティクラスに渡す
-        var dateTime = targetDay.ToDateTime(TimeOnly.MinValue);
-        return SendGridPathUtility.GetParquetNonCompactionFileName(dateTime, parquetData);
     }
 }
