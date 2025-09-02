@@ -1,6 +1,7 @@
 ﻿using System.Net;
 using System.Security.Cryptography;
 using System.Text;
+using System.Xml.Linq;
 
 using Microsoft.Extensions.Options;
 
@@ -310,35 +311,16 @@ public class S3StorageService(
             {
                 string content = await response.Content.ReadAsStringAsync(ct);
 
-                // Parse XML response to extract CommonPrefixes
-                var startTag = "<CommonPrefixes>";
-                var endTag = "</CommonPrefixes>";
-                var prefixTag = "<Prefix>";
-                var prefixEndTag = "</Prefix>";
+                // Parse XML response using LINQ to XML
+                var doc = XDocument.Parse(content);
+                var ns = doc.Root?.GetDefaultNamespace() ?? XNamespace.None;
 
-                int startIndex = 0;
-                while ((startIndex = content.IndexOf(startTag, startIndex)) != -1)
-                {
-                    var endIndex = content.IndexOf(endTag, startIndex);
-                    if (endIndex == -1) break;
-
-                    var commonPrefix = content.Substring(startIndex, endIndex - startIndex + endTag.Length);
-                    var prefixStart = commonPrefix.IndexOf(prefixTag) + prefixTag.Length;
-                    var prefixEnd = commonPrefix.IndexOf(prefixEndTag);
-
-                    if (prefixStart > prefixTag.Length - 1 && prefixEnd > prefixStart)
-                    {
-                        var fullPrefix = commonPrefix.Substring(prefixStart, prefixEnd - prefixStart);
-                        // Extract just the directory name from the full path
-                        var parts = fullPrefix.TrimEnd('/').Split('/');
-                        if (parts.Length > 0)
-                        {
-                            directories.Add(parts[parts.Length - 1]);
-                        }
-                    }
-
-                    startIndex = endIndex + endTag.Length;
-                }
+                directories = doc.Descendants(ns + "CommonPrefixes")
+                    .Select(cp => cp.Element(ns + "Prefix")?.Value)
+                    .Where(p => !string.IsNullOrEmpty(p))
+                    .Select(p => p!.TrimEnd('/').Split('/').LastOrDefault() ?? string.Empty)
+                    .Where(d => !string.IsNullOrEmpty(d))
+                    .ToList();
 
                 return directories;
             }
