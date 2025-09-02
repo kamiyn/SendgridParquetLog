@@ -1,6 +1,6 @@
 ﻿using System.ComponentModel.DataAnnotations;
 
-namespace SendgridParquetViewer.Options;
+namespace SendgridParquet.Shared;
 
 public class S3Options
 {

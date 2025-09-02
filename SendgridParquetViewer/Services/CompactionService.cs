@@ -11,6 +11,8 @@ using SendgridParquet.Shared;
 
 using SendgridParquetViewer.Models;
 
+using ZLogger;
+
 namespace SendgridParquetViewer.Services;
 
 public class CompactionService(
@@ -42,7 +44,7 @@ public class CompactionService(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Unable to read run status from {RunJsonPath}", runJsonPath);
+            logger.ZLogWarning(ex, $"Unable to read run status from {runJsonPath}");
             return null;
         }
     }
@@ -106,7 +108,7 @@ public class CompactionService(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Error during compaction start");
+            logger.ZLogError(ex, $"Error during compaction start");
             await ReleaseLockAsync(lockId, cancellationToken);
             throw;
         }
@@ -152,7 +154,7 @@ public class CompactionService(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Error retrieving target dates for compaction");
+            logger.ZLogError(ex, $"Error retrieving target dates for compaction");
         }
 
         return targetDays;
@@ -180,8 +182,7 @@ public class CompactionService(
             var existingLock = JsonSerializer.Deserialize<LockInfo>(existingLockJson);
             if (existingLock != null && existingLock.ExpiresAt > now)
             {
-                logger.LogInformation("Lock is held by {OwnerId} until {ExpiresAt}",
-                    existingLock.OwnerId, existingLock.ExpiresAt);
+                logger.ZLogInformation($"Lock is held by {existingLock.OwnerId} until {existingLock.ExpiresAt}");
                 return false;
             }
         }
@@ -204,8 +205,7 @@ public class CompactionService(
 
         if (success)
         {
-            logger.LogInformation("Lock acquired successfully. Lock ID: {LockId}, Expires at: {ExpiresAt}",
-                lockId, lockInfo.ExpiresAt);
+            logger.ZLogInformation($"Lock acquired successfully. Lock ID: {lockId}, Expires at: {lockInfo.ExpiresAt}");
         }
 
         return success;
@@ -223,29 +223,28 @@ public class CompactionService(
             if (existingLock?.LockId == lockId)
             {
                 await s3StorageService.DeleteObjectAsync(lockPath, now, cancellationToken);
-                logger.LogInformation("Lock released successfully. Lock ID: {LockId}", lockId);
+                logger.ZLogInformation($"Lock released successfully. Lock ID: {lockId}");
             }
         }
     }
 
     private async Task ExecuteCompactionAsync(RunStatus runStatus, CancellationToken token)
     {
-        logger.LogInformation("Compaction process started at {StartTime} with {TargetDaysCount} target dates",
-            runStatus.StartTime, runStatus.TargetDays.Count);
+        logger.ZLogInformation($"Compaction process started at {runStatus.StartTime} with {runStatus.TargetDays.Count} target dates");
 
         try
         {
             foreach ((DateOnly dateOnly, string pathPrefix) in runStatus.TargetDays.Zip(runStatus.TargetPathPrefixes))
             {
-                logger.LogInformation("Starting compaction for date {Date} at path {Path}", dateOnly, pathPrefix);
+                logger.ZLogInformation($"Starting compaction for date {dateOnly} at path {pathPrefix}");
                 try
                 {
                     await ExecuteCompactionOneDayAsync(dateOnly, pathPrefix, token);
-                    logger.LogInformation("Completed compaction for date {Date} at path {Path}", dateOnly, pathPrefix);
+                    logger.ZLogInformation($"Completed compaction for date {dateOnly} at path {pathPrefix}");
                 }
                 catch (Exception ex)
                 {
-                    logger.LogError(ex, "Error during compaction for date {Date} at path {Path}", dateOnly, pathPrefix);
+                    logger.ZLogError(ex, $"Error during compaction for date {dateOnly} at path {pathPrefix}");
                     // Continue with other dates
                 }
             }
@@ -257,12 +256,12 @@ public class CompactionService(
 
         runStatus.EndTime = timeProvider.GetUtcNow();
         await SaveRunStatusAsync(runStatus, CancellationToken.None);
-        logger.LogInformation("Compaction process completed at {EndTime}", runStatus.EndTime);
+        logger.ZLogInformation($"Compaction process completed at {runStatus.EndTime}");
     }
 
     private async Task ExecuteCompactionOneDayAsync(DateOnly targetDate, string pathPrefix, CancellationToken token)
     {
-        logger.LogInformation("Starting compaction for {DateOnly} at path {PathPrefix}", targetDate, pathPrefix);
+        logger.ZLogInformation($"Starting compaction for {targetDate} at path {pathPrefix}");
 
         var now = timeProvider.GetUtcNow();
         var allObjects = await s3StorageService.ListFilesAsync(pathPrefix, now, token);
@@ -272,12 +271,12 @@ public class CompactionService(
 
         if (!targetParquetFiles.Any())
         {
-            logger.LogInformation("No parquet files found at {PathPrefix}", pathPrefix);
+            logger.ZLogInformation($"No parquet files found at {pathPrefix}");
             return;
         }
 
         var totalFiles = targetParquetFiles.Count();
-        logger.LogInformation("Found {Count} parquet files to compact", totalFiles);
+        logger.ZLogInformation($"Found {totalFiles} parquet files to compact");
 
         var remainFiles = new LinkedList<string>(targetParquetFiles); // CompactionBatchAsync は先頭から順番に処理するので LinkedList で良い
         while (remainFiles.Any())
@@ -290,8 +289,7 @@ public class CompactionService(
                 // 何も処理できなかった場合は無限ループ防止のため while を終了する
                 break;
             }
-            logger.LogInformation("Compaction progress: {ProcessedCount}/{TotalCount} files",
-                totalFiles - remainFiles.Count, totalFiles);
+            logger.ZLogInformation($"Compaction progress: {totalFiles - remainFiles.Count}/{totalFiles} files");
         }
     }
 
@@ -334,7 +332,7 @@ public class CompactionService(
     {
         var ctx = new CompactionBatchContext();
         await ReadParquetFilesAsync(candidateParquetFiles, ctx, token);
-        logger.LogInformation("Total events loaded: {TotalEvents}", ctx.SendGridEvents.Count);
+        logger.ZLogInformation($"Total events loaded: {ctx.SendGridEvents.Count}");
         await CreateCompactedParquetAsync(ctx, token);
         if (await VerifyOutputFilesAsync(ctx, token))
         {
@@ -346,8 +344,7 @@ public class CompactionService(
             }
         }
 
-        logger.LogInformation("Completed compaction for {targetDate}: failed {failedCount} files, created {OutputCount} files, processed {TotalEvents} events",
-            targetDate, ctx.FailedFiles.Count, ctx.OutputFiles.Count, ctx.SendGridEvents.Count);
+        logger.ZLogInformation($"Completed compaction for {targetDate}: failed {ctx.FailedFiles.Count} files, created {ctx.OutputFiles.Count} files, processed {ctx.SendGridEvents.Count} events");
         return ctx.ProcessingFiles;
     }
 
@@ -366,12 +363,12 @@ public class CompactionService(
             string outputFileName = string.Empty;
             try
             {
-                logger.LogInformation("Creating compacted file for hour {Hour} with {EventCount} events", hour, hourEvents.Count());
+                logger.ZLogInformation($"Creating compacted file for hour {hour} with {hourEvents.Count()} events");
 
                 await using Stream? outputStream = await CreateCompactedParquetAsync(hourEvents);
                 if (outputStream == null)
                 {
-                    logger.LogWarning("Failed to create parquet data for hour {Hour}", hour);
+                    logger.ZLogWarning($"Failed to create parquet data for hour {hour}");
                     continue;
                 }
 
@@ -380,11 +377,11 @@ public class CompactionService(
                 await s3StorageService.PutObjectAsync(outputStream, outputFileName, now, token);
                 ctx.OutputFiles.Add(outputFileName);
 
-                logger.LogInformation("Created compacted file: {OutputFileName} for hour {Hour}", outputFileName, hour);
+                logger.ZLogInformation($"Created compacted file: {outputFileName} for hour {hour}");
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Failed to create compacted file: {outputFileName} for hour {Hour}", outputFileName, hour);
+                logger.ZLogError(ex, $"Failed to create compacted file: {outputFileName} for hour {hour}");
                 throw;
             }
         }
@@ -404,13 +401,12 @@ public class CompactionService(
                 byte[] verifyData = await s3StorageService.GetObjectAsByteArrayAsync(outputFile, now, token);
                 using var verifyMs = new MemoryStream(verifyData);
                 using ParquetReader verifyReader = await ParquetReader.CreateAsync(verifyMs, cancellationToken: token);
-                logger.LogInformation("Verified compacted file: {OutputFile} (RowGroups: {RowGroupCount})",
-                    outputFile, verifyReader.RowGroupCount);
+                logger.ZLogInformation($"Verified compacted file: {outputFile} (RowGroups: {verifyReader.RowGroupCount})");
             }
             catch (Exception ex)
             {
                 failedFiles.Add(outputFile);
-                logger.LogError(ex, "Failed to verify compacted file: {OutputFile}", outputFile);
+                logger.ZLogError(ex, $"Failed to verify compacted file: {outputFile}");
                 await s3StorageService.DeleteObjectAsync(outputFile, now, token);
             }
         }
@@ -425,11 +421,11 @@ public class CompactionService(
         {
             try
             {
-                logger.LogInformation("Reading Parquet file: {ParquetFile}", parquetFile);
+                logger.ZLogInformation($"Reading Parquet file: {parquetFile}");
                 byte[] parquetData = await s3StorageService.GetObjectAsByteArrayAsync(parquetFile, now, token);
                 if (ctx.ProcessedBytes + parquetData.Length > _compactionOptions.MaxBatchSizeBytes)
                 {
-                    logger.LogInformation($"Reached read limit {_compactionOptions.MaxBatchSizeBytes}, stopping further reads in this batch");
+                    logger.ZLogInformation($"Reached read limit {_compactionOptions.MaxBatchSizeBytes}, stopping further reads in this batch");
                     break;
                 }
                 if (parquetData.Any())
@@ -446,16 +442,16 @@ public class CompactionService(
                     }
                     ctx.ProcessingFiles.Add(parquetFile);
                     ctx.ProcessedBytes += parquetData.Length;
-                    logger.LogInformation("Successfully read {EventCount} events from {ParquetFile}", ctx.SendGridEvents.Count, parquetFile);
+                    logger.ZLogInformation($"Successfully read {ctx.SendGridEvents.Count} events from {parquetFile}");
                 }
                 else
                 {
-                    logger.LogWarning("Empty parquet file: {ParquetFile}", parquetFile);
+                    logger.ZLogWarning($"Empty parquet file: {parquetFile}");
                 }
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Failed to read parquet file: {ParquetFile}", parquetFile);
+                logger.ZLogError(ex, $"Failed to read parquet file: {parquetFile}");
                 ctx.FailedFiles.Add(parquetFile);
                 // 読めなくても処理を続け 無効なファイルとして後で削除する
             }

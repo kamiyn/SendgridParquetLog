@@ -2,13 +2,15 @@
 
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.Extensions.Options;
 using Microsoft.FluentUI.AspNetCore.Components;
 using Microsoft.Identity.Web;
 using Microsoft.Identity.Web.UI;
 
+using SendgridParquet.Shared;
+
 using SendgridParquetViewer.Components;
 using SendgridParquetViewer.Models;
-using SendgridParquetViewer.Options;
 using SendgridParquetViewer.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -78,6 +80,7 @@ builder.Services.AddFluentUIComponents();
 
 // Add DuckDB service
 builder.Services.AddTransient<DuckDbService>();
+
 
 // Add S3 storage service
 builder.Services.AddHttpClient<S3StorageService>();

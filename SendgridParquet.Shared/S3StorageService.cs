@@ -1,15 +1,22 @@
-﻿using System.Net;
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Net;
+using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Xml.Linq;
 
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-
-using SendgridParquetLogger.Options;
 
 using ZLogger;
 
-namespace SendgridParquetLogger.Services;
+namespace SendgridParquet.Shared;
+
 
 public class S3StorageService(
     ILogger<S3StorageService> logger,
@@ -245,7 +252,7 @@ public class S3StorageService(
         }
         catch (Exception ex)
         {
-            logger.ZLogError(ex, $"Error uploading object {uri} to S3", key);
+            logger.ZLogError(ex, $"Error uploading object {uri} to S3");
             return false;
         }
     }
@@ -272,13 +279,39 @@ public class S3StorageService(
     /// <returns></returns>
     public async ValueTask<IEnumerable<string>> ListDirectoriesAsync(string prefix, DateTimeOffset now, CancellationToken ct)
     {
-        S3SignatureSource signatureSource = new(now, _options.REGION);
+        var content = await ListObjectsAsync(new ListObjectsRequest(prefix, Delimiter: "/", now), ct);
+        XDocument doc = XDocument.Parse(content);
+        XNamespace ns = doc.Root?.GetDefaultNamespace() ?? XNamespace.None;
+        return doc.Descendants(ns + "CommonPrefixes")
+            .Select(cp => cp.Element(ns + "Prefix")?.Value)
+            .Where(p => !string.IsNullOrEmpty(p))
+            .Select(p => p!.TrimEnd('/').Split('/').LastOrDefault() ?? string.Empty)
+            .Where(d => !string.IsNullOrEmpty(d));
+    }
 
+    public async ValueTask<IEnumerable<string>> ListFilesAsync(string prefix, DateTimeOffset now, CancellationToken ct)
+    {
+        var content = await ListObjectsAsync(new ListObjectsRequest(prefix, Delimiter: null, now), ct);
+        XDocument doc = XDocument.Parse(content);
+        XNamespace ns = doc.Root?.GetDefaultNamespace() ?? XNamespace.None;
+        return doc.Descendants(ns + "Contents")
+            .Select(cp => cp.Element(ns + "Key")?.Value!)
+            .Where(p => !string.IsNullOrEmpty(p));
+    }
+
+    public record struct ListObjectsRequest(string Prefix, string? Delimiter, DateTimeOffset Now)
+    {
+        internal string GetQueryString() =>
+            $"prefix={Uri.EscapeDataString(Prefix.TrimEnd('/') + "/")}" +
+            (string.IsNullOrEmpty(Delimiter) ? string.Empty : $"&delimiter={Uri.EscapeDataString(Delimiter)}");
+    }
+
+    private async ValueTask<string> ListObjectsAsync(ListObjectsRequest req, CancellationToken ct)
+    {
+        S3SignatureSource signatureSource = new(req.Now, _options.REGION);
         try
         {
-            var delimiter = "/";
-            var encodedPrefix = Uri.EscapeDataString(prefix + "/");
-            var uriString = $"{_options.SERVICEURL}/{_options.BUCKETNAME}/?prefix={encodedPrefix}&delimiter={delimiter}";
+            var uriString = $"{_options.SERVICEURL}/{_options.BUCKETNAME}/?{req.GetQueryString()}";
             var uri = new Uri(uriString);
             using var request = new HttpRequestMessage(HttpMethod.Get, uri);
             using var requestContent = new MemoryStream([]);
@@ -288,25 +321,18 @@ public class S3StorageService(
 
             if (response.IsSuccessStatusCode)
             {
-                // Parse XML response using LINQ to XML
-                XDocument doc = XDocument.Parse(content);
-                XNamespace ns = doc.Root?.GetDefaultNamespace() ?? XNamespace.None;
-                return doc.Descendants(ns + "CommonPrefixes")
-                    .Select(cp => cp.Element(ns + "Prefix")?.Value)
-                    .Where(p => !string.IsNullOrEmpty(p))
-                    .Select(p => p!.TrimEnd('/').Split('/').LastOrDefault() ?? string.Empty)
-                    .Where(d => !string.IsNullOrEmpty(d));
+                return content;
             }
             else
             {
-                logger.ZLogError($"Error listing directories for prefix {prefix}. Status: {response.StatusCode}, Response: {content}");
-                return [];
+                logger.ZLogError($"Error listing objects for prefix {req.Prefix}. Status: {response.StatusCode}, Response: {content}");
+                return string.Empty;
             }
         }
         catch (Exception ex)
         {
-            logger.ZLogError(ex, $"Error listing directories for prefix {prefix}", prefix);
-            return [];
+            logger.ZLogError(ex, $"Error listing objects for prefix {req.Prefix}");
+            return string.Empty;
         }
     }
 
@@ -549,10 +575,59 @@ internal class S3CanonicalHeaders
 
 internal record struct S3SignatureSource(DateTimeOffset now, string region)
 {
-    internal string Date => now.ToString("yyyyMMdd");
-    internal string AmzDate => now.ToString("yyyyMMddTHHmmssZ");
+    internal string Date => now.UtcDateTime.ToString("yyyyMMdd");
+    internal string AmzDate => now.UtcDateTime.ToString("yyyyMMddTHHmmssZ");
     internal string Region => region;
     internal string Service => "s3";
     internal string Signing => "aws4_request";
     internal string GetCredentialScope() => $"{Date}/{Region}/{Service}/{Signing}";
+}
+
+internal sealed class ByteArrayComparer : IComparer<byte[]>, IEqualityComparer<byte[]>
+{
+    public static readonly ByteArrayComparer Instance = new();
+
+    private ByteArrayComparer() { }
+
+    public int Compare(byte[]? x, byte[]? y)
+    {
+        if (ReferenceEquals(x, y)) return 0;
+        if (x is null) return -1;
+        if (y is null) return 1;
+
+        ReadOnlySpan<byte> a = x;
+        ReadOnlySpan<byte> b = y;
+        int min = Math.Min(a.Length, b.Length);
+
+        for (int i = 0; i < min; i++)
+        {
+            int diff = a[i] - b[i];
+            if (diff != 0) return diff;
+        }
+
+        return a.Length - b.Length;
+    }
+
+    public bool Equals(byte[]? x, byte[]? y)
+    {
+        if (ReferenceEquals(x, y)) return true;
+        if (x is null || y is null) return false;
+        if (x.Length != y.Length) return false;
+        return x.AsSpan().SequenceEqual(y);
+    }
+
+    public int GetHashCode(byte[]? obj)
+    {
+        if (obj is null) return 0;
+        // 軽量なハッシュ（簡易版）。必要なら FNV-1a や SipHash に差し替え可。
+        unchecked
+        {
+            int hash = 17;
+            foreach (var b in obj)
+            {
+                hash = hash * 31 + b;
+            }
+            return hash;
+        }
+    }
 }
