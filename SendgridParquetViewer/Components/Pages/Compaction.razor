@@ -13,9 +13,7 @@
         <FluentSpacer />
     </FluentHeader>
 
-    <FluentBodyText>
-        <p>Manage Parquet file compaction processes for SendGrid webhook data.</p>
-    </FluentBodyText>
+    <p>Manage Parquet file compaction processes for SendGrid webhook data.</p>
 
     <FluentGrid>
         <FluentGridItem xs="12" md="6">
@@ -24,13 +22,13 @@
                     <FluentLabel Typo="Typography.Subject">Current Status</FluentLabel>
                 </FluentHeader>
                 
-                @if (runStatus != null)
+                @if (_runStatus != null)
                 {
-                    <FluentBodyText>
-                        <strong>Start Time:</strong> @runStatus.StartTime.ToString("yyyy-MM-dd HH:mm:ss UTC")<br />
-                        @if (runStatus.EndTime.HasValue)
+                    <p>
+                        <strong>Start Time:</strong> @_runStatus.StartTime.ToString("yyyy-MM-dd HH:mm:ss UTC")<br />
+                        @if (_runStatus.EndTime.HasValue)
                         {
-                            <strong>End Time:</strong> @runStatus.EndTime.Value.ToString("yyyy-MM-dd HH:mm:ss UTC")<br />
+                            <strong>End Time:</strong> @_runStatus.EndTime.Value.ToString("yyyy-MM-dd HH:mm:ss UTC")<br />
                             <strong>Status:</strong> <FluentBadge BackgroundColor="var(--success)" Color="white">Completed</FluentBadge>
                         }
                         else
@@ -38,25 +36,25 @@
                             <strong>Status:</strong> <FluentBadge BackgroundColor="var(--accent-fill-rest)">Running</FluentBadge>
                         }
                         <br />
-                        <strong>Target Days:</strong> @runStatus.TargetDays.Count<br />
-                        <strong>Target Paths:</strong> @string.Join(", ", runStatus.TargetPathPrefixes.Take(3))
-                        @if (runStatus.TargetPathPrefixes.Count > 3)
+                        <strong>Target Days:</strong> @_runStatus.TargetDays.Count<br />
+                        <strong>Target Paths:</strong> @string.Join(", ", _runStatus.TargetPathPrefixes.Take(3))
+                        @if (_runStatus.TargetPathPrefixes.Count > 3)
                         {
-                            <text> and @(runStatus.TargetPathPrefixes.Count - 3) more...</text>
+                            <text> and @(_runStatus.TargetPathPrefixes.Count - 3) more...</text>
                         }
-                    </FluentBodyText>
+                    </p>
                 }
-                else if (isLoadingStatus)
+                else if (_isLoadingStatus)
                 {
                     <FluentProgressRing />
-                    <FluentBodyText>Loading status...</FluentBodyText>
+                    <p>Loading status...</p>
                 }
                 else
                 {
-                    <FluentBodyText>No active compaction process found.</FluentBodyText>
+                    <p>No active compaction process found.</p>
                 }
 
-                <FluentButton Appearance="Appearance.Neutral" OnClick="RefreshStatus" Loading="isLoadingStatus">
+                <FluentButton Appearance="Appearance.Neutral" OnClick="RefreshStatus" Loading="_isLoadingStatus">
                     Refresh
                 </FluentButton>
             </FluentCard>
@@ -68,34 +66,32 @@
                     <FluentLabel Typo="Typography.Subject">Start New Compaction</FluentLabel>
                 </FluentHeader>
                 
-                <FluentBodyText>
-                    <p>Start a new compaction process. This will process all available non-compacted Parquet files.</p>
-                </FluentBodyText>
+                <p>Start a new compaction process. This will process all available non-compacted Parquet files.</p>
 
                 <FluentButton Appearance="Appearance.Accent" 
                              OnClick="StartCompaction" 
-                             Loading="isStarting"
-                             Disabled="@(runStatus?.EndTime == null && runStatus != null)">
+                             Loading="_isStarting"
+                             Disabled="@(_runStatus?.EndTime == null && _runStatus != null)">
                     Start Compaction
                 </FluentButton>
             </FluentCard>
         </FluentGridItem>
     </FluentGrid>
 
-    @if (!string.IsNullOrEmpty(message))
+    @if (!string.IsNullOrEmpty(_message))
     {
-        <FluentMessageBar Intent="@messageIntent" OnDismiss="() => message = string.Empty">
-            @message
+        <FluentMessageBar Intent="@_messageIntent" OnDismiss="() => message = string.Empty">
+            @_message
         </FluentMessageBar>
     }
 </FluentCard>
 
 @code {
-    private RunStatus? runStatus;
-    private bool isLoadingStatus;
-    private bool isStarting;
-    private string message = string.Empty;
-    private MessageIntent messageIntent = MessageIntent.Info;
+    private RunStatus? _runStatus;
+    private bool _isLoadingStatus;
+    private bool _isStarting;
+    private string _message = string.Empty;
+    private MessageIntent _messageIntent = MessageIntent.Info;
 
     protected override async Task OnInitializedAsync()
     {
@@ -104,10 +100,10 @@
 
     private async Task RefreshStatus()
     {
-        isLoadingStatus = true;
+        _isLoadingStatus = true;
         try
         {
-            runStatus = await CompactionService.GetRunStatusAsync();
+            _runStatus = await CompactionService.GetRunStatusAsync();
         }
         catch (Exception ex)
         {
@@ -116,13 +112,13 @@
         }
         finally
         {
-            isLoadingStatus = false;
+            _isLoadingStatus = false;
         }
     }
 
     private async Task StartCompaction()
     {
-        isStarting = true;
+        _isStarting = true;
         try
         {
             var result = await CompactionService.StartCompactionAsync();
@@ -143,14 +139,14 @@
         }
         finally
         {
-            isStarting = false;
+            _isStarting = false;
         }
     }
 
     private void ShowMessage(string msg, MessageIntent intent)
     {
-        message = msg;
-        messageIntent = intent;
+        _message = msg;
+        _messageIntent = intent;
         StateHasChanged();
     }
 }
