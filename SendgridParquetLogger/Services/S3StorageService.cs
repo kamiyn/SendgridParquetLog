@@ -183,6 +183,112 @@ public class S3StorageService(
         }
     }
 
+    public async Task<bool> DeleteObjectAsync(string key, CancellationToken ct)
+    {
+        var now = DateTimeOffset.UtcNow;
+        S3SignatureSource signatureSource = new(now, _options.REGION);
+        try
+        {
+            var uri = new Uri($"{_options.SERVICEURL}/{_options.BUCKETNAME}/{key}");
+            using var request = new HttpRequestMessage(HttpMethod.Delete, uri);
+            using var requestContent = new MemoryStream([]);
+            AddAwsSignatureHeaders(request, requestContent, signatureSource);
+            using HttpResponseMessage response = await httpClient.SendAsync(request, ct);
+
+            if (response.IsSuccessStatusCode || response.StatusCode == HttpStatusCode.NoContent)
+            {
+                logger.ZLogInformation($"Object {key} deleted successfully from S3", key);
+                return true;
+            }
+            else
+            {
+                string responseContent = await response.Content.ReadAsStringAsync(ct);
+                logger.ZLogError($"Error deleting object {key} from S3. Status: {response.StatusCode}, Response: {responseContent}");
+                return false;
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.ZLogError(ex, $"Error deleting object {key} from S3", key);
+            return false;
+        }
+    }
+
+    public async Task<bool> PutObjectWithConditionAsync(string key, string content, string expectedContent, CancellationToken ct)
+    {
+        var now = DateTimeOffset.UtcNow;
+        S3SignatureSource signatureSource = new(now, _options.REGION);
+        try
+        {
+            // First, get the current ETag if object exists
+            string? currentETag = null;
+            if (!string.IsNullOrEmpty(expectedContent))
+            {
+                var headUri = new Uri($"{_options.SERVICEURL}/{_options.BUCKETNAME}/{key}");
+                using var headRequest = new HttpRequestMessage(HttpMethod.Head, headUri);
+                using var headRequestContent = new MemoryStream([]);
+                AddAwsSignatureHeaders(headRequest, headRequestContent, signatureSource);
+                using HttpResponseMessage headResponse = await httpClient.SendAsync(headRequest, ct);
+
+                if (headResponse.IsSuccessStatusCode)
+                {
+                    currentETag = headResponse.Headers.ETag?.Tag;
+                }
+            }
+
+            // Now do conditional PUT
+            var uri = new Uri($"{_options.SERVICEURL}/{_options.BUCKETNAME}/{key}");
+            using var request = new HttpRequestMessage(HttpMethod.Put, uri);
+            using var stream = new MemoryStream(Encoding.UTF8.GetBytes(content));
+
+            // Add conditional header if we have an expected ETag
+            if (!string.IsNullOrEmpty(currentETag))
+            {
+                request.Headers.TryAddWithoutValidation("If-Match", currentETag);
+            }
+            else if (!string.IsNullOrEmpty(expectedContent))
+            {
+                // Expected content but no current object - should fail
+                return false;
+            }
+            else
+            {
+                // No expected content - only create if doesn't exist
+                request.Headers.TryAddWithoutValidation("If-None-Match", "*");
+            }
+
+            AddAwsSignatureHeaders(request, stream, signatureSource);
+
+            stream.Seek(0, SeekOrigin.Begin);
+            request.Content = new StreamContent(stream);
+            request.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+            using HttpResponseMessage response = await httpClient.SendAsync(request, ct);
+
+            if (response.IsSuccessStatusCode)
+            {
+                string? etag = response.Headers.ETag?.Tag;
+                logger.ZLogInformation($"Object {key} uploaded conditionally to S3. ETag: {etag}", key, etag);
+                return true;
+            }
+            else if (response.StatusCode == HttpStatusCode.PreconditionFailed)
+            {
+                logger.ZLogInformation($"Conditional PUT failed for {key} - precondition not met", key);
+                return false;
+            }
+            else
+            {
+                string responseContent = await response.Content.ReadAsStringAsync(ct);
+                logger.ZLogError($"Error uploading object {key} to S3. Status: {response.StatusCode}, Response: {responseContent}");
+                return false;
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.ZLogError(ex, $"Error uploading object {key} to S3", key);
+            return false;
+        }
+    }
+
     public async Task<List<string>> ListDirectoriesAsync(string prefix, CancellationToken ct)
     {
         var now = DateTimeOffset.UtcNow;
