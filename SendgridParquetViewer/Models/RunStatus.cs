@@ -1,6 +1,6 @@
 ﻿using System.Text.Json.Serialization;
 
-namespace SendgridParquetLogger.Models;
+namespace SendgridParquetViewer.Models;
 
 public class RunStatus
 {
@@ -16,9 +16,6 @@ public class RunStatus
     [JsonPropertyName("targetDays")]
     public IList<DateOnly> TargetDays { get; init; } = [];
 
-    /// <summary>
-    /// 対象日 の Parquet ファイルが置かれている prefix
-    /// </summary>
     [JsonPropertyName("targetPaths")]
     public IList<string> TargetPathPrefixes { get; init; } = [];
 }

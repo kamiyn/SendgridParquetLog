@@ -68,6 +68,12 @@ builder.Services.AddFluentUIComponents();
 // Add DuckDB service
 builder.Services.AddTransient<DuckDbService>();
 
+// Add S3 storage service
+builder.Services.AddHttpClient<S3StorageService>();
+
+// Add Compaction service
+builder.Services.AddScoped<CompactionService>();
+
 // Add health checks
 builder.Services.AddHealthChecks();
 

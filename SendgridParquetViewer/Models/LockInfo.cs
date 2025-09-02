@@ -1,6 +1,6 @@
 ﻿using System.Text.Json.Serialization;
 
-namespace SendgridParquetLogger.Models;
+namespace SendgridParquetViewer.Models;
 
 public class LockInfo
 {
