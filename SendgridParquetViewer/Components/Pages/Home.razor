@@ -237,7 +237,7 @@ else if (_hasSearched)
     private DateSelectionMode _dateSelectionMode = DateSelectionMode.YearMonth;
     private DateTime? _selectedDate;
     private string _selectedHourString = "";
-    private int? SelectedHour => string.IsNullOrEmpty(_selectedHourString) ? null : int.Parse(_selectedHourString);
+    private int? SelectedHour => int.TryParse(_selectedHourString, out int v) ? v : null;
 
     // Dialog
     private SendGridEvent? _selectedEvent;
