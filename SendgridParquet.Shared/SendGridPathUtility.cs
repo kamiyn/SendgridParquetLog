@@ -9,6 +9,8 @@ namespace SendgridParquet.Shared;
 /// </summary>
 public static class SendGridPathUtility
 {
+    const string ParquetFileExtension = ".parquet";
+
     /// <summary>
     /// Parquet 列定義のバージョンに合わせて フォルダー名の prefix を付与する
     ///
@@ -48,7 +50,21 @@ public static class SendGridPathUtility
     {
         // S3 Object key names are case sensitive https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-keys.html
         string hashString = GetHashString(parquetData);
-        return $"{GetDirectoryPath(FolderPrefixNonCompaction, targetDay)}/{hashString}.parquet";
+        return $"{GetDirectoryPath(FolderPrefixNonCompaction, targetDay)}/{hashString}{ParquetFileExtension}";
+    }
+
+    /// <summary>
+    /// Parquetファイル名を生成する（Compaction用のオーバーロード）
+    /// </summary>
+    /// <param name="targetDay">対象の日付</param>
+    /// <param name="targetHour">対称の時刻</param>
+    /// <param name="parquetData">Parquetデータのストリーム</param>
+    /// <returns>S3オブジェクトキー</returns>
+    public static string GetParquetCompactionFileName(DateTime targetDay, int targetHour, Stream parquetData)
+    {
+        // S3 Object key names are case sensitive https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-keys.html
+        string hashString = GetHashString(parquetData);
+        return $"{GetDirectoryPath(FolderPrefixNonCompaction, targetDay)}/{targetHour}/{hashString}{ParquetFileExtension}";
     }
 
     private static string GetHashString(Stream parquetData)

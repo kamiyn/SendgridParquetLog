@@ -57,7 +57,7 @@ public class CompactionService(
                 StartTime = startTime,
                 EndTime = null,
                 TargetDays = targetDays.Select(x => x.dateOnly).ToArray(),
-                TargetPaths = targetDays.Select(x => x.path).ToArray(),
+                TargetPathPrefixes = targetDays.Select(x => x.pathPrefix).ToArray(),
             };
 
             // 実行開始するだけで、完了は待たない
@@ -97,7 +97,10 @@ public class CompactionService(
 
         try
         {
-            await ExecuteCompactionAsync(cts);
+            foreach ((DateOnly dateOnly, string pathPrefix) in runStatus.TargetDays.Zip(runStatus.TargetPathPrefixes))
+            {
+                await ExecuteCompactionAsync(dateOnly, pathPrefix, cts);
+            }
         }
         finally
         {
@@ -144,10 +147,10 @@ public class CompactionService(
         await s3StorageService.PutObjectAsync(ms, runJsonPath, now, cancellationToken);
     }
 
-    private async Task<IList<(DateOnly dateOnly, string path)>> GetTargetDaysAsync(CancellationToken cancellationToken)
+    private async Task<IList<(DateOnly dateOnly, string pathPrefix)>> GetTargetDaysAsync(CancellationToken cancellationToken)
     {
         var now = timeProvider.GetUtcNow();
-        var targetDays = new List<(DateOnly dateOnly, string path)>();
+        var targetDays = new List<(DateOnly dateOnly, string pathPrefix)>();
         try
         {
             var yearDir = await s3StorageService.ListDirectoriesAsync(SendGridPathUtility.GetS3NonCompactionPrefix(null, null, null), now, cancellationToken);
@@ -253,7 +256,20 @@ public class CompactionService(
         }
     }
 
-    private static async Task ExecuteCompactionAsync(CancellationTokenSource cts) => await Task.Delay(1000, cts.Token);
+    private async Task ExecuteCompactionAsync(DateOnly targetDay, string pathPrefix, CancellationTokenSource cts)
+    {
+        logger.ZLogInformation($"Starting compaction for date {targetDay} at path {pathPrefix}");
+        try
+        {
+            await Task.Delay(1000, cts.Token);
+            logger.ZLogInformation($"Completed compaction for date {targetDay} at path {pathPrefix}");
+        }
+        catch (Exception ex)
+        {
+            logger.ZLogError(ex, $"Error during compaction for date {targetDay} at path {pathPrefix}");
+            // 他の日を実行したいので throw しない
+        }
+    }
 }
 
 public class CompactionStartResult

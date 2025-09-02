@@ -16,6 +16,9 @@ public class RunStatus
     [JsonPropertyName("targetDays")]
     public IList<DateOnly> TargetDays { get; init; } = [];
 
+    /// <summary>
+    /// 対象日 の Parquet ファイルが置かれている prefix
+    /// </summary>
     [JsonPropertyName("targetPaths")]
-    public IList<string> TargetPaths { get; init; } = [];
+    public IList<string> TargetPathPrefixes { get; init; } = [];
 }
