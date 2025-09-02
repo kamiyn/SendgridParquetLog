@@ -359,9 +359,9 @@ public class CompactionService(
         foreach (var hourGroup in ctx.SendGridEvents.GroupBy(e => e.Timestamp / 3600 /* 1時間単位に分割 */))
         {
             var now = timeProvider.GetUtcNow();
-            DateTimeOffset key = JstExtension.JstUnixTimeSeconds(hourGroup.Key);
-            var date = new DateOnly(key.Year, key.Month, key.Day);
-            int hour = key.Hour;
+            DateTimeOffset timestampFirst = JstExtension.JstUnixTimeSeconds(hourGroup.Select(x => x.Timestamp).First());
+            var date = new DateOnly(timestampFirst.Year, timestampFirst.Month, timestampFirst.Day);
+            int hour = timestampFirst.Hour;
             var hourEvents = hourGroup.ToArray(); // GroupBy の結果なので必ず1件以上ある
             string outputFileName = string.Empty;
             try

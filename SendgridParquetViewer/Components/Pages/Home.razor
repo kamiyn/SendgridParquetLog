@@ -307,8 +307,7 @@ else if (_hasSearched)
         async ValueTask<IList<SendGridEvent>> GetFromCompactionFolder()
         {
             var prefix = SendGridPathUtility.GetS3CompactionPrefix(ymd.Year, ymd.Month, ymd.Day, ymd.Hour);
-            var directories = await S3StorageService.ListDirectoriesAsync(prefix, now, ct);
-            if (directories.Any())
+            if (await ExistsAsync(prefix, now, ct))
             {
                 var folder = SendGridPathUtility.GetS3CompactionWildcard(ymd.Year, ymd.Month, ymd.Day, ymd.Hour);
                 var events = await DuckDbService.GetEventsByDateAsync(folder, _selectedEmail, limit, ct);
@@ -320,8 +319,7 @@ else if (_hasSearched)
         async ValueTask<IList<SendGridEvent>> GetFromNonCompactionFolder()
         {
             var prefix = SendGridPathUtility.GetS3NonCompactionPrefix(ymd.Year, ymd.Month, ymd.Day);
-            var directories = await S3StorageService.ListDirectoriesAsync(prefix, now, ct);
-            if (directories.Any())
+            if (await ExistsAsync(prefix, now, ct))
             {
                 var folder = SendGridPathUtility.GetS3NonCompactionWildcard(ymd.Year, ymd.Month, ymd.Day);
                 var events = await DuckDbService.GetEventsByDateAsync(folder, _selectedEmail, limit, ct);
@@ -332,6 +330,24 @@ else if (_hasSearched)
         }
 
         return (await GetFromCompactionFolder()).Concat(await GetFromNonCompactionFolder());
+    }
+
+    /// <summary>
+    /// ディレクトリ または ファイルが存在すれば true
+    /// </summary>
+    private async Task<bool> ExistsAsync(string prefix, DateTimeOffset now, CancellationToken ct)
+    {
+        var directories = await S3StorageService.ListDirectoriesAsync(prefix, now, ct);
+        if (directories.Any())
+        {
+            return true;
+        }
+        var files= await S3StorageService.ListFilesAsync(prefix, now, ct);
+        if (files.Any())
+        {
+            return true;
+        }
+        return false;
     }
 
     private void ShowEventDetails(SendGridEvent sendGridEvent)
