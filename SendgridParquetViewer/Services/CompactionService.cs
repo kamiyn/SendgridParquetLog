@@ -74,7 +74,9 @@ public class CompactionService(
                 }
             }
 
-            var targetDays = await GetTargetDaysAsync(cancellationToken);
+            var yesterday = now.AddDays(-1);
+            var olderThan = new DateOnly(yesterday.Year, yesterday.Month, yesterday.Day);
+            var targetDays = await GetCompactionTargetAsync(olderThan, cancellationToken);
             var runStatusNew = new RunStatus
             {
                 LockId = lockId,
@@ -106,7 +108,14 @@ public class CompactionService(
         }
     }
 
-    private async Task<IList<(DateOnly dateOnly, string pathPrefix)>> GetTargetDaysAsync(CancellationToken cancellationToken)
+    /// <summary>
+    /// Compaction対象の日付とパスの一覧を取得する
+    /// </summary>
+    /// <param name="olderThan">この時刻よりも前の日付のみを対象とする</param>
+    /// <param name="cancellationToken"></param>
+    /// <returns></returns>
+    private async Task<IList<(DateOnly dateOnly, string pathPrefix)>> GetCompactionTargetAsync(DateOnly olderThan,
+        CancellationToken cancellationToken)
     {
         var now = timeProvider.GetUtcNow();
         var targetDays = new List<(DateOnly dateOnly, string pathPrefix)>();
@@ -129,7 +138,10 @@ public class CompactionService(
                     {
                         var dayPath = SendGridPathUtility.GetS3NonCompactionPrefix(year, month, day);
                         DateOnly dateOnly = new(year, month, day);
-                        targetDays.Add((dateOnly, dayPath));
+                        if (dateOnly < olderThan)
+                        {
+                            targetDays.Add((dateOnly, dayPath));
+                        }
                     }
                 }
             }
