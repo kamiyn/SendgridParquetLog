@@ -41,6 +41,22 @@
             }
         </div>
         
+        @if (_dateSelectionMode == DateSelectionMode.YearMonthDay)
+        {
+            <!-- Hour Selection (Optional) -->
+            <div style="min-width: 150px;">
+                <FluentLabel>時間（オプション）</FluentLabel>
+                <FluentSelect TOption="string" @bind-Value="_selectedHourString" @onchange="OnHourSelectionChange" Style="width: 100%; margin-top: 5px;">
+                    <FluentOption TOption="string" Value="">全時間</FluentOption>
+                    @for (int i = 0; i < 24; i++)
+                    {
+                        var hour = i;
+                        <FluentOption TOption="string" Value="@hour.ToString()">@($"{hour:D2}:00 - {hour:D2}:59")</FluentOption>
+                    }
+                </FluentSelect>
+            </div>
+        }
+        
         <!-- Search Button -->
         <div style="margin-top: 25px;">
             <FluentButton Appearance="Appearance.Accent" OnClick="SearchAsync">検索</FluentButton>
@@ -69,8 +85,11 @@ else if (_sendGridEvents.Any())
         <p>検索結果: @_sendGridEvents.Count() 件</p>
         
         <FluentDataGrid Items="@_sendGridEvents" Pagination="@_pagination">
-            <PropertyColumn Property="@(e => e.Timestamp)" Title="タイムスタンプ" Format="yyyy-MM-dd HH:mm:ss" Sortable="true" />
-            <PropertyColumn Property="@(e => e.Email)" Title="メールアドレス" Sortable="true" />
+            <TemplateColumn Title="詳細" Style="width: 40px;">
+                <FluentButton Appearance="Appearance.Lightweight" @onclick="() => ShowEventDetails(context)">表示</FluentButton>
+            </TemplateColumn>
+            <PropertyColumn Property="@(e => ToJst(e.Timestamp))" Title="タイムスタンプ" Format="yyyy-MM-dd HH:mm:ss JST" Sortable="true" Style="width: 200px;" />
+            <PropertyColumn Property="@(e => e.Email)" Title="メールアドレス" Sortable="true" Style="width: 250px;" />
             <PropertyColumn Property="@(e => e.Event)" Title="イベント" Sortable="true" />
             <PropertyColumn Property="@(e => e.Category)" Title="カテゴリ" Sortable="true" />
             <PropertyColumn Property="@(e => e.Reason)" Title="理由" />
@@ -78,8 +97,6 @@ else if (_sendGridEvents.Any())
             <PropertyColumn Property="@(e => e.Response)" Title="レスポンス" />
             <PropertyColumn Property="@(e => e.MarketingCampaignName)" Title="キャンペーン名" Sortable="true" />
             <PropertyColumn Property="@(e => e.Url)" Title="URL" />
-            <PropertyColumn Property="@(e => e.UserAgent)" Title="ユーザーエージェント" />
-            <PropertyColumn Property="@(e => e.Ip)" Title="IPアドレス" />
         </FluentDataGrid>
         
         <FluentPaginator State="@_pagination" />
@@ -89,6 +106,118 @@ else if (_hasSearched)
 {
     <p>検索結果が見つかりませんでした。</p>
 }
+
+<!-- Event Details Dialog -->
+<FluentDialog @ref="_eventDetailsDialog" Hidden="@(!_showEventDetailsDialog)" Modal="true" TrapFocus="true">
+    <FluentDialogHeader>
+        <FluentStack VerticalAlignment="VerticalAlignment.Center">
+            <FluentLabel Typo="Typography.Header">イベント詳細</FluentLabel>
+        </FluentStack>
+    </FluentDialogHeader>
+    <FluentDialogBody>
+        @if (_selectedEvent != null)
+        {
+            <div style="max-height: 500px; overflow-y: auto;">
+                <FluentStack Orientation="Orientation.Vertical" Style="gap: 10px;">
+                    <div><strong>Email:</strong> @_selectedEvent.Email</div>
+                    <div><strong>Timestamp:</strong> @_selectedEvent.Timestamp.ToString("yyyy-MM-dd HH:mm:ss")</div>
+                    <div><strong>Event:</strong> @_selectedEvent.Event</div>
+                    @if (!string.IsNullOrEmpty(_selectedEvent.Category))
+                    {
+                        <div><strong>Category:</strong> @_selectedEvent.Category</div>
+                    }
+                    @if (!string.IsNullOrEmpty(_selectedEvent.SgEventId))
+                    {
+                        <div><strong>SG Event ID:</strong> @_selectedEvent.SgEventId</div>
+                    }
+                    @if (!string.IsNullOrEmpty(_selectedEvent.SgMessageId))
+                    {
+                        <div><strong>SG Message ID:</strong> @_selectedEvent.SgMessageId</div>
+                    }
+                    @if (!string.IsNullOrEmpty(_selectedEvent.SgTemplateId))
+                    {
+                        <div><strong>SG Template ID:</strong> @_selectedEvent.SgTemplateId</div>
+                    }
+                    @if (!string.IsNullOrEmpty(_selectedEvent.SmtpId))
+                    {
+                        <div><strong>SMTP ID:</strong> @_selectedEvent.SmtpId</div>
+                    }
+                    @if (!string.IsNullOrEmpty(_selectedEvent.UserAgent))
+                    {
+                        <div><strong>User Agent:</strong> @_selectedEvent.UserAgent</div>
+                    }
+                    @if (!string.IsNullOrEmpty(_selectedEvent.Ip))
+                    {
+                        <div><strong>IP Address:</strong> @_selectedEvent.Ip</div>
+                    }
+                    @if (!string.IsNullOrEmpty(_selectedEvent.Url))
+                    {
+                        <div><strong>URL:</strong> <a href="@_selectedEvent.Url" target="_blank">@_selectedEvent.Url</a></div>
+                    }
+                    @if (!string.IsNullOrEmpty(_selectedEvent.Reason))
+                    {
+                        <div><strong>Reason:</strong> @_selectedEvent.Reason</div>
+                    }
+                    @if (!string.IsNullOrEmpty(_selectedEvent.Status))
+                    {
+                        <div><strong>Status:</strong> @_selectedEvent.Status</div>
+                    }
+                    @if (!string.IsNullOrEmpty(_selectedEvent.Response))
+                    {
+                        <div><strong>Response:</strong> @_selectedEvent.Response</div>
+                    }
+                    @if (_selectedEvent.Tls.HasValue)
+                    {
+                        <div><strong>TLS:</strong> @_selectedEvent.Tls</div>
+                    }
+                    @if (!string.IsNullOrEmpty(_selectedEvent.Attempt))
+                    {
+                        <div><strong>Attempt:</strong> @_selectedEvent.Attempt</div>
+                    }
+                    @if (!string.IsNullOrEmpty(_selectedEvent.Type))
+                    {
+                        <div><strong>Type:</strong> @_selectedEvent.Type</div>
+                    }
+                    @if (!string.IsNullOrEmpty(_selectedEvent.BounceClassification))
+                    {
+                        <div><strong>Bounce Classification:</strong> @_selectedEvent.BounceClassification</div>
+                    }
+                    @if (_selectedEvent.AsmGroupId.HasValue)
+                    {
+                        <div><strong>ASM Group ID:</strong> @_selectedEvent.AsmGroupId</div>
+                    }
+                    @if (!string.IsNullOrEmpty(_selectedEvent.UniqueArgs))
+                    {
+                        <div><strong>Unique Args:</strong> @_selectedEvent.UniqueArgs</div>
+                    }
+                    @if (_selectedEvent.MarketingCampaignId.HasValue)
+                    {
+                        <div><strong>Marketing Campaign ID:</strong> @_selectedEvent.MarketingCampaignId</div>
+                    }
+                    @if (!string.IsNullOrEmpty(_selectedEvent.MarketingCampaignName))
+                    {
+                        <div><strong>Marketing Campaign Name:</strong> @_selectedEvent.MarketingCampaignName</div>
+                    }
+                    @if (!string.IsNullOrEmpty(_selectedEvent.PoolName))
+                    {
+                        <div><strong>Pool Name:</strong> @_selectedEvent.PoolName</div>
+                    }
+                    @if (_selectedEvent.PoolId.HasValue)
+                    {
+                        <div><strong>Pool ID:</strong> @_selectedEvent.PoolId</div>
+                    }
+                    @if (_selectedEvent.SendAt.HasValue)
+                    {
+                        <div><strong>Send At:</strong> @_selectedEvent.SendAt.Value.ToString("yyyy-MM-dd HH:mm:ss")</div>
+                    }
+                </FluentStack>
+            </div>
+        }
+    </FluentDialogBody>
+    <FluentDialogFooter>
+        <FluentButton Appearance="Appearance.Neutral" @onclick="CloseEventDetailsDialog">閉じる</FluentButton>
+    </FluentDialogFooter>
+</FluentDialog>
 
 @code {
     // Enum for date selection mode
@@ -107,6 +236,13 @@ else if (_hasSearched)
     private string _selectedEmail = "";
     private DateSelectionMode _dateSelectionMode = DateSelectionMode.YearMonth;
     private DateTime? _selectedDate;
+    private string _selectedHourString = "";
+    private int? _selectedHour => string.IsNullOrEmpty(_selectedHourString) ? null : int.Parse(_selectedHourString);
+    
+    // Dialog
+    private FluentDialog? _eventDetailsDialog;
+    private bool _showEventDetailsDialog;
+    private SendGridEvent? _selectedEvent;
 
     private readonly PaginationState _pagination = new PaginationState { ItemsPerPage = 50 };
 
@@ -128,6 +264,12 @@ else if (_hasSearched)
         // Reset search state when date selection mode changes
         OnInputChange();
     }
+    
+    private void OnHourSelectionChange()
+    {
+        // Reset search state when hour selection changes
+        OnInputChange();
+    }
 
     private async Task SearchAsync()
     {
@@ -138,8 +280,8 @@ else if (_hasSearched)
         {
             var ymd = _dateSelectionMode switch
             {
-                DateSelectionMode.YearMonth => new YearMonthDayOptional(_selectedDate?.Year, _selectedDate?.Month, null),
-                DateSelectionMode.YearMonthDay => new YearMonthDayOptional(_selectedDate?.Year, _selectedDate?.Month, _selectedDate?.Day),
+                DateSelectionMode.YearMonth => new YearMonthDayOptional(_selectedDate?.Year, _selectedDate?.Month, null, null),
+                DateSelectionMode.YearMonthDay => new YearMonthDayOptional(_selectedDate?.Year, _selectedDate?.Month, _selectedDate?.Day, _selectedHour),
                 _ => throw new ArgumentOutOfRangeException()
             };
             _sendGridEvents = (await ExecuteSearchAsync(ymd, CancellationToken.None)).AsQueryable();
@@ -156,7 +298,7 @@ else if (_hasSearched)
         }
     }
 
-    record struct YearMonthDayOptional(int? Year, int? Month, int? Day);
+    record struct YearMonthDayOptional(int? Year, int? Month, int? Day, int? Hour);
 
     private async Task<IEnumerable<SendGridEvent>> ExecuteSearchAsync(YearMonthDayOptional ymd, CancellationToken ct)
     {
@@ -164,11 +306,11 @@ else if (_hasSearched)
         var now = TimeProvider.GetUtcNow();
 
         async ValueTask<IList<SendGridEvent>> GetFromCompactionFolder(){
-            var prefix = SendGridPathUtility.GetS3CompactionPrefix(ymd.Year, ymd.Month, ymd.Day, null);
+            var prefix = SendGridPathUtility.GetS3CompactionPrefix(ymd.Year, ymd.Month, ymd.Day, ymd.Hour);
             var directories = await S3StorageService.ListDirectoriesAsync(prefix, now, ct);
             if (directories.Any())
             {
-                var folder = SendGridPathUtility.GetS3CompactionWildcard(ymd.Year, ymd.Month, ymd.Day, null);
+                var folder = SendGridPathUtility.GetS3CompactionWildcard(ymd.Year, ymd.Month, ymd.Day, ymd.Hour);
                 var events = await DuckDbService.GetEventsByDateAsync(folder, _selectedEmail, limit, ct);
                 Logger.LogDebug("Compaction count: {count}", events.Count);
                 return events;
@@ -191,4 +333,41 @@ else if (_hasSearched)
 
         return (await GetFromCompactionFolder()).Concat(await GetFromNonCompactionFolder());
     }
+    
+    private void ShowEventDetails(SendGridEvent sendGridEvent)
+    {
+        _selectedEvent = sendGridEvent;
+        _showEventDetailsDialog = true;
+        StateHasChanged();
+    }
+    
+    private void CloseEventDetailsDialog()
+    {
+        _showEventDetailsDialog = false;
+        _selectedEvent = null;
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// DateTime を指定の targetOffset を持つ DateTimeOffset に変換する。
+    /// - Kind == Utc : UTC として解釈し瞬間を targetOffset に変換して返す。
+    /// - Kind == Local: ローカル時刻として解釈し瞬間を targetOffset に変換して返す。
+    /// - Kind == Unspecified: treatUnspecifiedAsLocal の値に従って Local または Utc として扱う。
+    /// </summary>
+    public static DateTimeOffset ToOffset(
+        DateTime dt,
+        TimeSpan targetOffset,
+        bool treatUnspecifiedAsLocal = true) =>
+        dt.Kind switch
+        {
+            DateTimeKind.Utc => new DateTimeOffset(DateTime.SpecifyKind(dt, DateTimeKind.Utc)).ToOffset(targetOffset),
+            DateTimeKind.Local => new DateTimeOffset(DateTime.SpecifyKind(dt, DateTimeKind.Local)).ToOffset(targetOffset),
+            DateTimeKind.Unspecified =>
+                treatUnspecifiedAsLocal
+                    ? new DateTimeOffset(DateTime.SpecifyKind(dt, DateTimeKind.Local)).ToOffset(targetOffset)
+                    : new DateTimeOffset(DateTime.SpecifyKind(dt, DateTimeKind.Utc)).ToOffset(targetOffset),
+            _ => throw new ArgumentOutOfRangeException(nameof(dt))
+        };
+
+    DateTimeOffset ToJst(DateTime dt) => ToOffset(dt, TimeSpan.FromHours(9), treatUnspecifiedAsLocal: false);
 }
