@@ -4,25 +4,14 @@ using DuckDB.NET.Data;
 
 using Microsoft.Extensions.Options;
 
-using SendgridParquet.Shared;
-
 using SendgridParquetViewer.Models;
 using SendgridParquetViewer.Options;
 
 namespace SendgridParquetViewer.Services;
 
-public record struct YearMonthDayOptional(int? Year, int? Month, int? Day);
-
-public class DuckDbService
+public class DuckDbService(IOptions<S3Options> s3Options, ILogger<DuckDbService> logger)
 {
-    private readonly S3Options _s3Options;
-    private readonly ILogger<DuckDbService> _logger;
-
-    public DuckDbService(IOptions<S3Options> s3Options, ILogger<DuckDbService> logger)
-    {
-        _s3Options = s3Options.Value;
-        _logger = logger;
-    }
+    private readonly S3Options _s3Options = s3Options.Value;
 
     private async ValueTask<DuckDBConnection> CreateConnection(CancellationToken ct)
     {
@@ -46,7 +35,7 @@ public class DuckDbService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to create DuckDB connection");
+            logger.LogError(ex, "Failed to create DuckDB connection");
             throw;
         }
     }
@@ -93,13 +82,13 @@ CREATE SECRET s3_secret (
 );";
     }
 
-    public async ValueTask<IList<SendGridEvent>> GetEventsByDateAsync(YearMonthDayOptional ymd, string? email, int? limit, CancellationToken ct = default)
+    public async ValueTask<IList<SendGridEvent>> GetEventsByDateAsync(string folder, string? email, int? limit,
+        CancellationToken ct = default)
     {
         try
         {
             using var connection = await CreateConnection(ct);
-            string nonCompactionFolder = SendGridPathUtility.GetS3NonCompactionWildcard(ymd.Year, ymd.Month, ymd.Day);
-            var s3Path = $"s3://{_s3Options.BUCKETNAME}/{nonCompactionFolder}/*";
+            var s3Path = $"s3://{_s3Options.BUCKETNAME}/{folder}/*";
 
             // 現時点では 日付が path として表現されているため WHERE 句での絞り込みは email のみ
             var emailFilter = !string.IsNullOrWhiteSpace(email)
@@ -121,7 +110,7 @@ CREATE SECRET s3_secret (
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error querying events by date: {Year}-{Month:D2}-{Day:D2}", ymd.Year, ymd.Month, ymd.Day);
+            logger.LogError(ex, "Error querying events by {folder}", folder);
             throw;
         }
     }

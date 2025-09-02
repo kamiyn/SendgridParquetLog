@@ -272,7 +272,7 @@ public class S3StorageService(
     /// <returns></returns>
     public async ValueTask<IEnumerable<string>> ListDirectoriesAsync(string prefix, DateTimeOffset now, CancellationToken ct)
     {
-        var content =  await ListObjectsAsync(new ListObjectsRequest(prefix, Delimiter: "/", now), ct);
+        var content = await ListObjectsAsync(new ListObjectsRequest(prefix, Delimiter: "/", now), ct);
         XDocument doc = XDocument.Parse(content);
         XNamespace ns = doc.Root?.GetDefaultNamespace() ?? XNamespace.None;
         return doc.Descendants(ns + "CommonPrefixes")
@@ -568,8 +568,8 @@ internal class S3CanonicalHeaders
 
 internal record struct S3SignatureSource(DateTimeOffset now, string region)
 {
-    internal string Date => now.ToString("yyyyMMdd");
-    internal string AmzDate => now.ToString("yyyyMMddTHHmmssZ");
+    internal string Date => now.UtcDateTime.ToString("yyyyMMdd");
+    internal string AmzDate => now.UtcDateTime.ToString("yyyyMMddTHHmmssZ");
     internal string Region => region;
     internal string Service => "s3";
     internal string Signing => "aws4_request";

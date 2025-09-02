@@ -64,7 +64,7 @@ public static class SendGridPathUtility
     {
         // S3 Object key names are case sensitive https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-keys.html
         string hashString = GetHashString(parquetData);
-        return $"{GetDirectoryPath(FolderPrefixCompaction, targetDay)}/{targetHour}/{hashString}{ParquetFileExtension}";
+        return $"{GetDirectoryPath(FolderPrefixCompaction, targetDay)}/{targetHour:D2}/{hashString}{ParquetFileExtension}";
     }
 
     private static string GetHashString(Stream parquetData)
@@ -75,12 +75,6 @@ public static class SendGridPathUtility
         return Base64UrlEncode(hash);
     }
 
-    /// <summary>
-    /// 年月日の指定に基づいてパスを生成する（s3://bucket/プレフィックス部分を除く）
-    /// </summary>
-    /// <param name="year">年（nullの場合は全年対象）</param>
-    /// <param name="month">月（nullの場合は全月対象）</param>
-    /// <param name="day">日（nullの場合は全日対象）</param>
     private static string GetYmdWildcard(int? year, int? month, int? day) =>
         (year, month, day) switch
         {
@@ -101,15 +95,28 @@ public static class SendGridPathUtility
     public static string GetS3NonCompactionWildcard(int? year, int? month, int? day) =>
         $"{FolderPrefixNonCompaction}{GetYmdWildcard(year, month, day)}";
 
+    private static string GetYmdhWildcard(int? year, int? month, int? day, int? hour) =>
+        (year, month, day, hour) switch
+        {
+            (null, null, null, null) => "",
+            ({ /* NOT NULL pattern */ } y, { } m, { } d, { } h) => $"/{y:D4}/{m:D2}/{d:D2}/{h:D2}",
+            ({ } y, { } m, { } d, null) => $"/{y:D4}/{m:D2}/{d:D2}/*",
+            ({ } y, { } m, null, _) => $"/{y:D4}/{m:D2}/*/*",
+            ({ } y, null, _, _) => $"/{y:D4}/*/*/*",
+            (null, _, _, _) => "/*/*/*/*"
+        };
+
     /// <summary>
     /// パス（prefix/path/*）を生成する（Compaction用のオーバーロード）
     /// </summary>
     /// <param name="year">年（nullの場合は全年対象）</param>
     /// <param name="month">月（nullの場合は全月対象）</param>
     /// <param name="day">日（nullの場合は全日対象）</param>
+    /// <param name="hour">時 (nullの場合は全時間対象)</param>
     /// <returns>完全なS3パス</returns>
-    public static string GetS3CompactionWildcard(int? year, int? month, int? day) =>
-        $"{FolderPrefixCompaction}{GetYmdWildcard(year, month, day)}";
+    public static string GetS3CompactionWildcard(int? year, int? month, int? day, int? hour) =>
+        $"{FolderPrefixCompaction}{GetYmdhWildcard(year, month, day, hour)}";
+
     private static string GetYmdPrefix(int? year, int? month, int? day) =>
         (year, month, day) switch
         {
@@ -121,7 +128,7 @@ public static class SendGridPathUtility
         };
 
     /// <summary>
-    /// パス（prefix/path/*）を生成する（NonCompaction用のオーバーロード）
+    /// prefixを生成する（NonCompaction用のオーバーロード）
     /// </summary>
     /// <param name="year">年（nullの場合は全年対象）</param>
     /// <param name="month">月（nullの場合は全月対象）</param>
@@ -129,6 +136,28 @@ public static class SendGridPathUtility
     /// <returns>完全なS3パス</returns>
     public static string GetS3NonCompactionPrefix(int? year, int? month, int? day) =>
         $"{FolderPrefixNonCompaction}{GetYmdPrefix(year, month, day)}";
+
+    private static string GetYmdhPrefix(int? year, int? month, int? day, int? hour) =>
+        (year, month, day, hour) switch
+        {
+            (null, null, null, null) => "",
+            ({ /* NOT NULL pattern */ } y, { } m, { } d, { } h) => $"/{y:D4}/{m:D2}/{d:D2}/{h:D2}",
+            ({ } y, { } m, { } d, null) => $"/{y:D4}/{m:D2}/{d:D2}",
+            ({ } y, { } m, null, _) => $"/{y:D4}/{m:D2}",
+            ({ } y, null, _, _) => $"/{y:D4}",
+            (null, _, _, _) => ""
+        };
+
+    /// <summary>
+    /// prefixを生成する（Compaction用のオーバーロード）
+    /// </summary>
+    /// <param name="year">年（nullの場合は全年対象）</param>
+    /// <param name="month">月（nullの場合は全月対象）</param>
+    /// <param name="day">日（nullの場合は全日対象）</param>
+    /// <param name="hour">時 (nullの場合は全時間対象)</param>
+    /// <returns>完全なS3パス</returns>
+    public static string GetS3CompactionPrefix(int? year, int? month, int? day, int? hour) =>
+        $"{FolderPrefixCompaction}{GetYmdhPrefix(year, month, day, hour)}";
 
     public static (string runJsonPath, string lockPath) GetS3CompactionRunFile() =>
         ($"{FolderPrefixCompaction}/run.json", $"{FolderPrefixCompaction}/run.lock");

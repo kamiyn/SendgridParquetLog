@@ -1,11 +1,12 @@
 ﻿@page "/"
 @rendermode InteractiveServer
 @attribute [Authorize]
-@using Microsoft.FluentUI.AspNetCore.Components
+@using SendgridParquet.Shared
 @using SendgridParquetViewer.Models
-@using SendgridParquetViewer.Services
 @inject DuckDbService DuckDbService
-@inject TimeProvider timeProvider
+@inject TimeProvider TimeProvider
+@inject S3StorageService S3StorageService
+@inject ILogger<Home> Logger
 
 <PageTitle>SendGrid Events Viewer</PageTitle>
 
@@ -65,9 +66,9 @@
 else if (_sendGridEvents.Any())
 {
     <div style="margin-top: 10px;">
-        <p>検索結果: @_sendGridEvents.Count 件</p>
+        <p>検索結果: @_sendGridEvents.Count() 件</p>
         
-        <FluentDataGrid Items="@_sendGridEvents.AsQueryable()" Pagination="@_pagination">
+        <FluentDataGrid Items="@_sendGridEvents" Pagination="@_pagination">
             <PropertyColumn Property="@(e => e.Timestamp)" Title="タイムスタンプ" Format="yyyy-MM-dd HH:mm:ss" Sortable="true" />
             <PropertyColumn Property="@(e => e.Email)" Title="メールアドレス" Sortable="true" />
             <PropertyColumn Property="@(e => e.Event)" Title="イベント" Sortable="true" />
@@ -97,7 +98,7 @@ else if (_hasSearched)
         YearMonthDay
     }
 
-    private IList<SendGridEvent> _sendGridEvents = [];
+    private IQueryable<SendGridEvent> _sendGridEvents = Array.Empty<SendGridEvent>().AsQueryable();
     private bool _isLoading;
     private bool _hasSearched;
     private string _errorMessage = "";
@@ -111,7 +112,7 @@ else if (_hasSearched)
 
     protected override async Task OnInitializedAsync()
     {
-        _selectedDate = timeProvider.GetLocalNow().DateTime;
+        _selectedDate = TimeProvider.GetLocalNow().DateTime;
         await base.OnInitializedAsync();
     }
 
@@ -130,29 +131,18 @@ else if (_hasSearched)
 
     private async Task SearchAsync()
     {
-        // Clear previous error message
         _errorMessage = "";
-        await ExecuteSearchAsync(DetermineSearchMethod());
-    }
-
-    private Func<Task<IList<SendGridEvent>>> DetermineSearchMethod()
-    {
-        var ymd = _dateSelectionMode switch
-        {
-            DateSelectionMode.YearMonth => new YearMonthDayOptional(_selectedDate?.Year, _selectedDate?.Month, null),
-            DateSelectionMode.YearMonthDay => new YearMonthDayOptional(_selectedDate?.Year, _selectedDate?.Month, _selectedDate?.Day),
-            _ => throw new ArgumentOutOfRangeException()
-        };
-        return async () => await DuckDbService.GetEventsByDateAsync(ymd, _selectedEmail, /* limit */ 1000);
-    }
-
-    private async Task ExecuteSearchAsync(Func<Task<IList<SendGridEvent>>> searchFunc)
-    {
         _isLoading = true;
-        _sendGridEvents = [];
+        _sendGridEvents = Array.Empty<SendGridEvent>().AsQueryable();
         try
         {
-            _sendGridEvents = await searchFunc();
+            var ymd = _dateSelectionMode switch
+            {
+                DateSelectionMode.YearMonth => new YearMonthDayOptional(_selectedDate?.Year, _selectedDate?.Month, null),
+                DateSelectionMode.YearMonthDay => new YearMonthDayOptional(_selectedDate?.Year, _selectedDate?.Month, _selectedDate?.Day),
+                _ => throw new ArgumentOutOfRangeException()
+            };
+            _sendGridEvents = (await ExecuteSearchAsync(ymd, CancellationToken.None)).AsQueryable();
         }
         catch (Exception ex)
         {
@@ -164,5 +154,41 @@ else if (_hasSearched)
             _hasSearched = true;
             StateHasChanged(); // Force UI update
         }
+    }
+
+    record struct YearMonthDayOptional(int? Year, int? Month, int? Day);
+
+    private async Task<IEnumerable<SendGridEvent>> ExecuteSearchAsync(YearMonthDayOptional ymd, CancellationToken ct)
+    {
+        const int limit = 1000;
+        var now = TimeProvider.GetUtcNow();
+
+        async ValueTask<IList<SendGridEvent>> GetFromCompactionFolder(){
+            var prefix = SendGridPathUtility.GetS3CompactionPrefix(ymd.Year, ymd.Month, ymd.Day, null);
+            var directories = await S3StorageService.ListDirectoriesAsync(prefix, now, ct);
+            if (directories.Any())
+            {
+                var folder = SendGridPathUtility.GetS3CompactionWildcard(ymd.Year, ymd.Month, ymd.Day, null);
+                var events = await DuckDbService.GetEventsByDateAsync(folder, _selectedEmail, limit, ct);
+                Logger.LogDebug("Compaction count: {count}", events.Count);
+                return events;
+            }
+            return [];
+        }
+        async ValueTask<IList<SendGridEvent>> GetFromNonCompactionFolder()
+        {
+            var prefix = SendGridPathUtility.GetS3NonCompactionPrefix(ymd.Year, ymd.Month, ymd.Day);
+            var directories = await S3StorageService.ListDirectoriesAsync(prefix, now, ct);
+            if (directories.Any())
+            {
+                var folder = SendGridPathUtility.GetS3NonCompactionWildcard(ymd.Year, ymd.Month, ymd.Day);
+                var events = await DuckDbService.GetEventsByDateAsync(folder, _selectedEmail, limit, ct);
+                Logger.LogDebug("NonCompaction count: {count}", events.Count);
+                return events;
+            }
+            return [];
+        }
+
+        return (await GetFromCompactionFolder()).Concat(await GetFromNonCompactionFolder());
     }
 }
