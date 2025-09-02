@@ -7,6 +7,7 @@ using Microsoft.Identity.Web;
 using Microsoft.Identity.Web.UI;
 
 using SendgridParquetViewer.Components;
+using SendgridParquetViewer.Models;
 using SendgridParquetViewer.Options;
 using SendgridParquetViewer.Services;
 
@@ -52,6 +53,12 @@ builder.Services.AddAuthorization(options =>
 // Configure S3 options with validation
 builder.Services.AddOptions<S3Options>()
     .Bind(builder.Configuration.GetSection(S3Options.SectionName))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+
+// Configure Compaction options
+builder.Services.AddOptions<CompactionOptions>()
+    .Bind(builder.Configuration.GetSection(CompactionOptions.SectionName))
     .ValidateDataAnnotations()
     .ValidateOnStart();
 

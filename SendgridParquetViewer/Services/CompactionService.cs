@@ -1,6 +1,8 @@
 ﻿using System.Runtime.CompilerServices;
 using System.Text.Json;
 
+using Microsoft.Extensions.Options;
+
 using Parquet;
 using Parquet.Data;
 using Parquet.Schema;
@@ -14,13 +16,11 @@ namespace SendgridParquetViewer.Services;
 public class CompactionService(
     ILogger<CompactionService> logger,
     TimeProvider timeProvider,
-    S3StorageService s3StorageService
+    S3StorageService s3StorageService,
+    IOptions<CompactionOptions> compactionOptions
 )
 {
-    /// <summary>
-    /// 最大読み込みバイト数 (512MB)
-    /// </summary>
-    private const long MaxCompactionBatchSize = 512 * 1024 * 1024;
+    private readonly CompactionOptions _compactionOptions = compactionOptions.Value;
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
     private static readonly TimeSpan LockDuration = TimeSpan.FromMinutes(30);
     private static readonly TimeSpan MaxRunningDuration = TimeSpan.FromDays(3);
@@ -276,7 +276,8 @@ public class CompactionService(
             return;
         }
 
-        logger.LogInformation("Found {Count} parquet files to compact", targetParquetFiles.Count());
+        var totalFiles = targetParquetFiles.Count();
+        logger.LogInformation("Found {Count} parquet files to compact", totalFiles);
 
         var remainFiles = new LinkedList<string>(targetParquetFiles); // CompactionBatchAsync は先頭から順番に処理するので LinkedList で良い
         while (remainFiles.Any())
@@ -289,6 +290,8 @@ public class CompactionService(
                 // 何も処理できなかった場合は無限ループ防止のため while を終了する
                 break;
             }
+            logger.LogInformation("Compaction progress: {ProcessedCount}/{TotalCount} files",
+                totalFiles - remainFiles.Count, totalFiles);
         }
     }
 
@@ -424,9 +427,9 @@ public class CompactionService(
             {
                 logger.LogInformation("Reading Parquet file: {ParquetFile}", parquetFile);
                 byte[] parquetData = await s3StorageService.GetObjectAsByteArrayAsync(parquetFile, now, token);
-                if (ctx.ProcessedBytes + parquetData.Length > MaxCompactionBatchSize)
+                if (ctx.ProcessedBytes + parquetData.Length > _compactionOptions.MaxBatchSizeBytes)
                 {
-                    logger.LogInformation($"Reached read limit {MaxCompactionBatchSize}, stopping further reads in this batch");
+                    logger.LogInformation($"Reached read limit {_compactionOptions.MaxBatchSizeBytes}, stopping further reads in this batch");
                     break;
                 }
                 if (parquetData.Any())
