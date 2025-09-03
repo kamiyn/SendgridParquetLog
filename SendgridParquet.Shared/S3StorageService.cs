@@ -192,7 +192,7 @@ public class S3StorageService(
         }
     }
 
-    public async ValueTask<bool> PutObjectWithConditionAsync(string key, byte[] content, byte[] expectedContent, DateTimeOffset now, CancellationToken ct)
+    public async ValueTask<bool> PutObjectWithConditionAsync(string key, byte[] content, byte[] existingLockJson, DateTimeOffset now, CancellationToken ct)
     {
         S3SignatureSource signatureSource = new(now, _options.REGION);
         var uri = new Uri($"{_options.SERVICEURL}/{_options.BUCKETNAME}/{key}");
@@ -200,7 +200,7 @@ public class S3StorageService(
         {
             // First, get the current ETag if object exists
             string? currentETag = null;
-            if (expectedContent.Any())
+            if (existingLockJson.Any())
             {
                 currentETag = await GetCurrentEtag(uri, signatureSource, ct);
                 // Expected content but no current object - should fail
@@ -340,9 +340,11 @@ public class S3StorageService(
     {
         content.Seek(0, SeekOrigin.Begin);
         var contentHash = CalculateSHA256Hash(content);
+        var uri = request.RequestUri!;
+        var hostHeader = uri.IsDefaultPort ? uri.Host : $"{uri.Host}:{uri.Port}";
         var headers = new KeyValuePair<string, string>[]
         {
-            new("Host", request.RequestUri!.Host),
+            new("Host", hostHeader),
             new("X-Amz-Date", signatureSource.AmzDate),
             new("X-Amz-Content-Sha256", contentHash)
         };

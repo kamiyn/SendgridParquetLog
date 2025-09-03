@@ -87,35 +87,6 @@ public class SendGridEvent
     // Additional properties for Viewer compatibility
     public string? PoolName => Pool?.Name;
     public int? PoolId => Pool?.Id;
-
-    // SQL SelectColumns for DuckDB queries
-    public static string SelectColumns => string.Join(", ", [
-        SendGridWebHookFields.Email,
-        SendGridWebHookFields.Timestamp,
-        SendGridWebHookFields.Event,
-        SendGridWebHookFields.Category,
-        SendGridWebHookFields.SgEventId,
-        SendGridWebHookFields.SgMessageId,
-        SendGridWebHookFields.SgTemplateId,
-        SendGridWebHookFields.SmtpIdParquetColumn + " AS " + SendGridWebHookFields.SmtpId,
-        SendGridWebHookFields.UserAgent,
-        SendGridWebHookFields.Ip,
-        SendGridWebHookFields.Url,
-        SendGridWebHookFields.Reason,
-        SendGridWebHookFields.Status,
-        SendGridWebHookFields.Response,
-        SendGridWebHookFields.Tls,
-        SendGridWebHookFields.Attempt,
-        SendGridWebHookFields.Type,
-        SendGridWebHookFields.BounceClassification,
-        SendGridWebHookFields.AsmGroupId,
-        SendGridWebHookFields.UniqueArgs,
-        SendGridWebHookFields.MarketingCampaignId,
-        SendGridWebHookFields.MarketingCampaignName,
-        SendGridWebHookFields.PoolNameParquetColumn,
-        SendGridWebHookFields.PoolIdParquetColumn,
-        SendGridWebHookFields.SendAt
-    ]);
 }
 
 public class Pool

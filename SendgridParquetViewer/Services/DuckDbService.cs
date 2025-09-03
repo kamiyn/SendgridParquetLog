@@ -85,7 +85,7 @@ CREATE SECRET s3_secret (
 );";
     }
 
-    public async ValueTask<IList<SendGridEvent>> GetEventsByDateAsync(string folder, SendGridSearchCondition condition, int? limit,
+    public async ValueTask<IList<SendGridEventParquet>> GetEventsByDateAsync(string folder, SendGridSearchCondition condition, int? limit,
         CancellationToken ct = default)
     {
         try
@@ -97,13 +97,13 @@ CREATE SECRET s3_secret (
 
             // 複数のParquetを読んだ後に timestamp で ORDER BY をかけている
             var sql = $@"
-                SELECT {SendGridEvent.SelectColumns}
+                SELECT {SendGridEventParquet.SelectColumns}
                 FROM parquet_scan('{s3Path}')
                 {whereClause}
                 ORDER BY timestamp DESC
                 {limitClause}";
 
-            var events = await connection.QueryAsync<SendGridEvent>(sql, ct);
+            var events = await connection.QueryAsync<SendGridEventParquet>(sql, ct);
             return events.ToList();
         }
         catch (Exception ex)

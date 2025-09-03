@@ -175,7 +175,6 @@ public class CompactionService(
 
         // Try to get existing lock
         var existingLockJson = await s3StorageService.GetObjectAsByteArrayAsync(lockPath, now, cancellationToken);
-
         if (existingLockJson.Any())
         {
             var existingLock = JsonSerializer.Deserialize<LockInfo>(existingLockJson);
