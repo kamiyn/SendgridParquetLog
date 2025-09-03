@@ -15,6 +15,11 @@ public class SendGridSearchCondition
     /// </summary>
     public string? Event { get; init; }
 
+    /// <summary>
+    /// sg_template_id filter (exact match)
+    /// </summary>
+    public string? SgTemplateId { get; init; }
+
     public static readonly SendGridSearchCondition Empty = new SendGridSearchCondition();
 
     /// <summary>
@@ -29,7 +34,7 @@ public class SendGridSearchCondition
         {
             // Escape single quotes to prevent SQL injection
             string emailEscaped = Email.Replace("'", "''");
-            conditions.Add($"email LIKE '%{emailEscaped}%'");
+            conditions.Add($"email LIKE '{emailEscaped}'");
         }
 
         if (!string.IsNullOrWhiteSpace(Event))
@@ -37,6 +42,13 @@ public class SendGridSearchCondition
             // Escape single quotes to prevent SQL injection
             string eventEscaped = Event.Replace("'", "''");
             conditions.Add($"event = '{eventEscaped}'");
+        }
+
+        if (!string.IsNullOrWhiteSpace(SgTemplateId))
+        {
+            // Escape single quotes to prevent SQL injection
+            string sgTemplateIdEscaped = SgTemplateId.Replace("'", "''");
+            conditions.Add($"sg_template_id = '{sgTemplateIdEscaped}'");
         }
 
         return conditions.Any() ? $"WHERE {string.Join(" AND ", conditions)}" : string.Empty;

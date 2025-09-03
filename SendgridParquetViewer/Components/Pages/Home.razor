@@ -23,6 +23,11 @@
             <FluentTextField @bind-Value="_selectedEmail" @oninput="OnInputChange" Label="email（LIKE句）" Style="width: 100%;" Placeholder="example@domain.com" />
         </div>
 
+        <!-- SG Template ID Field -->
+        <div style="min-width: 250px;">
+            <FluentTextField @bind-Value="_selectedSgTemplateId" @oninput="OnInputChange" Label="sg_template_id（完全一致）" Style="width: 100%;" Placeholder="d-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
+        </div>
+
         <!-- Event Type Selection -->
         <div style="min-width: 200px;">
             <FluentLabel>イベントタイプ</FluentLabel>
@@ -246,6 +251,7 @@ else if (_hasSearched)
     // Search parameters
     private string _selectedEmail = "";
     private string _selectedEventType = "";
+    private string _selectedSgTemplateId = "";
     private DateSelectionMode _dateSelectionMode = DateSelectionMode.YearMonth;
     private DateTime? _selectedDate;
     private string _selectedHourString = "";
@@ -374,20 +380,13 @@ else if (_hasSearched)
     /// Create search condition from current UI state
     /// </summary>
     /// <returns>Search condition object</returns>
-    private SendGridSearchCondition CreateSearchCondition()
-    {
-        // Return null if no search conditions are specified
-        if (string.IsNullOrWhiteSpace(_selectedEmail) && string.IsNullOrWhiteSpace(_selectedEventType))
-        {
-            return SendGridSearchCondition.Empty;
-        }
-
-        return new SendGridSearchCondition
+    private SendGridSearchCondition CreateSearchCondition() => 
+    new SendGridSearchCondition
         {
             Email = string.IsNullOrWhiteSpace(_selectedEmail) ? null : _selectedEmail,
-            Event = string.IsNullOrWhiteSpace(_selectedEventType) ? null : _selectedEventType
+            Event = string.IsNullOrWhiteSpace(_selectedEventType) ? null : _selectedEventType,
+            SgTemplateId = string.IsNullOrWhiteSpace(_selectedSgTemplateId) ? null : _selectedSgTemplateId
         };
-    }
 
     private void ShowEventDetails(SendGridEvent sendGridEvent)
     {
