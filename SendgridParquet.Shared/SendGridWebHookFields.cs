@@ -27,6 +27,9 @@ public static class SendGridWebHookFields
     public const string Pool = "pool";
     public const string SendAt = "send_at";
 
+    /// <summary>
+    /// SmtpId のみ アンダースコアでなく ハイフンで区切られており SQL,Parquet 列名としてアンダースコア版を用意
+    /// </summary>
     public const string SmtpIdParquetColumn = "smtp_id";
     public const string PoolNameParquetColumn = "pool_name";
     public const string PoolIdParquetColumn = "pool_id";

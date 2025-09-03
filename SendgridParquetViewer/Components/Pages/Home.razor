@@ -243,7 +243,7 @@ else if (_hasSearched)
         YearMonthDay
     }
 
-    private IQueryable<SendGridEvent> _sendGridEvents = Array.Empty<SendGridEvent>().AsQueryable();
+    private IQueryable<SendGridEventParquet> _sendGridEvents = Array.Empty<SendGridEventParquet>().AsQueryable();
     private bool _isLoading;
     private bool _hasSearched;
     private string _errorMessage = "";
@@ -258,7 +258,7 @@ else if (_hasSearched)
     private int? SelectedHour => int.TryParse(_selectedHourString, out int v) ? v : null;
 
     // Dialog
-    private SendGridEvent? _selectedEvent;
+    private SendGridEventParquet? _selectedEvent;
     private bool ShowEventDetailsDialog => _selectedEvent != null;
 
     private readonly PaginationState _pagination = new() { ItemsPerPage = 50 };
@@ -298,7 +298,7 @@ else if (_hasSearched)
     {
         _errorMessage = "";
         _isLoading = true;
-        _sendGridEvents = Array.Empty<SendGridEvent>().AsQueryable();
+        _sendGridEvents = Array.Empty<SendGridEventParquet>().AsQueryable();
         try
         {
             var ymd = _dateSelectionMode switch
@@ -323,12 +323,12 @@ else if (_hasSearched)
 
     record struct YearMonthDayOptional(int? Year, int? Month, int? Day, int? Hour);
 
-    private async Task<IEnumerable<SendGridEvent>> ExecuteSearchAsync(YearMonthDayOptional ymd, CancellationToken ct)
+    private async Task<IEnumerable<SendGridEventParquet>> ExecuteSearchAsync(YearMonthDayOptional ymd, CancellationToken ct)
     {
         const int limit = 1000;
         var now = TimeProvider.GetUtcNow();
 
-        async ValueTask<IList<SendGridEvent>> GetFromCompactionFolder()
+        async ValueTask<IList<SendGridEventParquet>> GetFromCompactionFolder()
         {
             var prefix = SendGridPathUtility.GetS3CompactionPrefix(ymd.Year, ymd.Month, ymd.Day, ymd.Hour);
             if (await ExistsAsync(prefix, now, ct))
@@ -341,7 +341,7 @@ else if (_hasSearched)
             }
             return [];
         }
-        async ValueTask<IList<SendGridEvent>> GetFromNonCompactionFolder()
+        async ValueTask<IList<SendGridEventParquet>> GetFromNonCompactionFolder()
         {
             var prefix = SendGridPathUtility.GetS3NonCompactionPrefix(ymd.Year, ymd.Month, ymd.Day);
             if (await ExistsAsync(prefix, now, ct))
@@ -388,7 +388,7 @@ else if (_hasSearched)
             SgTemplateId = string.IsNullOrWhiteSpace(_selectedSgTemplateId) ? null : _selectedSgTemplateId
         };
 
-    private void ShowEventDetails(SendGridEvent sendGridEvent)
+    private void ShowEventDetails(SendGridEventParquet sendGridEvent)
     {
         _selectedEvent = sendGridEvent;
         StateHasChanged();
