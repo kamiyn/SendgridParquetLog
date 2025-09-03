@@ -23,6 +23,11 @@
             <FluentTextField @bind-Value="_selectedEmail" @oninput="OnInputChange" Label="email（LIKE句）" Style="width: 100%;" Placeholder="example@domain.com" />
         </div>
 
+        <!-- SG Template ID Field -->
+        <div style="min-width: 250px;">
+            <FluentTextField @bind-Value="_selectedSgTemplateId" @oninput="OnInputChange" Label="sg_template_id（完全一致）" Style="width: 100%;" Placeholder="d-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
+        </div>
+
         <!-- Event Type Selection -->
         <div style="min-width: 200px;">
             <FluentLabel>イベントタイプ</FluentLabel>
@@ -238,7 +243,7 @@ else if (_hasSearched)
         YearMonthDay
     }
 
-    private IQueryable<SendGridEvent> _sendGridEvents = Array.Empty<SendGridEvent>().AsQueryable();
+    private IQueryable<SendGridEventParquet> _sendGridEvents = Array.Empty<SendGridEventParquet>().AsQueryable();
     private bool _isLoading;
     private bool _hasSearched;
     private string _errorMessage = "";
@@ -246,13 +251,14 @@ else if (_hasSearched)
     // Search parameters
     private string _selectedEmail = "";
     private string _selectedEventType = "";
+    private string _selectedSgTemplateId = "";
     private DateSelectionMode _dateSelectionMode = DateSelectionMode.YearMonth;
     private DateTime? _selectedDate;
     private string _selectedHourString = "";
     private int? SelectedHour => int.TryParse(_selectedHourString, out int v) ? v : null;
 
     // Dialog
-    private SendGridEvent? _selectedEvent;
+    private SendGridEventParquet? _selectedEvent;
     private bool ShowEventDetailsDialog => _selectedEvent != null;
 
     private readonly PaginationState _pagination = new() { ItemsPerPage = 50 };
@@ -292,7 +298,7 @@ else if (_hasSearched)
     {
         _errorMessage = "";
         _isLoading = true;
-        _sendGridEvents = Array.Empty<SendGridEvent>().AsQueryable();
+        _sendGridEvents = Array.Empty<SendGridEventParquet>().AsQueryable();
         try
         {
             var ymd = _dateSelectionMode switch
@@ -317,12 +323,12 @@ else if (_hasSearched)
 
     record struct YearMonthDayOptional(int? Year, int? Month, int? Day, int? Hour);
 
-    private async Task<IEnumerable<SendGridEvent>> ExecuteSearchAsync(YearMonthDayOptional ymd, CancellationToken ct)
+    private async Task<IEnumerable<SendGridEventParquet>> ExecuteSearchAsync(YearMonthDayOptional ymd, CancellationToken ct)
     {
         const int limit = 1000;
         var now = TimeProvider.GetUtcNow();
 
-        async ValueTask<IList<SendGridEvent>> GetFromCompactionFolder()
+        async ValueTask<IList<SendGridEventParquet>> GetFromCompactionFolder()
         {
             var prefix = SendGridPathUtility.GetS3CompactionPrefix(ymd.Year, ymd.Month, ymd.Day, ymd.Hour);
             if (await ExistsAsync(prefix, now, ct))
@@ -335,7 +341,7 @@ else if (_hasSearched)
             }
             return [];
         }
-        async ValueTask<IList<SendGridEvent>> GetFromNonCompactionFolder()
+        async ValueTask<IList<SendGridEventParquet>> GetFromNonCompactionFolder()
         {
             var prefix = SendGridPathUtility.GetS3NonCompactionPrefix(ymd.Year, ymd.Month, ymd.Day);
             if (await ExistsAsync(prefix, now, ct))
@@ -374,22 +380,15 @@ else if (_hasSearched)
     /// Create search condition from current UI state
     /// </summary>
     /// <returns>Search condition object</returns>
-    private SendGridSearchCondition CreateSearchCondition()
-    {
-        // Return null if no search conditions are specified
-        if (string.IsNullOrWhiteSpace(_selectedEmail) && string.IsNullOrWhiteSpace(_selectedEventType))
-        {
-            return SendGridSearchCondition.Empty;
-        }
-
-        return new SendGridSearchCondition
+    private SendGridSearchCondition CreateSearchCondition() => 
+    new SendGridSearchCondition
         {
             Email = string.IsNullOrWhiteSpace(_selectedEmail) ? null : _selectedEmail,
-            Event = string.IsNullOrWhiteSpace(_selectedEventType) ? null : _selectedEventType
+            Event = string.IsNullOrWhiteSpace(_selectedEventType) ? null : _selectedEventType,
+            SgTemplateId = string.IsNullOrWhiteSpace(_selectedSgTemplateId) ? null : _selectedSgTemplateId
         };
-    }
 
-    private void ShowEventDetails(SendGridEvent sendGridEvent)
+    private void ShowEventDetails(SendGridEventParquet sendGridEvent)
     {
         _selectedEvent = sendGridEvent;
         StateHasChanged();

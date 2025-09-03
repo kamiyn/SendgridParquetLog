@@ -12,7 +12,7 @@ services:
           cpus: '0.1'
           memory: 256M
     ports:
-      - "8080:8080"
+      - "5206:5206"
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
       - S3__ACCESSKEY=${S3__ACCESSKEY:-minioadmin}
@@ -20,6 +20,7 @@ services:
       - S3__SERVICEURL=${S3__SERVICEURL:-http://minio:9000}
       - S3__REGION=${S3__REGION:-jp-north-1}
       - S3__BUCKETNAME=${S3__BUCKETNAME:-sendgrid-events}
+      - ASPNETCORE_URLS=http://+:5206
     depends_on:
       - minio
     restart: unless-stopped
@@ -34,7 +35,7 @@ services:
     platform: linux/amd64
     container_name: sendgrid-parquet-viewer
     ports:
-      - "5000:5000"
+      - "5007:5007"
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
       - S3__ACCESSKEY=${S3__ACCESSKEY:-minioadmin}
@@ -42,6 +43,7 @@ services:
       - S3__SERVICEURL=${S3__SERVICEURL:-http://minio:9000}
       - S3__REGION=${S3__REGION:-jp-north-1}
       - S3__BUCKETNAME=${S3__BUCKETNAME:-sendgrid-events}
+      - ASPNETCORE_URLS=http://+:5007
     depends_on:
       - minio
       - sendgrid-logger

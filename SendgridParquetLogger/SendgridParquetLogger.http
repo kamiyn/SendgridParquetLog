@@ -2,7 +2,7 @@
 
 ###
 # health
-GET {{SendgridParquetLogger_HostAddress}}/health
+GET {{SendgridParquetLogger_HostAddress}}/health6QQl
 
 ###
 # Sendgrid WebHook Event

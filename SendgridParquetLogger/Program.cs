@@ -1,4 +1,5 @@
 ﻿using SendgridParquet.Shared;
+
 using ZLogger;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -25,9 +26,6 @@ builder.Services.AddControllers()
         options.JsonSerializerOptions.WriteIndented = false;
     });
 
-// Add Parquet service
-builder.Services.AddScoped<ParquetService>();
-
 #if UseSwagger
 // Learn more about configuring OpenAPI at https://aka.ms/aspnetcore/openapi
 //builder.Services.AddEndpointsApiExplorer(); // dotnet 8.0 以前用
@@ -37,7 +35,7 @@ builder.Services.AddOpenApi();
 
 // Register services
 builder.Services.AddSingleton(TimeProvider.System);
-builder.Services.AddSingleton<ParquetService>();
+builder.Services.AddSingleton<ParquetService>(); // 無状態のため AddSingleton
 builder.Services.AddHttpClient<S3StorageService>();
 
 var app = builder.Build();

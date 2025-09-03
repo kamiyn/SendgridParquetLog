@@ -1,1 +1,1 @@
-dotnet run --project SendgridParquetLog.AppHost
+dotnet run --project SendgridParquetLog.AppHost -c Debug
