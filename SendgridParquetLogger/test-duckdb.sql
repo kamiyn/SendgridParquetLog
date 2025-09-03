@@ -74,21 +74,12 @@ FROM read_parquet(concat(getvariable('base_url'), "/2025/08/31/*.parquet"))
 GROUP BY event, day
 ORDER BY day DESC, count DESC;
 
--- 特定期間のイベント集計
-SELECT 
-    email,
-    event,
-    timestamp
-FROM read_parquet(concat(getvariable('base_url'), "/2025/08/31/*.parquet"))
-WHERE timestamp >= '2025-08-31 11:00:00'
- AND  timestamp <  '2025-08-31 13:00:00'
-ORDER BY timestamp DESC
-LIMIT 100;
+-- 特定期間の集計はフォルダ構成を利用してください 分単位以上が必要な場合は timestamp の UnixTime 数値を利用
 
 -- 以下テーブル定義
 -- CREATE TABLE test_sendgrid_events (
 --     email VARCHAR,
---     timestamp TIMESTAMP,
+--     timestamp INTEGER,
 --     event VARCHAR,
 --     category VARCHAR,
 --     sg_event_id VARCHAR,
@@ -110,5 +101,5 @@ LIMIT 100;
 --     marketing_campaign_name VARCHAR,
 --     pool_name VARCHAR,
 --     pool_id INTEGER,
---     send_at TIMESTAMP
+--     send_at INTEGER
 -- );

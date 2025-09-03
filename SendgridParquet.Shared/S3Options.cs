@@ -25,5 +25,5 @@ public class S3Options
     /// <summary>
     /// SECRET 以外を出力する
     /// </summary>
-    public override string ToString() => $"SERVICEURL:{SERVICEURL} REGION:{REGION} ACCESSKEY:{ACCESSKEY} BUCKETNAME:{BUCKETNAME}";
+    public override string ToString() => $"SERVICEURL:{SERVICEURL} REGION:{REGION} BUCKETNAME:{BUCKETNAME}";
 }

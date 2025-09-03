@@ -78,6 +78,6 @@ In Aspire environment, these are automatically configured to use local MinIO ins
 ## Important Notes
 
 - Swagger/OpenAPI is only available in DEBUG builds (controlled by conditional compilation)
-- The application automatically creates S3 bucket if it doesn't exist (in non-Development environments)
+- The application automatically creates S3 bucket if it doesn't exist
 - Parquet files are compatible with DuckDB for direct querying
 - All timestamps are stored in UTC
