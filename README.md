@@ -15,6 +15,8 @@ SendGrid WebHookを受信してParquet形式でS3互換ストレージに保存�
 - ヘルスチェックエンドポイント (GET /webhook/health)
 - Docker対応 (linux/amd64)
 
+補足: 保存されるタイムスタンプは UTC の Unix 秒です。一方で保存先のディレクトリ構造は JST(UTC+9) の日単位でグルーピングされます。
+
 ## 設定方法
 
 ASP.NET Core のOptions パターンを使用して設定を管理します。
@@ -127,7 +129,7 @@ Response:
 | カラム名 | 型 | 説明 |
 |---------|---|------|
 | email | string | 受信者のメールアドレス |
-| timestamp | DateTime | イベント発生時刻 |
+| timestamp | long (Unix 秒) | イベント発生時刻(UTC) |
 | event | string | イベントタイプ (delivered, opened, clicked等) |
 | category | string | カテゴリ (JSON配列形式) |
 | sg_event_id | string | SendGridイベントID |
@@ -149,7 +151,7 @@ Response:
 | marketing_campaign_name | string | マーケティングキャンペーン名 |
 | pool_name | string | IPプール名 |
 | pool_id | int? | IPプールID |
-| send_at | DateTime? | 送信予定時刻 |
+| send_at | long? (Unix 秒) | 送信予定時刻(UTC) |
 
 ## DuckDBでの使用例
 

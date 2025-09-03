@@ -340,9 +340,11 @@ public class S3StorageService(
     {
         content.Seek(0, SeekOrigin.Begin);
         var contentHash = CalculateSHA256Hash(content);
+        var uri = request.RequestUri!;
+        var hostHeader = uri.IsDefaultPort ? uri.Host : $"{uri.Host}:{uri.Port}";
         var headers = new KeyValuePair<string, string>[]
         {
-            new("Host", request.RequestUri!.Host),
+            new("Host", hostHeader),
             new("X-Amz-Date", signatureSource.AmzDate),
             new("X-Amz-Content-Sha256", contentHash)
         };
