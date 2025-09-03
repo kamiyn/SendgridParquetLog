@@ -1,4 +1,5 @@
 ﻿using SendgridParquet.Shared;
+
 using ZLogger;
 
 var builder = WebApplication.CreateBuilder(args);
