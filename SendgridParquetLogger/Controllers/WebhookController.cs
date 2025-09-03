@@ -4,6 +4,8 @@ using Microsoft.AspNetCore.Mvc;
 
 using SendgridParquet.Shared;
 
+using SendgridParquetLogger.ModelBinding;
+
 using ZLogger;
 
 namespace SendgridParquetLogger.Controllers;
@@ -18,8 +20,13 @@ public class WebhookController(
 ) : ControllerBase
 {
     [HttpPost("sendgrid")]
-    public async Task<IActionResult> ReceiveSendGridEvents([FromBody] List<SendGridEvent> events, CancellationToken ct)
+    public async Task<IActionResult> ReceiveSendGridEvents([SendGridWebhook] List<SendGridEvent> events, CancellationToken ct)
     {
+        if (HttpContext.Items.TryGetValue(SendGridWebhookModelBinder.AuthErrorKey, out var statusObj)
+            && statusObj is int statusCode && statusCode != 0)
+        {
+            return StatusCode(statusCode);
+        }
         var now = timeProvider.GetUtcNow();
         try
         {

@@ -1,4 +1,5 @@
 ﻿using SendgridParquet.Shared;
+
 using ZLogger;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -15,6 +16,11 @@ builder.Logging.AddZLoggerConsole();
 // Configure options
 builder.Services.AddOptions<S3Options>()
     .Bind(builder.Configuration.GetSection(S3Options.SectionName))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+
+builder.Services.AddOptions<SendGridOptions>()
+    .Bind(builder.Configuration.GetSection(SendGridOptions.SectionName))
     .ValidateDataAnnotations()
     .ValidateOnStart();
 
