@@ -17,6 +17,13 @@ public class WebhookController(
     S3StorageService s3StorageService
 ) : ControllerBase
 {
+    /// <summary>
+    /// SendGrid WebHook
+    /// TODO: ModelBinder を作成し 署名検証 および 送信される Body の最大サイズを検証する
+    /// </summary>
+    /// <param name="events">SendGrid送信側の仕様としては最大 768KB</param>
+    /// <param name="ct"></param>
+    /// <returns></returns>
     [HttpPost("sendgrid")]
     public async Task<IActionResult> ReceiveSendGridEvents([FromBody] List<SendGridEvent> events, CancellationToken ct)
     {

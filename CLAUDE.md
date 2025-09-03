@@ -80,4 +80,5 @@ In Aspire environment, these are automatically configured to use local MinIO ins
 - Swagger/OpenAPI is only available in DEBUG builds (controlled by conditional compilation)
 - The application automatically creates S3 bucket if it doesn't exist
 - Parquet files are compatible with DuckDB for direct querying
-- All timestamps are stored in UTC
+- All timestamps are stored in UnixTime (long)
+- 保存時のファイル分割は JST 基準
