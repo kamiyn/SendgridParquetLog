@@ -20,6 +20,7 @@ services:
       - S3__SERVICEURL=${S3__SERVICEURL:-http://minio:9000}
       - S3__REGION=${S3__REGION:-jp-north-1}
       - S3__BUCKETNAME=${S3__BUCKETNAME:-sendgrid-events}
+      - SENDGRID__VERIFICATIONKEY=${SENDGRID__VERIFICATIONKEY:-}
       - ASPNETCORE_URLS=http://+:5206
     depends_on:
       - minio

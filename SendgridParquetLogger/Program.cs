@@ -1,5 +1,7 @@
 ﻿using SendgridParquet.Shared;
 
+using SendgridParquetLogger.Helper;
+
 using ZLogger;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -16,6 +18,11 @@ builder.Logging.AddZLoggerConsole();
 // Configure options
 builder.Services.AddOptions<S3Options>()
     .Bind(builder.Configuration.GetSection(S3Options.SectionName))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+
+builder.Services.AddOptions<SendGridOptions>()
+    .Bind(builder.Configuration.GetSection(SendGridOptions.SectionName))
     .ValidateDataAnnotations()
     .ValidateOnStart();
 
@@ -36,6 +43,7 @@ builder.Services.AddOpenApi();
 // Register services
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<ParquetService>(); // 無状態のため AddSingleton
+builder.Services.AddSingleton<RequestValidator>(); // 処理は無状態 PublicKey の生成をキャッシュするため AddSingleton
 builder.Services.AddHttpClient<S3StorageService>();
 
 var app = builder.Build();
@@ -57,7 +65,7 @@ var app = builder.Build();
 #endif
 
 app.UseHttpsRedirection();
-app.UseAuthorization();
+// app.UseAuthorization(); // このアプリでは認証しないためコメントアウト
 app.MapControllers();
 
 #if UseAspire
