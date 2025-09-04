@@ -1,9 +1,9 @@
 ﻿using System.Buffers;
-using System.IO;
 using System.IO.Pipelines;
 using System.Net;
-using System.Text;
 using System.Text.Json;
+
+using Microsoft.Extensions.Options;
 
 using SendgridParquet.Shared;
 
@@ -16,20 +16,21 @@ public class WebhookHelper(
     TimeProvider timeProvider,
     ParquetService parquetService,
     RequestValidator requestValidator,
-    S3StorageService s3StorageService
+    S3StorageService s3StorageService,
+    IOptions<SendGridOptions> sendGridOptions
 )
 {
-    private const int MaxBodyBytes = 1 * 1024 * 1024; // 1MB
+    private readonly int _maxBodyBytes = Math.Max(1, sendGridOptions.Value.MaxBodyBytes);
 
     private async Task<(HttpStatusCode, ICollection<SendGridEvent>)> ReadSendGridEvents(
         PipeReader source,
         IHeaderDictionary requestHeaders,
         CancellationToken ct)
     {
-        string payload;
+        byte[] payloadBytes;
         try
         {
-            payload = await GetPayload(source, requestHeaders, ct);
+            payloadBytes = await GetPayload(source, requestHeaders, ct);
         }
         catch (ArgumentException ex)
         {
@@ -37,7 +38,7 @@ public class WebhookHelper(
             return (HttpStatusCode.BadRequest, Array.Empty<SendGridEvent>());
         }
 
-        var requestValidatorResult = requestValidator.VerifySignature(payload, requestHeaders);
+        var requestValidatorResult = requestValidator.VerifySignature(payloadBytes, requestHeaders);
         switch (requestValidatorResult)
         {
             case RequestValidator.RequestValidatorResult.Verified:
@@ -47,12 +48,12 @@ public class WebhookHelper(
 #endif
                 try
                 {
-                    var events = JsonSerializer.Deserialize<SendGridEvent[]>(payload) ?? [];
+                    var events = JsonSerializer.Deserialize<SendGridEvent[]>(payloadBytes) ?? [];
                     return (HttpStatusCode.OK, events);
                 }
                 catch (JsonException ex)
                 {
-                    logger.ZLogInformation(ex, $"Invalid JSON: {payload.Length}");
+                    logger.ZLogInformation(ex, $"Invalid JSON payload. length={payloadBytes.Length}");
                     // return BadRequest
                 }
                 break;
@@ -63,12 +64,12 @@ public class WebhookHelper(
         return (HttpStatusCode.BadRequest, Array.Empty<SendGridEvent>());
     }
 
-    private static async Task<string> GetPayload(PipeReader reader, IHeaderDictionary headers, CancellationToken ct)
+    private async Task<byte[]> GetPayload(PipeReader reader, IHeaderDictionary headers, CancellationToken ct)
     {
         int initialCapacity = 0;
         if (headers.ContentLength is long contentLength && contentLength > 0)
         {
-            long capped = Math.Min(contentLength, MaxBodyBytes);
+            long capped = Math.Min(contentLength, _maxBodyBytes);
             if (capped <= int.MaxValue)
             {
                 initialCapacity = (int)capped;
@@ -86,7 +87,7 @@ public class WebhookHelper(
                 foreach (var segment in buffer)
                 {
                     total += segment.Length;
-                    if (total > MaxBodyBytes)
+                    if (total > _maxBodyBytes)
                     {
                         reader.AdvanceTo(buffer.End);
                         throw new ArgumentException("Payload Too Large");
@@ -109,7 +110,7 @@ public class WebhookHelper(
                 throw new ArgumentException("PipeReader Empty");
             }
 
-            return Encoding.UTF8.GetString(ms.GetBuffer(), 0, (int)ms.Length);
+            return ms.ToArray();
         }
         finally
         {
@@ -169,8 +170,9 @@ public class WebhookHelper(
         var (httpStatusCode, events) = await ReadSendGridEvents(reader, headers, ct);
         if (httpStatusCode != HttpStatusCode.OK)
         {
-            logger.ZLogWarning($"Failed to read request body: {httpStatusCode}");
-            return (httpStatusCode, "Failed to read request body");
+            logger.ZLogWarning($"Failed to validate request: {httpStatusCode}");
+            var errorBody = new { error = "invalid_signature_or_payload", code = "bad_request" };
+            return (HttpStatusCode.BadRequest, errorBody);
         }
 
         try
@@ -178,7 +180,8 @@ public class WebhookHelper(
             if (!events.Any())
             {
                 logger.ZLogWarning($"Received empty or null events");
-                return (HttpStatusCode.BadRequest, "No events received");
+                var errorBody = new { error = "no_events", code = "bad_request" };
+                return (HttpStatusCode.BadRequest, errorBody);
             }
 
             logger.ZLogInformation($"Received {events.Count} events from SendGrid");
