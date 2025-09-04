@@ -54,6 +54,7 @@ public class RequestValidator
         PublicKey? publicKey = _lazyPublicKey.Value;
         if (publicKey == null)
         {
+            _logger.ZLogDebug($"PublicKey is not configured. {_options.VERIFICATIONKEY}");
             return _options.VERIFICATIONKEY switch
             {
                 "VERIFIED" => RequestValidatorResult.Verified,
