@@ -1,9 +1,10 @@
 ﻿using System.Security.Cryptography;
 using System.Text;
 
+using EllipticCurve;
+
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
 using SendgridParquet.Shared;
@@ -25,7 +26,7 @@ public class RequestValidatorTest
             b.AddDebug();
             b.SetMinimumLevel(LogLevel.Debug);
         }).CreateLogger<RequestValidator>();
-        var skew = $"{allowedSkew ?? TimeSpan.FromMinutes(5)}"; 
+        var skew = $"{allowedSkew ?? TimeSpan.FromMinutes(5)}";
         var options = Options.Create(new SendGridOptions { VERIFICATIONKEY = verificationKey, AllowedSkew = skew });
         return new RequestValidator(logger, options, TimeProvider.System);
     }
@@ -126,6 +127,40 @@ public class RequestValidatorTest
         var result = validator.VerifySignature(payload, headers);
 
         Assert.That(result, Is.EqualTo(RequestValidator.RequestValidatorResult.NotConfigured));
+    }
+
+    [Test]
+    public void Compare_StarkBankValidator()
+    {
+        string payloadJson = "[{\"email\":\"test@example.com\",\"timestamp\":1513299569,\"event\":\"delivered\"}]";
+        (string, string) LocalFunc()
+        {
+            // Prepare payload and timestamp
+            byte[] payloadBytes = Encoding.UTF8.GetBytes(payloadJson);
+            long ts = 1756978099;
+            string tsString = ts.ToString();
+
+            // Create key and signature
+            var curve = ECCurve.CreateFromFriendlyName("secp256k1");
+            using var ecdsa = ECDsa.Create(curve);
+            byte[] combined = new byte[Encoding.UTF8.GetByteCount(tsString) + payloadBytes.Length];
+            int written = Encoding.UTF8.GetBytes(tsString, 0, tsString.Length, combined, 0);
+            Buffer.BlockCopy(payloadBytes, 0, combined, written, payloadBytes.Length);
+
+            byte[] sig = ecdsa.SignData(combined, HashAlgorithmName.SHA256);
+            return (Convert.ToBase64String(sig), ecdsa.ExportECPrivateKeyPem());
+        }
+        ;
+        (string sigBase64, string privateKeyPem) = LocalFunc();
+
+        PrivateKey privateKey = PrivateKey.fromPem(privateKeyPem);
+        Signature signature = Ecdsa.sign(payloadJson, privateKey);
+        string? sigBase64Actual = signature.toBase64();
+        //PrivateKey privateKey = PrivateKey.fromPem("-----BEGIN EC PARAMETERS-----\nBgUrgQQACg==\n-----END EC PARAMETERS-----\n-----BEGIN EC PRIVATE KEY-----\nMHQCAQEEIODvZuS34wFbt0X53+P5EnSj6tMjfVK01dD1dgDH02RzoAcGBSuBBAAK\noUQDQgAE/nvHu/SQQaos9TUljQsUuKI15Zr5SabPrbwtbfT/408rkVVzq8vAisbB\nRmpeRREXj5aog/Mq8RrdYy75W9q/Ig==\n-----END EC PRIVATE KEY-----\n");
+        //Signature signature = Ecdsa.sign(message, privateKey);
+
+
+        Assert.That(sigBase64Actual, Is.EqualTo(sigBase64));
     }
 
     record RequestParameters(string payload, string pem, string signature, string timestamp);
