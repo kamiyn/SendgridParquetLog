@@ -83,10 +83,6 @@ public class SendGridEvent
 
     [JsonPropertyName(SendGridWebHookFields.SendAt)]
     public long? SendAt { get; set; }
-
-    // Additional properties for Viewer compatibility
-    public string? PoolName => Pool?.Name;
-    public int? PoolId => Pool?.Id;
 }
 
 public class Pool
