@@ -28,7 +28,17 @@ public class WebhookHelper(
         IHeaderDictionary requestHeaders,
         CancellationToken ct)
     {
-        using var ms = new MemoryStream();
+        int initialCapacity = 0;
+        if (requestHeaders.ContentLength is long contentLength && contentLength > 0)
+        {
+            long capped = Math.Min(contentLength, MaxBodyBytes);
+            if (capped <= int.MaxValue)
+            {
+                initialCapacity = (int)capped;
+            }
+        }
+
+        using var ms = initialCapacity > 0 ? new MemoryStream(initialCapacity) : new MemoryStream();
         long total = 0;
         while (true)
         {
