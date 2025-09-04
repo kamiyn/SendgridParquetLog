@@ -1,5 +1,6 @@
 ﻿using System.Collections.Generic;
 using System.Text.Json.Serialization;
+using SendgridParquet.Shared.Json;
 
 namespace SendgridParquet.Shared;
 
@@ -22,6 +23,7 @@ public class SendGridEvent
     /// Categories are custom tags that you set for the purpose of organizing your emails. If you send single categories as an array, they will be returned by the webhook as an array. If you send single categories as a string, they will be returned by the webhook as a string.
     /// </summary>
     [JsonPropertyName(SendGridWebHookFields.Category)]
+    [JsonConverter(typeof(StringOrStringArrayConverter))]
     public string? Category { get; set; }
 
     [JsonPropertyName(SendGridWebHookFields.SgEventId)]

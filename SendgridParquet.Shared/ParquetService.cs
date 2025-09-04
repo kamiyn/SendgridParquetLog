@@ -63,7 +63,7 @@ public class ParquetService
 
             new FieldProcessor(categoryField,
                 events => new DataColumn(categoryField,
-                    events.Select(e => e.Category != null ? JsonSerializer.Serialize(e.Category) : string.Empty).ToArray())),
+                    events.Select(e => e.Category ?? string.Empty).ToArray())),
 
             new FieldProcessor(sgEventIdField,
                 events => new DataColumn(sgEventIdField,
