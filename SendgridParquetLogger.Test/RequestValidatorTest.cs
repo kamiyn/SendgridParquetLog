@@ -41,8 +41,7 @@ public class RequestValidatorTest
         string tsString = ts.ToString();
 
         // Create key and signature
-        var curve = ECCurve.CreateFromFriendlyName("secp256k1");
-        using var ecdsa = ECDsa.Create(curve);
+        using var ecdsa = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         byte[] combined = new byte[Encoding.UTF8.GetByteCount(tsString) + payloadBytes.Length];
         int written = Encoding.UTF8.GetBytes(tsString, 0, tsString.Length, combined, 0);
         Buffer.BlockCopy(payloadBytes, 0, combined, written, payloadBytes.Length);

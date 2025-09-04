@@ -1,5 +1,4 @@
-﻿using System;
-using System.Globalization;
+﻿using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -47,20 +46,18 @@ public class RequestValidator : IDisposable
                     return null;
                 }
 
-                // use secp256k1 https://github.com/starkbank/ecdsa-dotnet
-                var curve = ECCurve.CreateFromFriendlyName("secp256k1");
                 try
                 {
                     // If VERIFICATIONKEY is base64 (SPKI), wrap it as PEM and import
                     string pemWrapped = $"-----BEGIN PUBLIC KEY-----\n{pem}\n-----END PUBLIC KEY-----\n";
-                    var e = ECDsa.Create(curve);
+                    var e = ECDsa.Create(ECCurve.NamedCurves.nistP256);
                     e.ImportFromPem(pemWrapped);
                     return e;
                 }
                 catch
                 {
                     // Fallback to raw PEM SPKI
-                    var e = ECDsa.Create(curve);
+                    var e = ECDsa.Create(ECCurve.NamedCurves.nistP256);
                     e.ImportFromPem(pem);
                     return e;
                 }
