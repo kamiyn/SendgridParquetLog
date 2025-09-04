@@ -35,7 +35,8 @@ public class WebhookHelper(
             return (HttpStatusCode.BadRequest, Array.Empty<SendGridEvent>());
         }
 
-        switch (requestValidator.VerifySignature(payload, requestHeaders))
+        var requestValidatorResult = requestValidator.VerifySignature(payload, requestHeaders);
+        switch (requestValidatorResult)
         {
             case RequestValidator.RequestValidatorResult.Verified:
 #if DEBUG
@@ -51,6 +52,9 @@ public class WebhookHelper(
                 {
                     // return BadRequest
                 }
+                break;
+            default:
+                logger.ZLogInformation($"VerigySignature: {requestValidatorResult}");
                 break;
         }
         return (HttpStatusCode.BadRequest, Array.Empty<SendGridEvent>());

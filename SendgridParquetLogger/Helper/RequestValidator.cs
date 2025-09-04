@@ -18,14 +18,15 @@ public class RequestValidator
     private const string TimestampHeader = "X-Twilio-Email-Event-Webhook-Timestamp";
 
     private readonly ILogger<RequestValidator> _logger;
+    private readonly SendGridOptions _options;
     private readonly Lazy<PublicKey?> _lazyPublicKey;
 
     public RequestValidator(
         ILogger<RequestValidator> logger,
-        IOptions<SendGridOptions> options
-)
+        IOptions<SendGridOptions> options)
     {
         _logger = logger;
+        _options = options.Value;
         string pem = options.Value.VERIFICATIONKEY; // captured value
         _lazyPublicKey = new Lazy<PublicKey?>(() =>
         {
@@ -33,7 +34,7 @@ public class RequestValidator
             {
                 return string.IsNullOrEmpty(pem) ? null : PublicKey.fromPem(pem);
             }
-            catch (FormatException ex)
+            catch (Exception ex) when (ex is FormatException or ArgumentException)
             {
                 _logger.ZLogError(ex, $"Configure {nameof(SendGridOptions.VERIFICATIONKEY)} currentValue:{pem}");
                 return null;
@@ -53,7 +54,11 @@ public class RequestValidator
         PublicKey? publicKey = _lazyPublicKey.Value;
         if (publicKey == null)
         {
-            return RequestValidatorResult.NotConfigured;
+            return _options.VERIFICATIONKEY switch {
+                "VERIFIED" => RequestValidatorResult.Verified,
+                "FAILED" => RequestValidatorResult.Failed,
+                _ => RequestValidatorResult.NotConfigured,
+            };
         }
         var signature = headers[SignatureHeader];
         if (!signature.Any())
