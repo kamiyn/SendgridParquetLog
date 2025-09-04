@@ -1,11 +1,6 @@
-﻿using System.Buffers;
-using System.IO;
-using System.IO.Pipelines;
-using System.Net;
+﻿using System.Net;
 using System.Text;
 using System.Text.Json;
-
-using Microsoft.AspNetCore.Http;
 
 using SendgridParquet.Shared;
 
@@ -22,51 +17,23 @@ public class WebhookHelper(
 )
 {
     private const int MaxBodyBytes = 1 * 1024 * 1024; // 1MB
+    private const int BufferSize = 32768;
 
-    public async Task<(HttpStatusCode, ICollection<SendGridEvent>)> ReadSendGridEvents(
-        PipeReader reader,
+    private async Task<(HttpStatusCode, ICollection<SendGridEvent>)> ReadSendGridEvents(
+        Stream source,
         IHeaderDictionary requestHeaders,
         CancellationToken ct)
     {
-        int initialCapacity = 0;
-        if (requestHeaders.ContentLength is long contentLength && contentLength > 0)
+        string payload;
+        try
         {
-            long capped = Math.Min(contentLength, MaxBodyBytes);
-            if (capped <= int.MaxValue)
-            {
-                initialCapacity = (int)capped;
-            }
+            payload = await GetPayload(source, requestHeaders, ct);
         }
-
-        using var ms = initialCapacity > 0 ? new MemoryStream(initialCapacity) : new MemoryStream();
-        long total = 0;
-        while (true)
+        catch (ArgumentException ex)
         {
-            ReadResult result = await reader.ReadAsync(ct);
-            ReadOnlySequence<byte> buffer = result.Buffer;
-            foreach (var segment in buffer)
-            {
-                total += segment.Length;
-                if (total > MaxBodyBytes)
-                {
-                    reader.AdvanceTo(buffer.End);
-                    return (HttpStatusCode.BadRequest, Array.Empty<SendGridEvent>());
-                }
-                ms.Write(segment.Span);
-            }
-            reader.AdvanceTo(buffer.End);
-            if (result.IsCompleted)
-            {
-                break;
-            }
-        }
-
-        if (ms.Length == 0)
-        {
+            logger.ZLogInformation(ex, $"GetPayload");
             return (HttpStatusCode.BadRequest, Array.Empty<SendGridEvent>());
         }
-
-        string payload = Encoding.UTF8.GetString(ms.GetBuffer(), 0, (int)ms.Length);
 
         switch (requestValidator.VerifySignature(payload, requestHeaders))
         {
@@ -89,7 +56,31 @@ public class WebhookHelper(
         return (HttpStatusCode.BadRequest, Array.Empty<SendGridEvent>());
     }
 
-    public async Task<List<HttpStatusCode>> WriteParquetGroupByYmd(
+    private static async Task<string> GetPayload(Stream source, IHeaderDictionary requestHeaders, CancellationToken ct)
+    {
+        int initialCapacity = requestHeaders.ContentLength > 0
+            ? (int)Math.Min(requestHeaders.ContentLength.Value, MaxBodyBytes)
+            : 0;
+
+        await using MemoryStream ms = initialCapacity > 0 ? new MemoryStream(initialCapacity) : new MemoryStream();
+        byte[] buffer = new byte[BufferSize];
+        int remaining = MaxBodyBytes;
+        while (remaining > 0)
+        {
+            int toRead = remaining > buffer.Length ? buffer.Length : remaining;
+            int read = await source.ReadAsync(buffer, 0, toRead, ct);
+            if (read == 0)
+            {
+                break;
+            }
+            await ms.WriteAsync(buffer, 0, read, ct);
+            remaining -= read;
+        }
+
+        return Encoding.UTF8.GetString(ms.GetBuffer(), 0, (int)ms.Length);
+    }
+
+    private async Task<List<HttpStatusCode>> WriteParquetGroupByYmd(
         IEnumerable<SendGridEvent> events,
         CancellationToken ct)
     {
@@ -106,7 +97,7 @@ public class WebhookHelper(
         return results;
     }
 
-    public async ValueTask<HttpStatusCode> WriteParquet(
+    private async ValueTask<HttpStatusCode> WriteParquet(
         IEnumerable<SendGridEvent> eventsEnumerable,
         DateOnly targetDay,
         DateTimeOffset now,
@@ -134,11 +125,11 @@ public class WebhookHelper(
 
     // 共通化された ReceiveSendGridEvents() の処理本体
     public async Task<(HttpStatusCode Status, object? Body)> ProcessReceiveSendGridEventsAsync(
-        PipeReader reader,
+        Stream stream,
         IHeaderDictionary headers,
         CancellationToken ct)
     {
-        var (httpStatusCode, events) = await ReadSendGridEvents(reader, headers, ct);
+        var (httpStatusCode, events) = await ReadSendGridEvents(stream, headers, ct);
         if (httpStatusCode != HttpStatusCode.OK)
         {
             logger.ZLogWarning($"Failed to read request body: {httpStatusCode}");

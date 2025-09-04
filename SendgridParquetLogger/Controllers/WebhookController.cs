@@ -3,11 +3,7 @@ using System.Net;
 
 using Microsoft.AspNetCore.Mvc;
 
-using SendgridParquet.Shared;
-
 using SendgridParquetLogger.Helper;
-
-using ZLogger;
 
 namespace SendgridParquetLogger.Controllers;
 
@@ -21,11 +17,10 @@ public class WebhookController(
     [HttpPost("sendgrid")]
     public async Task<IActionResult> ReceiveSendGridEvents(CancellationToken ct)
     {
-        var (status, body) = await webhookHelper.ProcessReceiveSendGridEventsAsync(Request.BodyReader, Request.Headers, ct);
+        var (status, body) = await webhookHelper.ProcessReceiveSendGridEventsAsync(Request.Body, Request.Headers, ct);
         return status == HttpStatusCode.OK
             ? Ok(body)
             : StatusCode((int)status, body);
     }
-
 }
 #endif

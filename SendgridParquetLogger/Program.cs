@@ -67,9 +67,6 @@ var app = builder.Build();
 }
 #endif
 
-app.UseHttpsRedirection();
-// app.UseAuthorization(); // このアプリでは認証しないためコメントアウト
-
 #if UseSwagger
 app.MapControllers();
 #else
@@ -81,7 +78,7 @@ app.MapGet("/health6QQl", (TimeProvider timeProvider) =>
 
 app.MapPost("/webhook/sendgrid", async (HttpContext httpContext, WebhookHelper webhookHelper, CancellationToken ct) =>
 {
-    var (status, body) = await webhookHelper.ProcessReceiveSendGridEventsAsync(httpContext.Request.BodyReader, httpContext.Request.Headers, ct);
+    var (status, body) = await webhookHelper.ProcessReceiveSendGridEventsAsync(httpContext.Request.Body, httpContext.Request.Headers, ct);
     if (status == System.Net.HttpStatusCode.OK)
     {
         return Results.Ok(body);
