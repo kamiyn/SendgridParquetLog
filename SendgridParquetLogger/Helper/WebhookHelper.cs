@@ -48,7 +48,7 @@ public class WebhookHelper(
 #endif
                 try
                 {
-                    var events = JsonSerializer.Deserialize<SendGridEvent[]>(payloadBytes) ?? [];
+                    var events = JsonSerializer.Deserialize(payloadBytes, SendgridParquet.Shared.Json.SharedJsonContext.Default.SendGridEventArray) ?? [];
                     return (HttpStatusCode.OK, events);
                 }
                 catch (JsonException ex)

@@ -127,7 +127,7 @@ public class ParquetService
 
             new FieldProcessor(uniqueArgsField,
                 events => new DataColumn(uniqueArgsField,
-                    events.Select(e => e.UniqueArgs != null ? JsonSerializer.Serialize(e.UniqueArgs) : string.Empty).ToArray())),
+                    events.Select(e => e.UniqueArgs.HasValue ? e.UniqueArgs.Value.GetRawText() : string.Empty).ToArray())),
 
             new FieldProcessor(marketingCampaignIdField,
                 events => new DataColumn(marketingCampaignIdField,
@@ -230,8 +230,8 @@ public class ParquetService
                 BounceClassification = bounceClassificationColumn?.Data.GetValue(idx)?.ToString(),
                 AsmGroupId = ConvertToNullableInt(asmGroupIdColumn?.Data.GetValue(idx)),
                 UniqueArgs = uniqueArgsColumn?.Data.GetValue(idx)?.ToString() is { } jsonStr && !string.IsNullOrEmpty(jsonStr)
-                    ? JsonSerializer.Deserialize<Dictionary<string, object>>(jsonStr)
-                    : null,
+                    ? JsonDocument.Parse(jsonStr).RootElement.Clone()
+                    : (JsonElement?)null,
                 MarketingCampaignId = ConvertToNullableInt(marketingCampaignIdColumn?.Data.GetValue(idx)),
                 MarketingCampaignName = marketingCampaignNameColumn?.Data.GetValue(idx)?.ToString(),
                 Pool = new Pool

@@ -23,7 +23,12 @@ public class WebhookController(
         }
         if (status == HttpStatusCode.BadRequest)
         {
-            return Content(body ?? string.Empty, "application/json", (int)HttpStatusCode.BadRequest);
+            return new ContentResult
+            {
+                Content = body ?? string.Empty,
+                ContentType = "application/json",
+                StatusCode = (int)HttpStatusCode.BadRequest
+            };
         }
         return StatusCode((int)status);
     }

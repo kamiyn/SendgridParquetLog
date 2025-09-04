@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+﻿using System.Text.Json;
 using System.Text.Json.Serialization;
 
 using SendgridParquet.Shared.Json;
@@ -76,7 +76,7 @@ public class SendGridEvent
     public int? AsmGroupId { get; set; }
 
     [JsonPropertyName(SendGridWebHookFields.UniqueArgs)]
-    public Dictionary<string, object>? UniqueArgs { get; set; }
+    public JsonElement? UniqueArgs { get; set; }
 
     [JsonPropertyName(SendGridWebHookFields.MarketingCampaignId)]
     [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
