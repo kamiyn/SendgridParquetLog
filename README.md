@@ -30,6 +30,7 @@ ASP.NET Core のOptions パターンを使用して設定を管理します。
 | S3__SERVICEURL | S3エンドポイントURL | https://s3.amazonaws.com |
 | S3__REGION | S3リージョン | us-east-1 |
 | S3__BUCKETNAME | バケット名 | sendgrid-events |
+| SENDGRID__VERIFICATIONKEY | SendGrid Event Webhook 検証用公開鍵 (PEM または Base64(SPKI)) | -----BEGIN PUBLIC KEY----- ... |
 
 ### appsettings.json での設定
 
@@ -292,6 +293,7 @@ GitHub リポジトリの Settings > Secrets and variables > Actions > Secrets �
 | CONTAINER_REGISTRY_PASSWORD | レジストリのパスワード |
 | SAKURACLOUD_ACCESS_TOKEN_SECRET | さくらのクラウドAPIシークレット |
 | S3__SECRETKEY | S3互換ストレージのシークレットキー |
+| SENDGRID__VERIFICATIONKEY | SendGrid Event Webhook 検証用公開鍵 (PEM または Base64(SPKI)) |
 
 ### 設定手順
 

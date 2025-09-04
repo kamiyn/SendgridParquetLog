@@ -66,14 +66,14 @@ public class WebhookController(
         }
     }
 
-    private  async Task<(HttpStatusCode, ICollection<SendGridEvent>)> ReadSendGridEvents(PipeReader reader,
+    private async Task<(HttpStatusCode, ICollection<SendGridEvent>)> ReadSendGridEvents(PipeReader reader,
         IHeaderDictionary requestHeaders, CancellationToken ct)
     {
         ReadResult result = await reader.ReadAtLeastAsync(MaxBodyBytes, ct);
         ReadOnlySequence<byte> buffer = result.Buffer;
         if (result.IsCanceled || result.IsCompleted && buffer.Length == 0)
         {
-            return (HttpStatusCode.BadRequest , Array.Empty<SendGridEvent>());
+            return (HttpStatusCode.BadRequest, Array.Empty<SendGridEvent>());
         }
         // PipeReader の一般的使い方としては ループさせて AdvanceTo を呼び出すのが想定されているが、ここでは一度で必要分をすべて読み取る
 

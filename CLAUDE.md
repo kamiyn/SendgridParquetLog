@@ -73,6 +73,10 @@ The application uses ASP.NET Core Options pattern with S3Options bound from conf
 - Environment variables: `S3__ACCESSKEY`, `S3__SECRETKEY`, `S3__SERVICEURL`, `S3__REGION`, `S3__BUCKETNAME`
 - Configuration section: `S3` in appsettings.json
 
+Webhook signature verification requires a SendGrid verification key:
+- Environment variable: `SENDGRID__VERIFICATIONKEY` (PEM or Base64(SPKI) public key)
+- Configuration section: `SENDGRID:VERIFICATIONKEY` in appsettings.json
+
 In Aspire environment, these are automatically configured to use local MinIO instance.
 
 ## Important Notes

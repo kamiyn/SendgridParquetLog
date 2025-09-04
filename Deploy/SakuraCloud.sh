@@ -55,6 +55,9 @@ fi
 : "${S3__SECRETKEY:?Environment variable S3__SECRETKEY is required}"
 S3__BUCKETNAME=${S3__BUCKETNAME:-"sendgrid-events"}
 
+# Required SendGrid configuration environment variables
+: "${SENDGRID__VERIFICATIONKEY:?Environment variable SENDGRID__VERIFICATIONKEY is required}"
+
 # Optional environment variables with defaults
 # APPRUN_PORT=${APPRUN_PORT:-8080} # 引数で渡される
 APPRUN_TIMEOUT=${APPRUN_TIMEOUT:-60}
@@ -225,6 +228,10 @@ DEPLOYMENT_PAYLOAD=$(cat <<EOF
         {
           "key": "S3__BUCKETNAME",
           "value": "${S3__BUCKETNAME}"
+        },
+        {
+          "key": "SENDGRID__VERIFICATIONKEY",
+          "value": "${SENDGRID__VERIFICATIONKEY}"
         },
         {
           "key": "AzureAD__Domain",
