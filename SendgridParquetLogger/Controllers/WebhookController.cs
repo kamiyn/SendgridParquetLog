@@ -16,7 +16,7 @@ public class WebhookController(
     [HttpPost("sendgrid")]
     public async Task<IActionResult> ReceiveSendGridEvents(CancellationToken ct)
     {
-        var (status, body) = await webhookHelper.ProcessReceiveSendGridEventsAsync(Request.Body, Request.Headers, ct);
+        var (status, body) = await webhookHelper.ProcessReceiveSendGridEventsAsync(Request.BodyReader, Request.Headers, ct);
         return status == HttpStatusCode.OK
             ? Ok(body)
             : StatusCode((int)status, body);

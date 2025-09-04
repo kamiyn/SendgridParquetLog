@@ -1,4 +1,7 @@
-﻿using System.Net;
+﻿using System.Buffers;
+using System.IO;
+using System.IO.Pipelines;
+using System.Net;
 using System.Text;
 using System.Text.Json;
 
@@ -17,10 +20,9 @@ public class WebhookHelper(
 )
 {
     private const int MaxBodyBytes = 1 * 1024 * 1024; // 1MB
-    private const int BufferSize = 32768;
 
     private async Task<(HttpStatusCode, ICollection<SendGridEvent>)> ReadSendGridEvents(
-        Stream source,
+        PipeReader source,
         IHeaderDictionary requestHeaders,
         CancellationToken ct)
     {
@@ -60,28 +62,58 @@ public class WebhookHelper(
         return (HttpStatusCode.BadRequest, Array.Empty<SendGridEvent>());
     }
 
-    private static async Task<string> GetPayload(Stream source, IHeaderDictionary requestHeaders, CancellationToken ct)
+    private static async Task<string> GetPayload(PipeReader reader, IHeaderDictionary headers, CancellationToken ct)
     {
-        int initialCapacity = requestHeaders.ContentLength > 0
-            ? (int)Math.Min(requestHeaders.ContentLength.Value, MaxBodyBytes)
-            : 0;
-
-        await using MemoryStream ms = initialCapacity > 0 ? new MemoryStream(initialCapacity) : new MemoryStream();
-        byte[] buffer = new byte[BufferSize];
-        int remaining = MaxBodyBytes;
-        while (remaining > 0)
+        int initialCapacity = 0;
+        if (headers.ContentLength is long contentLength && contentLength > 0)
         {
-            int toRead = remaining > buffer.Length ? buffer.Length : remaining;
-            int read = await source.ReadAsync(buffer, 0, toRead, ct);
-            if (read == 0)
+            long capped = Math.Min(contentLength, MaxBodyBytes);
+            if (capped <= int.MaxValue)
             {
-                break;
+                initialCapacity = (int)capped;
             }
-            await ms.WriteAsync(buffer, 0, read, ct);
-            remaining -= read;
         }
 
-        return Encoding.UTF8.GetString(ms.GetBuffer(), 0, (int)ms.Length);
+        using var ms = initialCapacity > 0 ? new MemoryStream(initialCapacity) : new MemoryStream();
+        long total = 0;
+        try
+        {
+            while (true)
+            {
+                ReadResult result = await reader.ReadAsync(ct);
+                ReadOnlySequence<byte> buffer = result.Buffer;
+                foreach (var segment in buffer)
+                {
+                    total += segment.Length;
+                    if (total > MaxBodyBytes)
+                    {
+                        reader.AdvanceTo(buffer.End);
+                        throw new ArgumentException("Payload Too Large");
+                    }
+                    ms.Write(segment.Span);
+                }
+                reader.AdvanceTo(buffer.End);
+                if (result.IsCompleted)
+                {
+                    break;
+                }
+                if (result.IsCanceled)
+                {
+                    throw new ArgumentException("PipeReader Canceled");
+                }
+            }
+
+            if (ms.Length == 0)
+            {
+                throw new ArgumentException("PipeReader Empty");
+            }
+
+            return Encoding.UTF8.GetString(ms.GetBuffer(), 0, (int)ms.Length);
+        }
+        finally
+        {
+            reader.Complete();
+        }
     }
 
     private async Task<List<HttpStatusCode>> WriteParquetGroupByYmd(
@@ -129,11 +161,11 @@ public class WebhookHelper(
 
     // 共通化された ReceiveSendGridEvents() の処理本体
     public async Task<(HttpStatusCode Status, object? Body)> ProcessReceiveSendGridEventsAsync(
-        Stream stream,
+        PipeReader reader,
         IHeaderDictionary headers,
         CancellationToken ct)
     {
-        var (httpStatusCode, events) = await ReadSendGridEvents(stream, headers, ct);
+        var (httpStatusCode, events) = await ReadSendGridEvents(reader, headers, ct);
         if (httpStatusCode != HttpStatusCode.OK)
         {
             logger.ZLogWarning($"Failed to read request body: {httpStatusCode}");
