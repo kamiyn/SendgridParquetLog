@@ -42,19 +42,25 @@ public class RequestValidator : IDisposable
         {
             try
             {
-                if (string.IsNullOrWhiteSpace(pem)) return null;
+                if (string.IsNullOrWhiteSpace(pem))
+                {
+                    return null;
+                }
+
+                // use secp256k1 https://github.com/starkbank/ecdsa-dotnet
+                var curve = ECCurve.CreateFromFriendlyName("secp256k1");
                 try
                 {
                     // If VERIFICATIONKEY is base64 (SPKI), wrap it as PEM and import
                     string pemWrapped = $"-----BEGIN PUBLIC KEY-----\n{pem}\n-----END PUBLIC KEY-----\n";
-                    var e = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+                    var e = ECDsa.Create(curve);
                     e.ImportFromPem(pemWrapped);
                     return e;
                 }
                 catch
                 {
                     // Fallback to raw PEM SPKI
-                    var e = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+                    var e = ECDsa.Create(curve);
                     e.ImportFromPem(pem);
                     return e;
                 }
@@ -114,10 +120,11 @@ public class RequestValidator : IDisposable
         }
 
         // Verify signature over (timestamp + payload) using SHA-256 without combining arrays
-        byte[] tsBuffer = Encoding.UTF8.GetBytes(timestampHeader.ToString());
-        using var sha256 = SHA256.Create();
-        sha256.TransformBlock(tsBuffer, 0, tsBuffer.Length, null, 0);
-        sha256.TransformFinalBlock(payloadUtf8, 0, payloadUtf8.Length);
+        using MemoryStream stream = new();
+        byte[] timestampBytes = Encoding.UTF8.GetBytes(timestampHeader.ToString());
+        stream.Write(timestampBytes, 0, timestampBytes.Length);
+        stream.Write(payloadUtf8, 0, payloadUtf8.Length);
+        stream.Seek(0, SeekOrigin.Begin);
 
         byte[] signatureBytes;
         try
@@ -129,9 +136,7 @@ public class RequestValidator : IDisposable
             return RequestValidatorResult.Failed;
         }
 
-        // Compute SHA-256 digest and verify ECDSA signature
-        byte[] hash = sha256.Hash ?? Array.Empty<byte>();
-        bool ok = ecdsa.VerifyHash(hash, signatureBytes);
+        bool ok = ecdsa.VerifyData(stream, signatureBytes, HashAlgorithmName.SHA256);
         return ok ? RequestValidatorResult.Verified : RequestValidatorResult.Failed;
     }
 
