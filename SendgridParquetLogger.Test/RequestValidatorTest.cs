@@ -7,6 +7,8 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
+using Newtonsoft.Json;
+
 using SendgridParquet.Shared;
 
 using SendgridParquetLogger.Helper;
@@ -151,16 +153,77 @@ public class RequestValidatorTest
             return (Convert.ToBase64String(sig), ecdsa.ExportECPrivateKeyPem());
         }
         ;
-        (string sigBase64, string privateKeyPem) = LocalFunc();
+        (string sigBase64dotnet, string privateKeyPem) = LocalFunc();
 
         PrivateKey privateKey = PrivateKey.fromPem(privateKeyPem);
         Signature signature = Ecdsa.sign(payloadJson, privateKey);
-        string? sigBase64Actual = signature.toBase64();
+        string? sigBase64expected = signature.toBase64();
         //PrivateKey privateKey = PrivateKey.fromPem("-----BEGIN EC PARAMETERS-----\nBgUrgQQACg==\n-----END EC PARAMETERS-----\n-----BEGIN EC PRIVATE KEY-----\nMHQCAQEEIODvZuS34wFbt0X53+P5EnSj6tMjfVK01dD1dgDH02RzoAcGBSuBBAAK\noUQDQgAE/nvHu/SQQaos9TUljQsUuKI15Zr5SabPrbwtbfT/408rkVVzq8vAisbB\nRmpeRREXj5aog/Mq8RrdYy75W9q/Ig==\n-----END EC PRIVATE KEY-----\n");
         //Signature signature = Ecdsa.sign(message, privateKey);
 
 
-        Assert.That(sigBase64Actual, Is.EqualTo(sigBase64));
+        Assert.That(sigBase64dotnet, Is.EqualTo(sigBase64expected));
+    }
+
+    public class EventClass
+    {
+        [JsonProperty("email")]
+        public string Email;
+
+        [JsonProperty("event")]
+        public string Event;
+
+        [JsonProperty("reason")]
+        public string Reason;
+
+        [JsonProperty("sg_event_id")]
+        public string SgEventId;
+
+        [JsonProperty("sg_message_id")]
+        public string SgMessageId;
+
+        [JsonProperty("smtp-id")]
+        public string SmtpId;
+
+        [JsonProperty("timestamp")]
+        public long Timestamp;
+
+        internal const string PUBLIC_KEY = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE83T4O/n84iotIvIW4mdBgQ/7dAfSmpqIM8kF9mN1flpVKS3GRqe62gw+2fNNRaINXvVpiglSI8eNEc6wEA3F+g==";
+        internal const string SIGNATURE = "MEUCIGHQVtGj+Y3LkG9fLcxf3qfI10QysgDWmMOVmxG0u6ZUAiEAyBiXDWzM+uOe5W0JuG+luQAbPIqHh89M15TluLtEZtM=";
+        internal const string TIMESTAMP = "1600112502";
+
+        internal static string PAYLOAD() => JsonConvert.SerializeObject(new[]{
+            new EventClass {
+                Email = "hello@world.com",
+                Event = "dropped",
+                Reason = "Bounced Address",
+                SgEventId = "ZHJvcC0xMDk5NDkxOS1MUnpYbF9OSFN0T0doUTRrb2ZTbV9BLTA",
+                SgMessageId = "LRzXl_NHStOGhQ4kofSm_A.filterdrecv-p3mdw1-756b745b58-kmzbl-18-5F5FC76C-9.0",
+                SmtpId = "<LRzXl_NHStOGhQ4kofSm_A@ismtpd0039p1iad1.sendgrid.net>",
+                Timestamp = 1600112492,
+            }
+        }) + "\r\n"; // Be sure to include the trailing carriage return and newline!
+    }
+
+    [Test]
+    public void StarkBankValidator_Succeeds2()
+    {
+        var result = StarkBankValidator.VerifySignature(EventClass.PAYLOAD(), EventClass.PUBLIC_KEY, EventClass.SIGNATURE, EventClass.TIMESTAMP);
+        Assert.That(result, Is.EqualTo(true));
+    }
+
+    [Test]
+    public void Validator_Succeeds2()
+    {
+        var payloadJson = EventClass.PAYLOAD();
+        var payload = Encoding.UTF8.GetBytes(payloadJson);
+        var ts = EventClass.TIMESTAMP;
+        var validator = CreateValidator(verificationKey: "");
+        var headers = MakeHeaders(ts, sig: "ignored");
+
+        var result = validator.VerifySignature(payload, headers);
+
+        Assert.That(result, Is.EqualTo(RequestValidator.RequestValidatorResult.Verified));
     }
 
     record RequestParameters(string payload, string pem, string signature, string timestamp);
