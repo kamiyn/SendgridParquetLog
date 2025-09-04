@@ -124,7 +124,7 @@ public class RequestValidatorTest
     {
         var (ts, payload, _, _, _) = CreateSignedRequest();
         var validator = CreateValidator(verificationKey: "");
-        var headers = MakeHeaders(ts, sig: "ignored");
+        var headers = MakeHeaders(ts, sig: "ignored when verificationKey is empty");
 
         var result = validator.VerifySignature(payload, headers);
 
@@ -218,8 +218,8 @@ public class RequestValidatorTest
         var payloadJson = EventClass.PAYLOAD();
         var payload = Encoding.UTF8.GetBytes(payloadJson);
         var ts = EventClass.TIMESTAMP;
-        var validator = CreateValidator(verificationKey: "");
-        var headers = MakeHeaders(ts, sig: "ignored");
+        var validator = CreateValidator(EventClass.PUBLIC_KEY, TimeSpan.FromDays(36500));
+        var headers = MakeHeaders(ts, EventClass.SIGNATURE);
 
         var result = validator.VerifySignature(payload, headers);
 
