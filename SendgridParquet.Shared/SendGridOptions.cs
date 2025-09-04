@@ -7,8 +7,8 @@ public class SendGridOptions
     public const string SectionName = "SENDGRID";
 
 #if !DEBUG
-    [Required(ErrorMessage = "SENDGRID PUBLICKEY is required")]
+    [Required(ErrorMessage = "SENDGRID VERIFICATIONKEY is required")]
 #endif
-    public string PUBLICKEY { get; set; } = string.Empty;
+    public string VERIFICATIONKEY { get; set; } = string.Empty;
 }
 

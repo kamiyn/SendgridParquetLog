@@ -29,7 +29,7 @@ public class WebhookController(
     [HttpPost("sendgrid")]
     public async Task<IActionResult> ReceiveSendGridEvents(CancellationToken ct)
     {
-        var (httpStatusCode, events) = await ReadSendGridEvents(Request.BodyReader, ct);
+        var (httpStatusCode, events) = await ReadSendGridEvents(Request.BodyReader, Request.Headers, ct);
         if (httpStatusCode != HttpStatusCode.OK)
         {
             logger.ZLogWarning($"Failed to read request body: {httpStatusCode}");
@@ -66,31 +66,38 @@ public class WebhookController(
         }
     }
 
-    private static async Task<(HttpStatusCode ,ICollection<SendGridEvent>)> ReadSendGridEvents(PipeReader reader, CancellationToken ct)
+    private  async Task<(HttpStatusCode, ICollection<SendGridEvent>)> ReadSendGridEvents(PipeReader reader,
+        IHeaderDictionary requestHeaders, CancellationToken ct)
     {
         ReadResult result = await reader.ReadAtLeastAsync(MaxBodyBytes, ct);
         ReadOnlySequence<byte> buffer = result.Buffer;
-        if (result.IsCanceled)
+        if (result.IsCanceled || result.IsCompleted && buffer.Length == 0)
         {
             return (HttpStatusCode.BadRequest , Array.Empty<SendGridEvent>());
         }
-        if (result.IsCompleted && buffer.Length == 0)
-        {
-            return (HttpStatusCode.BadRequest, Array.Empty<SendGridEvent>());
-        }
         // PipeReader の一般的使い方としては ループさせて AdvanceTo を呼び出すのが想定されているが、ここでは一度で必要分をすべて読み取る
 
-        string jsonString = Encoding.UTF8.GetString(buffer);
+        string payload = Encoding.UTF8.GetString(buffer);
 
-        try
+        switch (requestValidator.VerifySignature(payload, requestHeaders))
         {
-            var events = JsonSerializer.Deserialize<SendGridEvent[]>(jsonString) ?? [];
-            return (HttpStatusCode.OK, events);
+            case RequestValidator.RequestValidatorResult.Verified:
+#if DEBUG
+            // DEBUG ビルド時は NotConfigured も許可
+            case RequestValidator.RequestValidatorResult.NotConfigured:
+#endif
+                try
+                {
+                    var events = JsonSerializer.Deserialize<SendGridEvent[]>(payload) ?? [];
+                    return (HttpStatusCode.OK, events);
+                }
+                catch (JsonException)
+                {
+                    // return BadRequest
+                }
+                break;
         }
-        catch (JsonException )
-        {
-            return (HttpStatusCode.BadRequest, Array.Empty<SendGridEvent>());
-        }
+        return (HttpStatusCode.BadRequest, Array.Empty<SendGridEvent>());
     }
 
     private async Task<List<HttpStatusCode>> WriteParquetGroupByYmd(IEnumerable<SendGridEvent> events, CancellationToken ct)
