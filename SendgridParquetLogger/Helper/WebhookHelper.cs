@@ -50,8 +50,9 @@ public class WebhookHelper(
                     var events = JsonSerializer.Deserialize<SendGridEvent[]>(payload) ?? [];
                     return (HttpStatusCode.OK, events);
                 }
-                catch (JsonException)
+                catch (JsonException ex)
                 {
+                    logger.ZLogInformation(ex, $"Invalid JSON: {payload.Length}");
                     // return BadRequest
                 }
                 break;

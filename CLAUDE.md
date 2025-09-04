@@ -14,7 +14,7 @@ This is a .NET 10.0 application that receives SendGrid Event Webhooks and stores
 - **SendgridParquetLog.ServiceDefaults**: Shared Aspire service configurations
 
 ### Key Components
-- **WebhookController**: Receives SendGrid events at `/webhook/sendgrid` and health checks at `/webhook/health`
+- **WebhookController**: Receives SendGrid events at `/webhook/sendgrid` and health checks at `/health6QQl`
 - **ParquetService**: Converts SendGrid events to Parquet format using Parquet.Net
 - **S3StorageService**: Handles S3 operations using AWS SDK with options pattern configuration
 - **S3Options**: Configuration model bound from environment variables or appsettings.json
