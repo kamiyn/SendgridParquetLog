@@ -130,14 +130,12 @@ public class RequestValidator : IDisposable
         }
 
         // Verify signature over (timestamp + payload) using SHA-256 without combining arrays
-        using MemoryStream stream = new();
-        byte[] timestampBytes = Encoding.UTF8.GetBytes(timestampHeader.ToString());
-        stream.Write(timestampBytes, 0, timestampBytes.Length);
-        stream.Write(payloadUtf8, 0, payloadUtf8.Length);
-        stream.Seek(0, SeekOrigin.Begin);
+        using var sha256 = SHA256.Create();
+        sha256.TransformBlock(Encoding.UTF8.GetBytes(timestampHeader.ToString()), 0, timestampHeader.ToString().Length, null, 0);
+        sha256.TransformFinalBlock(payloadUtf8, 0, payloadUtf8.Length);
 
-        // DSASignatureFormat.Rfc3279DerSequence is needed
-        bool ok = ecdsa.VerifyData(stream, signatureBytes, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence);
+        // DSASignatureFormat.Rfc3279DerSequence is IMPORTANT
+        bool ok = ecdsa.VerifyHash(sha256.Hash!, signatureBytes, DSASignatureFormat.Rfc3279DerSequence);
         return ok ? RequestValidatorResult.Verified : RequestValidatorResult.Failed;
     }
 
