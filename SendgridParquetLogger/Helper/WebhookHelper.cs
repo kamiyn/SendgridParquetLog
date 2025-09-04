@@ -52,7 +52,7 @@ public class WebhookHelper(
                 }
                 catch (JsonException ex)
                 {
-                    logger.ZLogInformation(ex, $"{payload}");
+                    logger.ZLogInformation(ex, $"Invalid JSON: {payload.Length}");
                     // return BadRequest
                 }
                 break;
