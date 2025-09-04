@@ -3,6 +3,8 @@ using System.IO.Pipelines;
 using System.Net;
 using System.Text.Json;
 
+using Microsoft.Extensions.Options;
+
 using SendgridParquet.Shared;
 
 using ZLogger;
@@ -15,7 +17,7 @@ public class WebhookHelper(
     ParquetService parquetService,
     RequestValidator requestValidator,
     S3StorageService s3StorageService,
-    Microsoft.Extensions.Options.IOptions<SendgridParquet.Shared.SendGridOptions> sendGridOptions
+    IOptions<SendGridOptions> sendGridOptions
 )
 {
     private readonly int _maxBodyBytes = Math.Max(1, sendGridOptions.Value.MaxBodyBytes);

@@ -82,6 +82,20 @@ public class RequestValidator : IDisposable
 
     public RequestValidatorResult VerifySignature(byte[] payloadUtf8, IHeaderDictionary headers)
     {
+        // キー未設定時の開発向け早期リターンは skew 判定よりも前でなければならない
+        ECDsa? ecdsa = _lazyEcdsa.Value;
+        if (ecdsa == null)
+        {
+            // ECDsa として読み込めない値であるのでログに出力してよい
+            _logger.ZLogWarning($"VERIFICATIONKEY is not configured. {_options.VERIFICATIONKEY}");
+            return _options.VERIFICATIONKEY switch
+            {
+                "VERIFIED" => RequestValidatorResult.Verified,
+                "FAILED" => RequestValidatorResult.Failed,
+                _ => RequestValidatorResult.NotConfigured,
+            };
+        }
+
         // 1) Require timestamp and enforce allowed skew to prevent replay
         var timestampHeader = headers[TimestampHeader];
         if (!timestampHeader.Any())
@@ -92,6 +106,7 @@ public class RequestValidator : IDisposable
         {
             return RequestValidatorResult.Failed;
         }
+
         var eventTime = DateTimeOffset.FromUnixTimeSeconds(unixSeconds);
         var now = _timeProvider.GetUtcNow();
         if ((now - eventTime).Duration() > _allowedSkew)
@@ -101,17 +116,6 @@ public class RequestValidator : IDisposable
         }
 
         // 2) Verify signature when public key is configured
-        ECDsa? ecdsa = _lazyEcdsa.Value;
-        if (ecdsa == null)
-        {
-            _logger.ZLogDebug($"PublicKey is not configured. {_options.VERIFICATIONKEY}");
-            return _options.VERIFICATIONKEY switch
-            {
-                "VERIFIED" => RequestValidatorResult.Verified,
-                "FAILED" => RequestValidatorResult.Failed,
-                _ => RequestValidatorResult.NotConfigured,
-            };
-        }
 
         var signature = headers[SignatureHeader];
         if (!signature.Any())
