@@ -6,8 +6,6 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
-  <!-- Removed starkbank-ecdsa; using System.Security.Cryptography.ECDsa instead -->
-
   <ItemGroup>
     <ProjectReference Include="../SendgridParquet.Shared/SendgridParquet.Shared.csproj" />
   </ItemGroup>

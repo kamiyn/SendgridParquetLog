@@ -52,7 +52,7 @@ public class RequestValidatorTest
         // Export public key in both formats
         byte[] spki = ecdsa.ExportSubjectPublicKeyInfo();
         string publicBase64 = Convert.ToBase64String(spki);
-        string publicPem = "-----BEGIN PUBLIC KEY-----\n" + publicBase64 + "\n-----END PUBLIC KEY-----\n";
+        string publicPem = $"-----BEGIN PUBLIC KEY-----\n{publicBase64}\n-----END PUBLIC KEY-----\n";
 
         return (tsString, payloadBytes, sigBase64, publicPem, publicBase64);
     }
