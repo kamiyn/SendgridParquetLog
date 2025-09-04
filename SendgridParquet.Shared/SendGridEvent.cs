@@ -14,6 +14,7 @@ public class SendGridEvent
     /// UnixTime seconds
     /// </summary>
     [JsonPropertyName(SendGridWebHookFields.Timestamp)]
+    [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
     public long Timestamp { get; set; }
 
     [JsonPropertyName(SendGridWebHookFields.Event)]
@@ -58,6 +59,7 @@ public class SendGridEvent
     public string? Response { get; set; }
 
     [JsonPropertyName(SendGridWebHookFields.Tls)]
+    [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
     public int? Tls { get; set; }
 
     [JsonPropertyName(SendGridWebHookFields.Attempt)]
@@ -70,12 +72,14 @@ public class SendGridEvent
     public string? BounceClassification { get; set; }
 
     [JsonPropertyName(SendGridWebHookFields.AsmGroupId)]
+    [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
     public int? AsmGroupId { get; set; }
 
     [JsonPropertyName(SendGridWebHookFields.UniqueArgs)]
     public Dictionary<string, object>? UniqueArgs { get; set; }
 
     [JsonPropertyName(SendGridWebHookFields.MarketingCampaignId)]
+    [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
     public int? MarketingCampaignId { get; set; }
 
     [JsonPropertyName(SendGridWebHookFields.MarketingCampaignName)]
@@ -85,6 +89,7 @@ public class SendGridEvent
     public Pool? Pool { get; set; }
 
     [JsonPropertyName(SendGridWebHookFields.SendAt)]
+    [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
     public long? SendAt { get; set; }
 }
 
@@ -94,5 +99,6 @@ public class Pool
     public string? Name { get; set; }
 
     [JsonPropertyName(SendGridWebHookFields.PoolFields.Id)]
-    public int Id { get; set; }
+    [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
+    public int? Id { get; set; }
 }
