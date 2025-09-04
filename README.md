@@ -31,6 +31,8 @@ ASP.NET Core のOptions パターンを使用して設定を管理します。
 | S3__REGION | S3リージョン | us-east-1 |
 | S3__BUCKETNAME | バケット名 | sendgrid-events |
 | SENDGRID__VERIFICATIONKEY | SendGrid Event Webhook 検証用公開鍵 (PEM または Base64(SPKI)) | -----BEGIN PUBLIC KEY----- ... |
+| SENDGRID__MAXBODYBYTES | Webhook リクエストボディ上限 (バイト) | 1048576 |
+| SENDGRID__ALLOWEDSKEW | タイムスタンプ許容スキュー (TimeSpan.Parse 形式) | 00:05:00 |
 
 ### appsettings.json での設定
 
@@ -47,6 +49,11 @@ ASP.NET Core のOptions パターンを使用して設定を管理します。
 ```
 
 環境変数は `appsettings.json` の設定を上書きします。
+
+#### 追加オプションの詳細
+
+- `SENDGRID__MAXBODYBYTES`: デフォルトは 1 MiB (1,048,576)。範囲は 1〜100 MiB。
+- `SENDGRID__ALLOWEDSKEW`: デフォルトは `00:05:00`（5 分）。`.NET TimeSpan.Parse` 形式で指定（例: `00:00:30`, `01:00:00`, `1.00:00:00`）。
 
 ## セットアップ
 
@@ -284,6 +291,13 @@ S3設定に関する Repository Variables も設定してください:
 | S3__ACCESSKEY | S3互換ストレージのアクセスキー | your-access-key |
 | S3__BUCKETNAME | データを保存するS3バケット名 | sendgrid-events |
 
+SendGrid Webhook に関する Repository Variables も任意で設定できます:
+
+| 変数名 | 説明 | 例 |
+|--------|------|-----|
+| SENDGRID__MAXBODYBYTES | Webhook リクエストボディ上限 (バイト) | 1048576 |
+| SENDGRID__ALLOWEDSKEW | タイムスタンプ許容スキュー (`TimeSpan.Parse` 形式) | 00:05:00 |
+
 #### 3. Repository Secrets の設定
 
 GitHub リポジトリの Settings > Secrets and variables > Actions > Secrets タブで以下のシークレットを設定:
@@ -316,10 +330,11 @@ GitHub リポジトリの Settings > Secrets and variables > Actions > Secrets �
 3. **Secrets の設定**
    - 「Secrets」タブを選択
    - 「New repository secret」ボタンをクリック
-   - 各シークレットを追加:
+ - 各シークレットを追加:
      - `CONTAINER_REGISTRY_PASSWORD`: レジストリのパスワード
      - `SAKURACLOUD_ACCESS_TOKEN_SECRET`: さくらのクラウドAPIシークレット
      - `S3__SECRETKEY`: S3互換ストレージのシークレットキー
+     - `SENDGRID__VERIFICATIONKEY`: SendGrid Event Webhook 検証用公開鍵 (PEM または Base64(SPKI))
 
 ### ワークフローのトリガー
 

@@ -73,9 +73,10 @@ The application uses ASP.NET Core Options pattern with S3Options bound from conf
 - Environment variables: `S3__ACCESSKEY`, `S3__SECRETKEY`, `S3__SERVICEURL`, `S3__REGION`, `S3__BUCKETNAME`
 - Configuration section: `S3` in appsettings.json
 
-Webhook signature verification requires a SendGrid verification key:
-- Environment variable: `SENDGRID__VERIFICATIONKEY` (PEM or Base64(SPKI) public key)
-- Configuration section: `SENDGRID:VERIFICATIONKEY` in appsettings.json
+Webhook signature verification requires configuration via Options:
+- `SENDGRID__VERIFICATIONKEY`: PEM or Base64(SPKI) public key
+- `SENDGRID__ALLOWEDSKEW`: Timestamp skew parsed by `TimeSpan.Parse` (default `00:05:00`)
+- `SENDGRID__MAXBODYBYTES`: Request body limit in bytes (default `1048576`)
 
 In Aspire environment, these are automatically configured to use local MinIO instance.
 
@@ -86,3 +87,4 @@ In Aspire environment, these are automatically configured to use local MinIO ins
 - Parquet files are compatible with DuckDB for direct querying
 - All timestamps are stored in UnixTime (long)
 - 保存時のファイル分割は JST 基準
+ - Webhook body size limit and timestamp skew are configurable via `SENDGRID__MAXBODYBYTES` and `SENDGRID__ALLOWEDSKEW`.
