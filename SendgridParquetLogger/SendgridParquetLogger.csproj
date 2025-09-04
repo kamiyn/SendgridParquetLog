@@ -7,6 +7,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="starkbank-ecdsa" Version="[1.3.3, 2.0.0)" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="../SendgridParquet.Shared/SendgridParquet.Shared.csproj" />
   </ItemGroup>
   <!-- Swagger UI はデバッグビルドのみ有効 -->

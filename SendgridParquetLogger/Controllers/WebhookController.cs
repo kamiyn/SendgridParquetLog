@@ -1,10 +1,14 @@
-﻿using System.Net;
+﻿using System.Buffers;
+using System.IO.Pipelines;
+using System.Net;
+using System.Text;
+using System.Text.Json;
 
 using Microsoft.AspNetCore.Mvc;
 
 using SendgridParquet.Shared;
 
-using SendgridParquetLogger.ModelBinding;
+using SendgridParquetLogger.Helper;
 
 using ZLogger;
 
@@ -16,25 +20,22 @@ public class WebhookController(
     ILogger<WebhookController> logger,
     TimeProvider timeProvider,
     ParquetService parquetService,
+    RequestValidator requestValidator,
     S3StorageService s3StorageService
 ) : ControllerBase
 {
-    /// <summary>
-    /// SendGrid WebHook
-    /// TODO: ModelBinder を作成し 署名検証 および 送信される Body の最大サイズを検証する
-    /// </summary>
-    /// <param name="events">SendGrid送信側の仕様としては最大 768KB</param>
-    /// <param name="ct"></param>
-    /// <returns></returns>
+    private const int MaxBodyBytes = 1 * 1024 * 1024; // 1MB
+
     [HttpPost("sendgrid")]
-    public async Task<IActionResult> ReceiveSendGridEvents([SendGridWebhook] List<SendGridEvent> events, CancellationToken ct)
+    public async Task<IActionResult> ReceiveSendGridEvents(CancellationToken ct)
     {
-        if (HttpContext.Items.TryGetValue(SendGridWebhookModelBinder.AuthErrorKey, out var statusObj)
-            && statusObj is int statusCode && statusCode != 0)
+        var (httpStatusCode, events) = await ReadSendGridEvents(Request.BodyReader, ct);
+        if (httpStatusCode != HttpStatusCode.OK)
         {
-            return StatusCode(statusCode);
+            logger.ZLogWarning($"Failed to read request body: {httpStatusCode}");
+            return StatusCode((int)httpStatusCode, "Failed to read request body");
         }
-        var now = timeProvider.GetUtcNow();
+
         try
         {
             if (!events.Any())
@@ -45,15 +46,7 @@ public class WebhookController(
 
             logger.ZLogInformation($"Received {events.Count} events from SendGrid");
 
-            var results = new List<HttpStatusCode>();
-            foreach (var grp in events
-                .Select(sendgridEvent => (sendgridEvent, timestamp: JstExtension.JstUnixTimeSeconds(sendgridEvent.Timestamp)))
-                .GroupBy(pair => new DateOnly(pair.timestamp.Year, pair.timestamp.Month, pair.timestamp.Day) /* 日単位で分割 */, pair => pair.sendgridEvent))
-            {
-                DateOnly targetDay = grp.Key;
-                HttpStatusCode result = await WriteParquet(grp, targetDay, now, ct);
-                results.Add(result);
-            }
+            ICollection<HttpStatusCode> results = await WriteParquetGroupByYmd(events, ct);
 
             var nonOkResults = results.Where(x => x != HttpStatusCode.OK).ToArray();
             return nonOkResults.Any()
@@ -71,6 +64,48 @@ public class WebhookController(
             logger.ZLogError(ex, $"Error processing SendGrid webhook");
             return StatusCode(500, "Internal server error");
         }
+    }
+
+    private static async Task<(HttpStatusCode ,ICollection<SendGridEvent>)> ReadSendGridEvents(PipeReader reader, CancellationToken ct)
+    {
+        ReadResult result = await reader.ReadAtLeastAsync(MaxBodyBytes, ct);
+        ReadOnlySequence<byte> buffer = result.Buffer;
+        if (result.IsCanceled)
+        {
+            return (HttpStatusCode.BadRequest , Array.Empty<SendGridEvent>());
+        }
+        if (result.IsCompleted && buffer.Length == 0)
+        {
+            return (HttpStatusCode.BadRequest, Array.Empty<SendGridEvent>());
+        }
+        // PipeReader の一般的使い方としては ループさせて AdvanceTo を呼び出すのが想定されているが、ここでは一度で必要分をすべて読み取る
+
+        string jsonString = Encoding.UTF8.GetString(buffer);
+
+        try
+        {
+            var events = JsonSerializer.Deserialize<SendGridEvent[]>(jsonString) ?? [];
+            return (HttpStatusCode.OK, events);
+        }
+        catch (JsonException )
+        {
+            return (HttpStatusCode.BadRequest, Array.Empty<SendGridEvent>());
+        }
+    }
+
+    private async Task<List<HttpStatusCode>> WriteParquetGroupByYmd(IEnumerable<SendGridEvent> events, CancellationToken ct)
+    {
+        DateTimeOffset now = timeProvider.GetUtcNow();
+        var results = new List<HttpStatusCode>(2); // 日をまたいだ場合に2つに分割される それ以上あった場合でも自動的に拡張されるので問題ない
+        foreach (var grp in events
+                     .Select(sendgridEvent => (sendgridEvent, timestamp: JstExtension.JstUnixTimeSeconds(sendgridEvent.Timestamp)))
+                     .GroupBy(pair => new DateOnly(pair.timestamp.Year, pair.timestamp.Month, pair.timestamp.Day) /* 日単位で分割 */, pair => pair.sendgridEvent))
+        {
+            DateOnly targetDay = grp.Key;
+            HttpStatusCode result = await WriteParquet(grp, targetDay, now, ct);
+            results.Add(result);
+        }
+        return results;
     }
 
     private async ValueTask<HttpStatusCode> WriteParquet(IEnumerable<SendGridEvent> eventsEnumerable,
