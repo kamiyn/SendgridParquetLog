@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿#if UseSwagger
+using Microsoft.AspNetCore.Mvc;
 
 namespace SendgridParquetLogger.Controllers;
 
@@ -13,3 +14,4 @@ public class HealthController(TimeProvider timeProvider) : ControllerBase
         return Ok(new { status = "healthy", timestamp = timeProvider.GetUtcNow() });
     }
 }
+#endif

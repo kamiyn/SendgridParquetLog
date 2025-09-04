@@ -26,12 +26,14 @@ builder.Services.AddOptions<SendGridOptions>()
     .ValidateDataAnnotations()
     .ValidateOnStart();
 
+#if UseSwagger
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
         options.JsonSerializerOptions.PropertyNamingPolicy = null;
         options.JsonSerializerOptions.WriteIndented = false;
     });
+#endif
 
 #if UseSwagger
 // Learn more about configuring OpenAPI at https://aka.ms/aspnetcore/openapi
@@ -45,6 +47,7 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<ParquetService>(); // 無状態のため AddSingleton
 builder.Services.AddSingleton<RequestValidator>(); // 処理は無状態 PublicKey の生成をキャッシュするため AddSingleton
 builder.Services.AddHttpClient<S3StorageService>();
+builder.Services.AddScoped<WebhookHelper>();
 
 var app = builder.Build();
 
@@ -64,9 +67,29 @@ var app = builder.Build();
 }
 #endif
 
-app.UseHttpsRedirection();
-// app.UseAuthorization(); // このアプリでは認証しないためコメントアウト
+#if UseSwagger
 app.MapControllers();
+#else
+// Minimal APIs when UseSwagger is not defined
+app.MapGet("/health6QQl", (TimeProvider timeProvider) =>
+{
+    return Results.Ok(new { status = "healthy", timestamp = timeProvider.GetUtcNow() });
+});
+
+app.MapPost("/webhook/sendgrid", async (HttpContext httpContext, WebhookHelper webhookHelper, CancellationToken ct) =>
+{
+    var (status, body) = await webhookHelper.ProcessReceiveSendGridEventsAsync(httpContext.Request.Body, httpContext.Request.Headers, ct);
+    if (status == System.Net.HttpStatusCode.OK)
+    {
+        return Results.Ok(body);
+    }
+    if (status == System.Net.HttpStatusCode.BadRequest)
+    {
+        return Results.BadRequest(body);
+    }
+    return Results.StatusCode((int)status);
+});
+#endif
 
 #if UseAspire
 // Map Aspire default endpoints (health checks, etc.)
