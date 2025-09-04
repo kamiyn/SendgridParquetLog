@@ -127,7 +127,7 @@ public class ParquetService
 
             new FieldProcessor(uniqueArgsField,
                 events => new DataColumn(uniqueArgsField,
-                    events.Select(e => e.UniqueArgs != null ? JsonSerializer.Serialize(e.UniqueArgs) : string.Empty).ToArray())),
+                    events.Select(e => e.UniqueArgs.HasValue ? e.UniqueArgs.Value.GetRawText() : string.Empty).ToArray())),
 
             new FieldProcessor(marketingCampaignIdField,
                 events => new DataColumn(marketingCampaignIdField,
@@ -176,10 +176,13 @@ public class ParquetService
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken token = default)
     {
         ParquetSchema schema = parquetReader.Schema;
-        // Read all columns from the row group
-        var emailColumn = await rowGroupReader.ReadColumnAsync(schema.GetDataFields().First(f => f.Name == SendGridWebHookFields.Email), token);
-        var timestampColumn = await rowGroupReader.ReadColumnAsync(schema.GetDataFields().First(f => f.Name == SendGridWebHookFields.Timestamp), token);
-        var eventColumn = await rowGroupReader.ReadColumnAsync(schema.GetDataFields().First(f => f.Name == SendGridWebHookFields.Event), token);
+        // Read required columns safely (if missing or read fails, yield no rows)
+        var emailColumn = await TryReadRequiredColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Email, token);
+        if (emailColumn is null) yield break;
+        var timestampColumn = await TryReadRequiredColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Timestamp, token);
+        if (timestampColumn is null) yield break;
+        var eventColumn = await TryReadRequiredColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Event, token);
+        if (eventColumn is null) yield break;
 
         // Get optional columns
         var categoryColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Category);
@@ -229,9 +232,7 @@ public class ParquetService
                 Type = typeColumn?.Data.GetValue(idx)?.ToString(),
                 BounceClassification = bounceClassificationColumn?.Data.GetValue(idx)?.ToString(),
                 AsmGroupId = ConvertToNullableInt(asmGroupIdColumn?.Data.GetValue(idx)),
-                UniqueArgs = uniqueArgsColumn?.Data.GetValue(idx)?.ToString() is { } jsonStr && !string.IsNullOrEmpty(jsonStr)
-                    ? JsonSerializer.Deserialize<Dictionary<string, object>>(jsonStr)
-                    : null,
+                UniqueArgs = TryParseJsonElement(uniqueArgsColumn?.Data.GetValue(idx)?.ToString()),
                 MarketingCampaignId = ConvertToNullableInt(marketingCampaignIdColumn?.Data.GetValue(idx)),
                 MarketingCampaignName = marketingCampaignNameColumn?.Data.GetValue(idx)?.ToString(),
                 Pool = new Pool
@@ -257,6 +258,23 @@ public class ParquetService
         }
     }
 
+    private async Task<DataColumn?> TryReadRequiredColumnAsync(ParquetRowGroupReader rowGroupReader, ParquetSchema schema, string fieldName, CancellationToken token)
+    {
+        try
+        {
+            DataField? field = schema.GetDataFields().FirstOrDefault(f => f.Name == fieldName);
+            if (field == null)
+            {
+                return null;
+            }
+            return await rowGroupReader.ReadColumnAsync(field, token);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private static int? ConvertToNullableInt(object? value) =>
         value switch
         {
@@ -272,4 +290,22 @@ public class ParquetService
             long l => l,
             _ => null
         };
+
+    private static JsonElement? TryParseJsonElement(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return null;
+        }
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            return doc.RootElement.Clone();
+        }
+        catch
+        {
+            // 解析に失敗した場合は空扱い（null）
+            return null;
+        }
+    }
 }

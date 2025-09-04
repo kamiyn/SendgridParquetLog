@@ -19,6 +19,8 @@ public class RequestValidator : IDisposable
     private const string SignatureHeader = "X-Twilio-Email-Event-Webhook-Signature";
     private const string TimestampHeader = "X-Twilio-Email-Event-Webhook-Timestamp";
     private static readonly TimeSpan DefaultAllowedSkew = TimeSpan.FromMinutes(5);
+    private const string SentinelVerified = "VERIFIED";
+    private const string SentinelFailed = "FAILED";
 
     private readonly ILogger<RequestValidator> _logger;
     private readonly SendGridOptions _options;
@@ -41,7 +43,7 @@ public class RequestValidator : IDisposable
         {
             try
             {
-                if (string.IsNullOrWhiteSpace(pem))
+                if (string.IsNullOrWhiteSpace(pem) || string.Equals(pem, SentinelVerified, StringComparison.OrdinalIgnoreCase) || string.Equals(pem, SentinelFailed, StringComparison.OrdinalIgnoreCase))
                 {
                     return null;
                 }
@@ -87,8 +89,8 @@ public class RequestValidator : IDisposable
             _logger.ZLogWarning($"VERIFICATIONKEY is not configured. {_options.VERIFICATIONKEY}");
             return _options.VERIFICATIONKEY switch
             {
-                "VERIFIED" => RequestValidatorResult.Verified,
-                "FAILED" => RequestValidatorResult.Failed,
+                SentinelVerified => RequestValidatorResult.Verified,
+                SentinelFailed => RequestValidatorResult.Failed,
                 _ => RequestValidatorResult.NotConfigured,
             };
         }
@@ -132,7 +134,8 @@ public class RequestValidator : IDisposable
 
         // Verify signature over (timestamp + payload) using SHA-256 without combining arrays
         using var sha256 = SHA256.Create();
-        sha256.TransformBlock(Encoding.UTF8.GetBytes(timestampHeader.ToString()), 0, timestampHeader.ToString().Length, null, 0);
+        var tsBytes = Encoding.UTF8.GetBytes(timestampHeader.ToString());
+        sha256.TransformBlock(tsBytes, 0, tsBytes.Length, null, 0);
         sha256.TransformFinalBlock(payloadUtf8, 0, payloadUtf8.Length);
 
         // DSASignatureFormat.Rfc3279DerSequence is IMPORTANT

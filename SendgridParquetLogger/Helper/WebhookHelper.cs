@@ -48,7 +48,7 @@ public class WebhookHelper(
 #endif
                 try
                 {
-                    var events = JsonSerializer.Deserialize<SendGridEvent[]>(payloadBytes) ?? [];
+                    var events = JsonSerializer.Deserialize(payloadBytes, SendgridParquetLogger.Models.AppJsonSerializerContext.Default.SendGridEventArray) ?? [];
                     return (HttpStatusCode.OK, events);
                 }
                 catch (JsonException ex)
@@ -162,7 +162,7 @@ public class WebhookHelper(
     }
 
     // 共通化された ReceiveSendGridEvents() の処理本体
-    public async Task<(HttpStatusCode Status, object? Body)> ProcessReceiveSendGridEventsAsync(
+    public async Task<(HttpStatusCode Status, string? Body)> ProcessReceiveSendGridEventsAsync(
         PipeReader reader,
         IHeaderDictionary headers,
         CancellationToken ct)
@@ -171,7 +171,7 @@ public class WebhookHelper(
         if (httpStatusCode != HttpStatusCode.OK)
         {
             logger.ZLogWarning($"Failed to validate request: {httpStatusCode}");
-            var errorBody = new { error = "invalid_signature_or_payload", code = "bad_request" };
+            string errorBody = "{\"error\":\"invalid_signature_or_payload\",\"code\":\"bad_request\"}";
             return (HttpStatusCode.BadRequest, errorBody);
         }
 
@@ -180,7 +180,7 @@ public class WebhookHelper(
             if (!events.Any())
             {
                 logger.ZLogWarning($"Received empty or null events");
-                var errorBody = new { error = "no_events", code = "bad_request" };
+                string errorBody = "{\"error\":\"no_events\",\"code\":\"bad_request\"}";
                 return (HttpStatusCode.BadRequest, errorBody);
             }
 
@@ -194,19 +194,18 @@ public class WebhookHelper(
                 return (nonOkResults.First(), null);
             }
 
-            object okBody = new
-            {
+            string okBody =
 #if DEBUG
-                message = "Events processed successfully",
+                $"{{\"count\":{events.Count},\"message\":\"Events processed successfully\"}}";
+#else
+                $"{{\"count\":{events.Count}}}";
 #endif
-                count = events.Count
-            };
             return (HttpStatusCode.OK, okBody);
         }
         catch (Exception ex)
         {
             logger.ZLogError(ex, $"Error processing SendGrid webhook");
-            return (HttpStatusCode.InternalServerError, "Internal server error");
+            return (HttpStatusCode.InternalServerError, null);
         }
     }
 }

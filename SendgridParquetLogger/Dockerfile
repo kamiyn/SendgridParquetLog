@@ -17,7 +17,13 @@ COPY SendgridParquet.Shared/ SendgridParquet.Shared/
 
 # Build and publish as self-contained for linux-musl-x64 (Alpine)
 WORKDIR /src/SendgridParquetLogger
-RUN dotnet publish -c Release -r linux-musl-x64 --self-contained true -p:PublishTrimmed=false -p:PublishSingleFile=false -o /app/publish
+RUN dotnet publish -c Release -r linux-musl-x64 --self-contained true \
+  -p:PublishTrimmed=true \
+  -p:PublishAot=false \
+  -p:PublishSingleFile=false \
+  -p:UseAppHost=true \
+  -p:PublishReadyToRun=false \
+  -o /app/publish
 
 # Runtime stage - Using Alpine for minimal size
 FROM alpine:3.20

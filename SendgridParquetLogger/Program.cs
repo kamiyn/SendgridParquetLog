@@ -73,7 +73,9 @@ app.MapControllers();
 // Minimal APIs when UseSwagger is not defined
 app.MapGet("/health6QQl", (TimeProvider timeProvider) =>
 {
-    return Results.Ok(new { status = "healthy", timestamp = timeProvider.GetUtcNow() });
+    var ts = timeProvider.GetUtcNow();
+    string json = $"{{\"status\":\"healthy\",\"timestamp\":\"{ts:O}\"}}";
+    return Results.Text(json, "application/json");
 });
 
 app.MapPost("/webhook/sendgrid", async (HttpContext httpContext, WebhookHelper webhookHelper, CancellationToken ct) =>
@@ -81,11 +83,11 @@ app.MapPost("/webhook/sendgrid", async (HttpContext httpContext, WebhookHelper w
     var (status, body) = await webhookHelper.ProcessReceiveSendGridEventsAsync(httpContext.Request.BodyReader, httpContext.Request.Headers, ct);
     if (status == System.Net.HttpStatusCode.OK)
     {
-        return Results.Ok(body);
+        return Results.Text(body ?? string.Empty, "application/json");
     }
     if (status == System.Net.HttpStatusCode.BadRequest)
     {
-        return Results.BadRequest(body);
+        return Results.Text(body ?? string.Empty, "application/json", statusCode: StatusCodes.Status400BadRequest);
     }
     return Results.StatusCode((int)status);
 });
