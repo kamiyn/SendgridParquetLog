@@ -43,20 +43,18 @@ public class RequestValidator : IDisposable
             try
             {
                 if (string.IsNullOrWhiteSpace(pem)) return null;
-                // Try base64 SPKI first
                 try
                 {
                     // If VERIFICATIONKEY is base64 (SPKI), wrap it as PEM and import
-                    byte[] spki = Convert.FromBase64String(pem);
-                    string pemWrapped = "-----BEGIN PUBLIC KEY-----\n" + Convert.ToBase64String(spki) + "\n-----END PUBLIC KEY-----\n";
-                    var e = ECDsa.Create();
+                    string pemWrapped = $"-----BEGIN PUBLIC KEY-----\n{pem}\n-----END PUBLIC KEY-----\n";
+                    var e = ECDsa.Create(ECCurve.NamedCurves.nistP256);
                     e.ImportFromPem(pemWrapped);
                     return e;
                 }
                 catch
                 {
                     // Fallback to raw PEM SPKI
-                    var e = ECDsa.Create();
+                    var e = ECDsa.Create(ECCurve.NamedCurves.nistP256);
                     e.ImportFromPem(pem);
                     return e;
                 }
