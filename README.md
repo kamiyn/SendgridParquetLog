@@ -12,7 +12,7 @@ SendGrid WebHookを受信してParquet形式でS3互換ストレージに保存�
 - Parquet形式への変換 (DuckDB互換)
 - S3互換ストレージへの保存
 - 自動的なディレクトリ構造での保存 (年/月/日)
-- ヘルスチェックエンドポイント (GET /webhook/health)
+- ヘルスチェックエンドポイント (GET /health6QQl)
 - Docker対応 (linux/amd64)
 
 補足: 保存されるタイムスタンプは UTC の Unix 秒です。一方で保存先のディレクトリ構造は JST(UTC+9) の日単位でグルーピングされます。
@@ -114,7 +114,7 @@ Content-Type: application/json
 ### ヘルスチェック
 
 ```http
-GET /webhook/health
+GET /health6QQl
 
 Response:
 {

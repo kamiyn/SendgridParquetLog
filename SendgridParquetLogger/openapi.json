@@ -45,7 +45,7 @@
         }
       }
     },
-    "/webhook/health": {
+    "/health6QQl": {
       "get": {
         "tags": [
           "Webhook"
