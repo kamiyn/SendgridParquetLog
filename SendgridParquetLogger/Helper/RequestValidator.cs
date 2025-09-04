@@ -134,7 +134,8 @@ public class RequestValidator : IDisposable
 
         // Verify signature over (timestamp + payload) using SHA-256 without combining arrays
         using var sha256 = SHA256.Create();
-        sha256.TransformBlock(Encoding.UTF8.GetBytes(timestampHeader.ToString()), 0, timestampHeader.ToString().Length, null, 0);
+        var tsBytes = Encoding.UTF8.GetBytes(timestampHeader.ToString());
+        sha256.TransformBlock(tsBytes, 0, tsBytes.Length, null, 0);
         sha256.TransformFinalBlock(payloadUtf8, 0, payloadUtf8.Length);
 
         // DSASignatureFormat.Rfc3279DerSequence is IMPORTANT
