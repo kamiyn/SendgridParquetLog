@@ -1,6 +1,14 @@
 # Build stage
-FROM mcr.microsoft.com/dotnet/sdk:10.0-preview AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0-preview-alpine AS build
 WORKDIR /src
+
+# NativeAOT prerequisites (platform linker, musl toolchain)
+RUN apk add --no-cache \
+    build-base \
+    clang \
+    lld \
+    musl-dev \
+    musl-utils
 
 # Copy project files
 COPY SendgridParquetLogger/SendgridParquetLogger.csproj SendgridParquetLogger/
@@ -19,7 +27,7 @@ COPY SendgridParquet.Shared/ SendgridParquet.Shared/
 WORKDIR /src/SendgridParquetLogger
 RUN dotnet publish -c Release -r linux-musl-x64 --self-contained true \
   -p:PublishTrimmed=true \
-  -p:PublishAot=false \
+  -p:PublishAot=true \
   -p:PublishSingleFile=false \
   -p:UseAppHost=true \
   -p:PublishReadyToRun=false \
