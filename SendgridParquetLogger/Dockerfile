@@ -29,8 +29,8 @@ RUN dotnet publish -c Release -r linux-musl-x64 --self-contained true \
   -p:PublishTrimmed=true \
   -p:PublishAot=true \
   -p:PublishSingleFile=false \
-  -p:UseAppHost=true \
-  -p:PublishReadyToRun=false \
+  -p:UseAppHost=false \
+  -p:PublishReadyToRun=true \
   -o /app/publish
 
 # Runtime stage - Using Alpine for minimal size
