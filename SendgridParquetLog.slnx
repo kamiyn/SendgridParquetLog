@@ -10,6 +10,7 @@
   <Project Path="SendgridParquet.Shared/SendgridParquet.Shared.csproj" />
   <Project Path="SendgridParquetLog.AppHost/SendgridParquetLog.AppHost.csproj" />
   <Project Path="SendgridParquetLog.ServiceDefaults/SendgridParquetLog.ServiceDefaults.csproj" />
+  <Project Path="SendgridParquetLogger.Test/SendgridParquetLogger.Test.csproj" Id="13f76ec6-7191-40c4-989e-7911475f38d2" />
   <Project Path="SendgridParquetLogger/SendgridParquetLogger.csproj" />
   <Project Path="SendgridParquetViewer/SendgridParquetViewer.csproj" />
 </Solution>
