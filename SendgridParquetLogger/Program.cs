@@ -45,6 +45,7 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<ParquetService>(); // 無状態のため AddSingleton
 builder.Services.AddSingleton<RequestValidator>(); // 処理は無状態 PublicKey の生成をキャッシュするため AddSingleton
 builder.Services.AddHttpClient<S3StorageService>();
+builder.Services.AddScoped<WebhookHelper>();
 
 var app = builder.Build();
 
