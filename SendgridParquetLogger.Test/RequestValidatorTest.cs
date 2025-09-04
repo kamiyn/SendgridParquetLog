@@ -2,6 +2,7 @@
 using System.Text;
 
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
@@ -9,14 +10,23 @@ using SendgridParquet.Shared;
 
 using SendgridParquetLogger.Helper;
 
+using ZLogger;
+
 namespace SendgridParquetLogger.Test;
 
 public class RequestValidatorTest
 {
-    private static RequestValidator CreateValidator(string verificationKey, string allowedSkew = "00:05:00")
+    private static RequestValidator CreateValidator(string verificationKey, TimeSpan? allowedSkew = null)
     {
-        var logger = NullLogger<RequestValidator>.Instance;
-        var options = Options.Create(new SendGridOptions { VERIFICATIONKEY = verificationKey, AllowedSkew = allowedSkew });
+        var logger = LoggerFactory.Create(b =>
+        {
+            b.ClearProviders();
+            b.AddZLoggerConsole();
+            b.AddDebug();
+            b.SetMinimumLevel(LogLevel.Debug);
+        }).CreateLogger<RequestValidator>();
+        var skew = $"{allowedSkew ?? TimeSpan.FromMinutes(5)}"; 
+        var options = Options.Create(new SendGridOptions { VERIFICATIONKEY = verificationKey, AllowedSkew = skew });
         return new RequestValidator(logger, options, TimeProvider.System);
     }
 
@@ -97,7 +107,7 @@ public class RequestValidatorTest
     {
         var (ts, payload, sig, pem, _) = CreateSignedRequest();
         // Force skew check to fail by using a very small allowed skew
-        var validator = CreateValidator(pem, allowedSkew: "00:00:00");
+        var validator = CreateValidator(pem, allowedSkew: TimeSpan.Zero);
         var headers = MakeHeaders(ts, sig);
 
         var result = validator.VerifySignature(payload, headers);
@@ -140,7 +150,7 @@ public class RequestValidatorTest
     {
         (string payloadJson, string pem, string sig, string ts) = GetValidPayload();
         byte[] payloadBytes = Encoding.UTF8.GetBytes(payloadJson);
-        var validator = CreateValidator(pem);
+        var validator = CreateValidator(pem, TimeSpan.FromDays(36500));
         var headers = MakeHeaders(ts, sig);
 
         var result = validator.VerifySignature(payloadBytes, headers);
