@@ -17,9 +17,15 @@ public class WebhookController(
     public async Task<IActionResult> ReceiveSendGridEvents(CancellationToken ct)
     {
         var (status, body) = await webhookHelper.ProcessReceiveSendGridEventsAsync(Request.BodyReader, Request.Headers, ct);
-        return status == HttpStatusCode.OK
-            ? Ok(body)
-            : StatusCode((int)status, body);
+        if (status == HttpStatusCode.OK)
+        {
+            return Content(body ?? string.Empty, "application/json");
+        }
+        if (status == HttpStatusCode.BadRequest)
+        {
+            return Content(body ?? string.Empty, "application/json", (int)HttpStatusCode.BadRequest);
+        }
+        return StatusCode((int)status);
     }
 }
 #endif
