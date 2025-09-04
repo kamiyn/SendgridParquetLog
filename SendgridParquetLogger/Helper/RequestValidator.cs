@@ -4,6 +4,8 @@ using Microsoft.Extensions.Options;
 
 using SendgridParquet.Shared;
 
+using ZLogger;
+
 namespace SendgridParquetLogger.Helper;
 
 /// <summary>
@@ -15,12 +17,28 @@ public class RequestValidator
     private const string SignatureHeader = "X-Twilio-Email-Event-Webhook-Signature";
     private const string TimestampHeader = "X-Twilio-Email-Event-Webhook-Timestamp";
 
+    private readonly ILogger<RequestValidator> _logger;
     private readonly Lazy<PublicKey?> _lazyPublicKey;
 
-    public RequestValidator(IOptions<SendGridOptions> options)
+    public RequestValidator(
+        ILogger<RequestValidator> logger,
+        IOptions<SendGridOptions> options
+)
     {
+        _logger = logger;
         string pem = options.Value.VERIFICATIONKEY; // captured value
-        _lazyPublicKey = new Lazy<PublicKey?>(() => string.IsNullOrEmpty(pem) ? null : PublicKey.fromPem(pem));
+        _lazyPublicKey = new Lazy<PublicKey?>(() =>
+        {
+            try
+            {
+                return string.IsNullOrEmpty(pem) ? null : PublicKey.fromPem(pem);
+            }
+            catch (FormatException ex)
+            {
+                _logger.ZLogError(ex, $"Configure {nameof(SendGridOptions.VERIFICATIONKEY)} currentValue:{pem}");
+                return null;
+            }
+        });
     }
 
     public enum RequestValidatorResult
