@@ -99,5 +99,51 @@ public class WebhookHelper(
         logger.ZLogInformation($"Successfully processed and stored {targetDay:yyyy/MM/dd} events in {fileName}");
         return HttpStatusCode.OK;
     }
-}
 
+    // 共通化された ReceiveSendGridEvents() の処理本体
+    public async Task<(HttpStatusCode Status, object? Body)> ProcessReceiveSendGridEventsAsync(
+        PipeReader reader,
+        IHeaderDictionary headers,
+        CancellationToken ct)
+    {
+        var (httpStatusCode, events) = await ReadSendGridEvents(reader, headers, ct);
+        if (httpStatusCode != HttpStatusCode.OK)
+        {
+            logger.ZLogWarning($"Failed to read request body: {httpStatusCode}");
+            return (httpStatusCode, "Failed to read request body");
+        }
+
+        try
+        {
+            if (!events.Any())
+            {
+                logger.ZLogWarning($"Received empty or null events");
+                return (HttpStatusCode.BadRequest, "No events received");
+            }
+
+            logger.ZLogInformation($"Received {events.Count} events from SendGrid");
+
+            ICollection<HttpStatusCode> results = await WriteParquetGroupByYmd(events, ct);
+
+            var nonOkResults = results.Where(x => x != HttpStatusCode.OK).ToArray();
+            if (nonOkResults.Any())
+            {
+                return (nonOkResults.First(), null);
+            }
+
+            object okBody = new
+            {
+#if DEBUG
+                message = "Events processed successfully",
+#endif
+                count = events.Count
+            };
+            return (HttpStatusCode.OK, okBody);
+        }
+        catch (Exception ex)
+        {
+            logger.ZLogError(ex, $"Error processing SendGrid webhook");
+            return (HttpStatusCode.InternalServerError, "Internal server error");
+        }
+    }
+}
