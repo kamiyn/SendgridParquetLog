@@ -10,7 +10,6 @@ namespace SendgridParquetLogger.Controllers;
 [ApiController]
 [Route("webhook")]
 public class WebhookController(
-    ILogger<WebhookController> logger,
     WebhookHelper webhookHelper
 ) : ControllerBase
 {

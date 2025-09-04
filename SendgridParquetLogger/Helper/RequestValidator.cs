@@ -54,7 +54,8 @@ public class RequestValidator
         PublicKey? publicKey = _lazyPublicKey.Value;
         if (publicKey == null)
         {
-            return _options.VERIFICATIONKEY switch {
+            return _options.VERIFICATIONKEY switch
+            {
                 "VERIFIED" => RequestValidatorResult.Verified,
                 "FAILED" => RequestValidatorResult.Failed,
                 _ => RequestValidatorResult.NotConfigured,
