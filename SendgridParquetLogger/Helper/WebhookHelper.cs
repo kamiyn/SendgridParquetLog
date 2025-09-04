@@ -1,5 +1,4 @@
 ﻿using System.Buffers;
-using System.IO;
 using System.IO.Pipelines;
 using System.Net;
 using System.Text;
@@ -29,7 +28,7 @@ public class WebhookHelper(
         string payload;
         try
         {
-            payload = await GetPayload(source, requestHeaders, ct);
+            payload = await GetPayload(source, ct);
         }
         catch (ArgumentException ex)
         {
@@ -62,51 +61,22 @@ public class WebhookHelper(
         return (HttpStatusCode.BadRequest, Array.Empty<SendGridEvent>());
     }
 
-    private static async Task<string> GetPayload(PipeReader reader, IHeaderDictionary headers, CancellationToken ct)
+    private static async Task<string> GetPayload(PipeReader reader, CancellationToken ct)
     {
-        int initialCapacity = 0;
-        if (headers.ContentLength is long contentLength && contentLength > 0)
+        ReadResult result = await reader.ReadAtLeastAsync(MaxBodyBytes, ct);
+        ReadOnlySequence<byte> buffer = result.Buffer;
+        if (result.IsCanceled)
         {
-            long capped = Math.Min(contentLength, MaxBodyBytes);
-            if (capped <= int.MaxValue)
-            {
-                initialCapacity = (int)capped;
-            }
+            throw new ArgumentException("PipeReader Canceled");
         }
-
-        using var ms = initialCapacity > 0 ? new MemoryStream(initialCapacity) : new MemoryStream();
-        long total = 0;
-        while (true)
-        {
-            ReadResult result = await reader.ReadAsync(ct);
-            ReadOnlySequence<byte> buffer = result.Buffer;
-            foreach (var segment in buffer)
-            {
-                total += segment.Length;
-                if (total > MaxBodyBytes)
-                {
-                    reader.AdvanceTo(buffer.End);
-                    throw new ArgumentException("Payload Too Large");
-                }
-                ms.Write(segment.Span);
-            }
-            reader.AdvanceTo(buffer.End);
-            if (result.IsCompleted)
-            {
-                break;
-            }
-            if (result.IsCanceled)
-            {
-                throw new ArgumentException("PipeReader Canceled");
-            }
-        }
-
-        if (ms.Length == 0)
+        if (result.IsCompleted && buffer.Length == 0)
         {
             throw new ArgumentException("PipeReader Empty");
         }
+        reader.AdvanceTo(buffer.End);
+        // PipeReader の一般的使い方としては ループさせるが ここでは一度で必要分をすべて読み取っている
 
-        return Encoding.UTF8.GetString(ms.GetBuffer(), 0, (int)ms.Length);
+        return Encoding.UTF8.GetString(buffer);
     }
 
     private async Task<List<HttpStatusCode>> WriteParquetGroupByYmd(
