@@ -229,9 +229,7 @@ public class ParquetService
                 Type = typeColumn?.Data.GetValue(idx)?.ToString(),
                 BounceClassification = bounceClassificationColumn?.Data.GetValue(idx)?.ToString(),
                 AsmGroupId = ConvertToNullableInt(asmGroupIdColumn?.Data.GetValue(idx)),
-                UniqueArgs = uniqueArgsColumn?.Data.GetValue(idx)?.ToString() is { } jsonStr && !string.IsNullOrEmpty(jsonStr)
-                    ? JsonDocument.Parse(jsonStr).RootElement.Clone()
-                    : (JsonElement?)null,
+                UniqueArgs = TryParseJsonElement(uniqueArgsColumn?.Data.GetValue(idx)?.ToString()),
                 MarketingCampaignId = ConvertToNullableInt(marketingCampaignIdColumn?.Data.GetValue(idx)),
                 MarketingCampaignName = marketingCampaignNameColumn?.Data.GetValue(idx)?.ToString(),
                 Pool = new Pool
@@ -272,4 +270,22 @@ public class ParquetService
             long l => l,
             _ => null
         };
+
+    private static JsonElement? TryParseJsonElement(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return null;
+        }
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            return doc.RootElement.Clone();
+        }
+        catch
+        {
+            // 解析に失敗した場合は空扱い（null）
+            return null;
+        }
+    }
 }
