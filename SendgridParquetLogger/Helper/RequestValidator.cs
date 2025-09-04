@@ -19,6 +19,8 @@ public class RequestValidator : IDisposable
     private const string SignatureHeader = "X-Twilio-Email-Event-Webhook-Signature";
     private const string TimestampHeader = "X-Twilio-Email-Event-Webhook-Timestamp";
     private static readonly TimeSpan DefaultAllowedSkew = TimeSpan.FromMinutes(5);
+    private const string SentinelVerified = "VERIFIED";
+    private const string SentinelFailed = "FAILED";
 
     private readonly ILogger<RequestValidator> _logger;
     private readonly SendGridOptions _options;
@@ -41,7 +43,7 @@ public class RequestValidator : IDisposable
         {
             try
             {
-                if (string.IsNullOrWhiteSpace(pem))
+                if (string.IsNullOrWhiteSpace(pem) || string.Equals(pem, SentinelVerified, StringComparison.OrdinalIgnoreCase) || string.Equals(pem, SentinelFailed, StringComparison.OrdinalIgnoreCase))
                 {
                     return null;
                 }
@@ -87,8 +89,8 @@ public class RequestValidator : IDisposable
             _logger.ZLogWarning($"VERIFICATIONKEY is not configured. {_options.VERIFICATIONKEY}");
             return _options.VERIFICATIONKEY switch
             {
-                "VERIFIED" => RequestValidatorResult.Verified,
-                "FAILED" => RequestValidatorResult.Failed,
+                SentinelVerified => RequestValidatorResult.Verified,
+                SentinelFailed => RequestValidatorResult.Failed,
                 _ => RequestValidatorResult.NotConfigured,
             };
         }
