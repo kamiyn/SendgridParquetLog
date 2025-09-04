@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.IO;
 using System.IO.Pipelines;
 using System.Net;
 using System.Text;
@@ -27,14 +28,35 @@ public class WebhookHelper(
         IHeaderDictionary requestHeaders,
         CancellationToken ct)
     {
-        ReadResult result = await reader.ReadAtLeastAsync(MaxBodyBytes, ct);
-        ReadOnlySequence<byte> buffer = result.Buffer;
-        if (result.IsCanceled || result.IsCompleted && buffer.Length == 0)
+        using var ms = new MemoryStream();
+        long total = 0;
+        while (true)
+        {
+            ReadResult result = await reader.ReadAsync(ct);
+            ReadOnlySequence<byte> buffer = result.Buffer;
+            foreach (var segment in buffer)
+            {
+                total += segment.Length;
+                if (total > MaxBodyBytes)
+                {
+                    reader.AdvanceTo(buffer.End);
+                    return (HttpStatusCode.BadRequest, Array.Empty<SendGridEvent>());
+                }
+                ms.Write(segment.Span);
+            }
+            reader.AdvanceTo(buffer.End);
+            if (result.IsCompleted)
+            {
+                break;
+            }
+        }
+
+        if (ms.Length == 0)
         {
             return (HttpStatusCode.BadRequest, Array.Empty<SendGridEvent>());
         }
 
-        string payload = Encoding.UTF8.GetString(buffer);
+        string payload = Encoding.UTF8.GetString(ms.GetBuffer(), 0, (int)ms.Length);
 
         switch (requestValidator.VerifySignature(payload, requestHeaders))
         {
