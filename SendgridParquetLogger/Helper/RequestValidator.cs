@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Globalization;
+using System.Security.Cryptography;
 using System.Text;
-using EllipticCurve;
 
 using Microsoft.Extensions.Options;
 
@@ -15,7 +15,7 @@ namespace SendgridParquetLogger.Helper;
 /// This class allows you to use the Event Webhook feature. Read the docs for
 /// more details: https://sendgrid.com/docs/for-developers/tracking-events/event
 /// </summary>
-public class RequestValidator
+public class RequestValidator : IDisposable
 {
     private const string SignatureHeader = "X-Twilio-Email-Event-Webhook-Signature";
     private const string TimestampHeader = "X-Twilio-Email-Event-Webhook-Timestamp";
@@ -23,7 +23,7 @@ public class RequestValidator
 
     private readonly ILogger<RequestValidator> _logger;
     private readonly SendGridOptions _options;
-    private readonly Lazy<PublicKey?> _lazyPublicKey;
+    private readonly Lazy<ECDsa?> _lazyEcdsa;
     private readonly TimeProvider _timeProvider;
     private readonly TimeSpan _allowedSkew;
 
@@ -38,15 +38,32 @@ public class RequestValidator
         string pem = options.Value.VERIFICATIONKEY; // captured value
         // Parse AllowedSkew (ISO8601/XSD duration). Fallback to default on error.
         _allowedSkew = ParseAllowedSkew(options.Value.AllowedSkew, _logger);
-        _lazyPublicKey = new Lazy<PublicKey?>(() =>
+        _lazyEcdsa = new Lazy<ECDsa?>(() =>
         {
             try
             {
-                return string.IsNullOrEmpty(pem) ? null : PublicKey.fromPem(pem);
+                if (string.IsNullOrWhiteSpace(pem)) return null;
+                // Try base64 SPKI first
+                try
+                {
+                    // If VERIFICATIONKEY is base64 (SPKI), wrap it as PEM and import
+                    byte[] spki = Convert.FromBase64String(pem);
+                    string pemWrapped = "-----BEGIN PUBLIC KEY-----\n" + Convert.ToBase64String(spki) + "\n-----END PUBLIC KEY-----\n";
+                    var e = ECDsa.Create();
+                    e.ImportFromPem(pemWrapped);
+                    return e;
+                }
+                catch
+                {
+                    // Fallback to raw PEM SPKI
+                    var e = ECDsa.Create();
+                    e.ImportFromPem(pem);
+                    return e;
+                }
             }
-            catch (Exception ex) when (ex is FormatException or ArgumentException)
+            catch (Exception ex) when (ex is CryptographicException or FormatException or ArgumentException)
             {
-                _logger.ZLogError(ex, $"Configure {nameof(SendGridOptions.VERIFICATIONKEY)} currentValue:{pem}");
+                _logger.ZLogError(ex, $"Invalid {nameof(SendGridOptions.VERIFICATIONKEY)}. Could not import ECDSA public key.");
                 return null;
             }
         });
@@ -59,7 +76,7 @@ public class RequestValidator
         Failed,
     }
 
-    public RequestValidatorResult VerifySignature(ReadOnlyMemory<byte> payloadUtf8, IHeaderDictionary headers)
+    public RequestValidatorResult VerifySignature(byte[] payloadUtf8, IHeaderDictionary headers)
     {
         // 1) Require timestamp and enforce allowed skew to prevent replay
         var timestampHeader = headers[TimestampHeader];
@@ -80,8 +97,8 @@ public class RequestValidator
         }
 
         // 2) Verify signature when public key is configured
-        PublicKey? publicKey = _lazyPublicKey.Value;
-        if (publicKey == null)
+        ECDsa? ecdsa = _lazyEcdsa.Value;
+        if (ecdsa == null)
         {
             _logger.ZLogDebug($"PublicKey is not configured. {_options.VERIFICATIONKEY}");
             return _options.VERIFICATIONKEY switch
@@ -98,12 +115,26 @@ public class RequestValidator
             return RequestValidatorResult.Failed;
         }
 
-        // StarkBank ECDSA verifier expects string input; compose from timestamp + UTF-8 payload.
-        string timestampedPayload = timestampHeader + Encoding.UTF8.GetString(payloadUtf8.Span);
-        Signature? decodedSignature = Signature.fromBase64(signature);
-        return Ecdsa.verify(timestampedPayload, decodedSignature, publicKey)
-            ? RequestValidatorResult.Verified
-            : RequestValidatorResult.Failed;
+        // Verify signature over (timestamp + payload) using SHA-256 without combining arrays
+        byte[] tsBuffer = Encoding.UTF8.GetBytes(timestampHeader.ToString());
+        using var sha256 = SHA256.Create();
+        sha256.TransformBlock(tsBuffer, 0, tsBuffer.Length, null, 0);
+        sha256.TransformFinalBlock(payloadUtf8, 0, payloadUtf8.Length);
+
+        byte[] signatureBytes;
+        try
+        {
+            signatureBytes = Convert.FromBase64String(signature!);
+        }
+        catch (FormatException)
+        {
+            return RequestValidatorResult.Failed;
+        }
+
+        // Compute SHA-256 digest and verify ECDSA signature
+        byte[] hash = sha256.Hash ?? Array.Empty<byte>();
+        bool ok = ecdsa.VerifyHash(hash, signatureBytes);
+        return ok ? RequestValidatorResult.Verified : RequestValidatorResult.Failed;
     }
 
     private static TimeSpan ParseAllowedSkew(string? value, ILogger<RequestValidator> logger)
@@ -128,6 +159,14 @@ public class RequestValidator
         {
             logger.ZLogWarning(ex, $"Invalid SENDGRID__ALLOWEDSKEW: {value}. Using default {DefaultAllowedSkew}.");
             return DefaultAllowedSkew;
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_lazyEcdsa.IsValueCreated)
+        {
+            _lazyEcdsa.Value?.Dispose();
         }
     }
 }
