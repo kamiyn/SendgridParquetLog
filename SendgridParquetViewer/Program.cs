@@ -111,26 +111,25 @@ app.UseHttpsRedirection();
 // Add authentication and authorization middleware
 app.UseAuthentication();
 
-#if DEBUG
-// DEBUG 時: 認証されていないリクエストに対してデバッグ用の ClaimsPrincipal を自動割当
-app.Use(async (context, next) =>
+if (!app.Environment.IsDevelopment())
 {
-    if (!(context.User.Identity?.IsAuthenticated ?? false))
+    // 開発時: 認証されていないリクエストに対してデバッグ用の ClaimsPrincipal を自動割当
+    app.Use(async (context, next) =>
     {
-        var claims = new List<Claim>
+        if (context.User.Identity?.IsAuthenticated != true)
         {
-            new Claim(ClaimTypes.NameIdentifier, "debug-user"),
-            new Claim(ClaimTypes.Name, "Debug User"),
-            new Claim(ClaimTypes.Email, "debug@example.com"),
-            // デフォルトで Viewer ロールを付与（ポリシーに適合）
-            new Claim(ClaimTypes.Role, "Viewer")
-        };
-        var identity = new ClaimsIdentity(claims, "Debug");
-        context.User = new ClaimsPrincipal(identity);
-    }
-    await next();
-});
-#endif
+            Claim[] claims = [
+                new(ClaimTypes.NameIdentifier, "debug-user"),
+                new(ClaimTypes.Name, "Debug User"),
+                new(ClaimTypes.Email, "debug@example.com"),
+                new(ClaimTypes.Role, "Viewer"),
+            ];
+            var identity = new ClaimsIdentity(claims, "Debug");
+            context.User = new ClaimsPrincipal(identity);
+        }
+        await next();
+    });
+}
 
 app.UseAuthorization();
 
