@@ -1,8 +1,4 @@
-﻿using System.Security.Claims;
-
-#if !DEBUG
-using Microsoft.AspNetCore.Authentication.OpenIdConnect;
-#endif
+﻿using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.FluentUI.AspNetCore.Components;
 using Microsoft.Identity.Web;
@@ -16,42 +12,54 @@ using SendgridParquetViewer.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-#if !DEBUG
-// Add Azure AD authentication
-builder.Services.AddAuthentication(OpenIdConnectDefaults.AuthenticationScheme)
-    .AddMicrosoftIdentityWebApp(options =>
-    {
-        builder.Configuration.GetSection("AzureAd").Bind(options);
-        options.Events = new OpenIdConnectEvents
-        {
-            OnRedirectToIdentityProvider = context =>
-            {
-                // リダイレクトURIをHTTPSに強制 EntraID は https しか受け付けない
-                if (context.ProtocolMessage.RedirectUri.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
-                {
-                    context.ProtocolMessage.RedirectUri = context.ProtocolMessage.RedirectUri.Replace("http://", "https://", StringComparison.OrdinalIgnoreCase);
-                }
-                return Task.CompletedTask;
-            }
-        };
-    });
-#endif
-
-// Add authorization with role-based policies
-builder.Services.AddAuthorization(options =>
+#if DEBUG // 認証機能については 安全のため Release ビルドで明示的に無効化された状態にする
+var azureAdSection = builder.Configuration.GetSection("AzureAd");
+if (string.IsNullOrEmpty(azureAdSection.GetValue<string>("Instance")))
 {
-    // Require authenticated users by default
-    options.FallbackPolicy = new AuthorizationPolicyBuilder()
-        .RequireAuthenticatedUser()
-        .Build();
+    builder.AddDevAuthentication();
+    builder.AddDevAuthorization();
+}
+else
+#endif
+{
+    // Add Azure AD authentication
+    builder.Services.AddAuthentication(OpenIdConnectDefaults.AuthenticationScheme)
+        .AddMicrosoftIdentityWebApp(options =>
+        {
+            builder.Configuration.GetSection("AzureAd").Bind(options);
+            options.Events = new OpenIdConnectEvents
+            {
+                OnRedirectToIdentityProvider = context =>
+                {
+                    // リダイレクトURIをHTTPSに強制 EntraID は https しか受け付けない
+                    if (context.ProtocolMessage.RedirectUri.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+                    {
+                        context.ProtocolMessage.RedirectUri =
+                            context.ProtocolMessage.RedirectUri.Replace("http://", "https://",
+                                StringComparison.OrdinalIgnoreCase);
+                    }
 
-    // Define role-based policies for AppRoles
-    options.AddPolicy("ViewerRole", policy =>
-        policy.RequireRole("Viewer", "Admin"));
+                    return Task.CompletedTask;
+                }
+            };
+        });
 
-    options.AddPolicy("AdminRole", policy =>
-        policy.RequireRole("Admin"));
-});
+    // Add authorization with role-based policies
+    builder.Services.AddAuthorization(options =>
+    {
+        // Require authenticated users by default
+        options.FallbackPolicy = new AuthorizationPolicyBuilder()
+            .RequireAuthenticatedUser()
+            .Build();
+
+        // Define role-based policies for AppRoles
+        options.AddPolicy("ViewerRole", policy =>
+            policy.RequireRole("Viewer", "Admin"));
+
+        options.AddPolicy("AdminRole", policy =>
+            policy.RequireRole("Admin"));
+    });
+}
 
 // Configure S3 options with validation
 builder.Services.AddOptions<S3Options>()
@@ -110,27 +118,6 @@ app.UseHttpsRedirection();
 
 // Add authentication and authorization middleware
 app.UseAuthentication();
-
-if (!app.Environment.IsDevelopment())
-{
-    // 開発時: 認証されていないリクエストに対してデバッグ用の ClaimsPrincipal を自動割当
-    app.Use(async (context, next) =>
-    {
-        if (context.User.Identity?.IsAuthenticated != true)
-        {
-            Claim[] claims = [
-                new(ClaimTypes.NameIdentifier, "debug-user"),
-                new(ClaimTypes.Name, "Debug User"),
-                new(ClaimTypes.Email, "debug@example.com"),
-                new(ClaimTypes.Role, "Viewer"),
-            ];
-            var identity = new ClaimsIdentity(claims, "Debug");
-            context.User = new ClaimsPrincipal(identity);
-        }
-        await next();
-    });
-}
-
 app.UseAuthorization();
 
 app.UseAntiforgery();

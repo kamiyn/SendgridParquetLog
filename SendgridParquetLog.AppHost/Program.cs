@@ -36,6 +36,7 @@ builder.AddProject<Projects.SendgridParquetViewer>("sendgridparquetviewer")
     .WithEnvironment("S3__ACCESSKEY", MINIO_ROOT_USER)
     .WithEnvironment("S3__SECRETKEY", MINIO_ROOT_PASSWORD)
     .WithEnvironment("S3__BUCKETNAME", "sendgrid-events")
+    .WithEnvironment("AzureAd__Instance", "")
     ;
 
 builder.Build().Run();
