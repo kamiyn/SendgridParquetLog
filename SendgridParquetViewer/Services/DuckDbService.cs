@@ -88,10 +88,10 @@ CREATE SECRET s3_secret (
     public async ValueTask<IList<SendGridEventParquet>> GetEventsByDateAsync(string folder, SendGridSearchCondition condition, int? limit,
         CancellationToken ct = default)
     {
+        var s3Path = $"s3://{_s3Options.BUCKETNAME}/{folder}/*";
         try
         {
             using var connection = await CreateConnection(ct);
-            var s3Path = $"s3://{_s3Options.BUCKETNAME}/{folder}/*";
             var whereClause = condition.BuildWhereClause();
             var limitClause = limit.HasValue ? $"LIMIT {limit.Value}" : string.Empty;
 
@@ -108,8 +108,10 @@ CREATE SECRET s3_secret (
         }
         catch (Exception ex)
         {
-            logger.ZLogError(ex, $"Error querying events by {folder}");
-            throw;
+            logger.ZLogError(ex, $"Error querying events by {s3Path}");
+            throw new DuckDbServiceException($"Error querying events by {s3Path} {ex.Message}", ex);
         }
     }
 }
+
+public class DuckDbServiceException(string message, Exception ex) : Exception(message, ex);
