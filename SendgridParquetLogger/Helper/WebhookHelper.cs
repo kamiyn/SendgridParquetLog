@@ -42,7 +42,7 @@ public class WebhookHelper(
         switch (requestValidatorResult)
         {
             case RequestValidator.RequestValidatorResult.Verified:
-            // case RequestValidator.RequestValidatorResult.NotConfigured: // 許容しない
+                // case RequestValidator.RequestValidatorResult.NotConfigured: // 許容しない
                 try
                 {
                     var events = JsonSerializer.Deserialize(payloadBytes, SendgridParquetLogger.Models.AppJsonSerializerContext.Default.SendGridEventArray) ?? [];

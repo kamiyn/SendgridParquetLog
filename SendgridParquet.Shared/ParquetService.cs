@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -40,7 +39,9 @@ public class ParquetService
         var typeField = new DataField(SendGridWebHookFields.Type, typeof(string));
         var bounceClassificationField = new DataField(SendGridWebHookFields.BounceClassification, typeof(string));
         var asmGroupIdField = new DataField(SendGridWebHookFields.AsmGroupId, typeof(int?));
-        var uniqueArgsField = new DataField(SendGridWebHookFields.UniqueArgs, typeof(string));
+        // Invalid Error: Payload value bigger than allowed が発生するため除外
+        // 業務上必要であれば UniqueArgs から個別に取得する
+        //var uniqueArgsField = new DataField(SendGridWebHookFields.UniqueArgs, typeof(string));
         var marketingCampaignIdField = new DataField(SendGridWebHookFields.MarketingCampaignId, typeof(int?));
         var marketingCampaignNameField = new DataField(SendGridWebHookFields.MarketingCampaignName, typeof(string));
         var poolNameField = new DataField(SendGridWebHookFields.PoolNameParquetColumn, typeof(string));
@@ -125,9 +126,9 @@ public class ParquetService
                 events => new DataColumn(asmGroupIdField,
                     events.Select(e => e.AsmGroupId).ToArray())),
 
-            new FieldProcessor(uniqueArgsField,
-                events => new DataColumn(uniqueArgsField,
-                    events.Select(e => e.UniqueArgs.HasValue ? e.UniqueArgs.Value.GetRawText() : string.Empty).ToArray())),
+            //new FieldProcessor(uniqueArgsField,
+            //    events => new DataColumn(uniqueArgsField,
+            //        events.Select(e => e.UniqueArgs.HasValue ? e.UniqueArgs.Value.GetRawText() : string.Empty).ToArray())),
 
             new FieldProcessor(marketingCampaignIdField,
                 events => new DataColumn(marketingCampaignIdField,
@@ -201,7 +202,7 @@ public class ParquetService
         var typeColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Type);
         var bounceClassificationColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.BounceClassification);
         var asmGroupIdColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.AsmGroupId);
-        var uniqueArgsColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.UniqueArgs);
+        //var uniqueArgsColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.UniqueArgs);
         var marketingCampaignIdColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.MarketingCampaignId);
         var marketingCampaignNameColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.MarketingCampaignName);
         var poolNameColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.PoolNameParquetColumn);
@@ -232,7 +233,7 @@ public class ParquetService
                 Type = typeColumn?.Data.GetValue(idx)?.ToString(),
                 BounceClassification = bounceClassificationColumn?.Data.GetValue(idx)?.ToString(),
                 AsmGroupId = ConvertToNullableInt(asmGroupIdColumn?.Data.GetValue(idx)),
-                UniqueArgs = TryParseJsonElement(uniqueArgsColumn?.Data.GetValue(idx)?.ToString()),
+                //UniqueArgs = TryParseJsonElement(uniqueArgsColumn?.Data.GetValue(idx)?.ToString()),
                 MarketingCampaignId = ConvertToNullableInt(marketingCampaignIdColumn?.Data.GetValue(idx)),
                 MarketingCampaignName = marketingCampaignNameColumn?.Data.GetValue(idx)?.ToString(),
                 Pool = new Pool
@@ -291,21 +292,22 @@ public class ParquetService
             _ => null
         };
 
-    private static JsonElement? TryParseJsonElement(string? json)
-    {
-        if (string.IsNullOrWhiteSpace(json))
-        {
-            return null;
-        }
-        try
-        {
-            using var doc = JsonDocument.Parse(json);
-            return doc.RootElement.Clone();
-        }
-        catch
-        {
-            // 解析に失敗した場合は空扱い（null）
-            return null;
-        }
-    }
+    // Parquet の列に JSON 文字列を格納すると "Payload value bigger than allowed" エラーになるためコメントアウト
+    //private static JsonElement? TryParseJsonElement(string? json)
+    //{
+    //    if (string.IsNullOrWhiteSpace(json))
+    //    {
+    //        return null;
+    //    }
+    //    try
+    //    {
+    //        using var doc = JsonDocument.Parse(json);
+    //        return doc.RootElement.Clone();
+    //    }
+    //    catch
+    //    {
+    //        // 解析に失敗した場合は空扱い（null）
+    //        return null;
+    //    }
+    //}
 }
