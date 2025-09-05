@@ -55,7 +55,7 @@ public class WebhookHelper(
                 }
                 break;
             default:
-                logger.ZLogInformation($"VerigySignature: {requestValidatorResult}");
+                logger.ZLogInformation($"ValidatorResult: {requestValidatorResult}");
                 break;
         }
         return (HttpStatusCode.BadRequest, Array.Empty<SendGridEvent>());
