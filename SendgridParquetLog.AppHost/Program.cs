@@ -1,6 +1,4 @@
-﻿using Google.Protobuf.WellKnownTypes;
-
-using Microsoft.Extensions.Configuration;
+﻿using Microsoft.Extensions.Configuration;
 
 var builder = DistributedApplication.CreateBuilder(args);
 
