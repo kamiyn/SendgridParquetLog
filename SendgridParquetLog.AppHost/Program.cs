@@ -7,13 +7,34 @@ var builder = DistributedApplication.CreateBuilder(args);
 // Add Redis for caching and session management
 // var redis = builder.AddRedis("cache");
 
+// Local helper to add both logger and viewer projects with shared S3 settings
+void AddSolutionApps(Func<string> serviceUrlFactory, string region, string accessKey, string secretKey, string bucketName)
+{
+    builder.AddProject<Projects.SendgridParquetLogger>("sendgridparquetlogger")
+        // .WithReference(redis)
+        .WithEnvironment("S3__SERVICEURL", serviceUrlFactory)
+        .WithEnvironment("S3__REGION", region)
+        .WithEnvironment("S3__ACCESSKEY", accessKey)
+        .WithEnvironment("S3__SECRETKEY", secretKey)
+        .WithEnvironment("S3__BUCKETNAME", bucketName)
+        .WithEnvironment("SENDGRID__VERIFICATIONKEY", "VERIFIED");
+
+    builder.AddProject<Projects.SendgridParquetViewer>("sendgridparquetviewer")
+        // .WithReference(redis)
+        .WithEnvironment("S3__SERVICEURL", serviceUrlFactory)
+        .WithEnvironment("S3__REGION", region)
+        .WithEnvironment("S3__ACCESSKEY", accessKey)
+        .WithEnvironment("S3__SECRETKEY", secretKey)
+        .WithEnvironment("S3__BUCKETNAME", bucketName)
+        .WithEnvironment("AzureAd__Instance", "");
+}
+
 var s3Section = builder.Configuration.GetSection("S3");
 if (string.IsNullOrEmpty(s3Section.GetValue<string>("ACCESSKEY")))
 {
     var MINIO_ROOT_USER = "minioadmin";
     var MINIO_ROOT_PASSWORD = "minioadmin";
     var MINIO_REGION = "jp-north-1";
-
     // Add MinIO for S3-compatible storage
     var minio = builder.AddContainer("s3storage", "minio/minio")
         .WithArgs("server", "/data", "--console-address", ":9001")
@@ -25,46 +46,22 @@ if (string.IsNullOrEmpty(s3Section.GetValue<string>("ACCESSKEY")))
         .WithVolume("minio-data", "/data")
         .WithLifetime(ContainerLifetime.Persistent);
 
-    // Add the SendGrid Parquet Logger API
-    builder.AddProject<Projects.SendgridParquetLogger>("sendgridparquetlogger")
-        // .WithReference(redis)
-        .WithEnvironment("S3__SERVICEURL", () => $"http://localhost:{minio.GetEndpoint("api").Port}")
-        .WithEnvironment("S3__REGION", MINIO_REGION)
-        .WithEnvironment("S3__ACCESSKEY", MINIO_ROOT_USER)
-        .WithEnvironment("S3__SECRETKEY", MINIO_ROOT_PASSWORD)
-        .WithEnvironment("S3__BUCKETNAME", "sendgrid-events")
-        .WithEnvironment("SENDGRID__VERIFICATIONKEY", "VERIFIED")
-        ;
-
-    builder.AddProject<Projects.SendgridParquetViewer>("sendgridparquetviewer")
-        // .WithReference(redis)
-        .WithEnvironment("S3__SERVICEURL", () => $"http://localhost:{minio.GetEndpoint("api").Port}")
-        .WithEnvironment("S3__REGION", MINIO_REGION)
-        .WithEnvironment("S3__ACCESSKEY", MINIO_ROOT_USER)
-        .WithEnvironment("S3__SECRETKEY", MINIO_ROOT_PASSWORD)
-        .WithEnvironment("S3__BUCKETNAME", "sendgrid-events")
-        .WithEnvironment("AzureAd__Instance", "")
-        ;
+    AddSolutionApps(
+        () => $"http://localhost:{minio.GetEndpoint("api").Port}",
+        MINIO_REGION,
+        MINIO_ROOT_USER,
+        MINIO_ROOT_PASSWORD,
+        "sendgrid-events");
 }
 else
 {
-    builder.AddProject<Projects.SendgridParquetLogger>("sendgridparquetlogger")
-        .WithEnvironment("S3__SERVICEURL", s3Section.GetValue<string>("SERVICEURL"))
-        .WithEnvironment("S3__REGION", s3Section.GetValue<string>("REGION"))
-        .WithEnvironment("S3__ACCESSKEY", s3Section.GetValue<string>("ACCESSKEY"))
-        .WithEnvironment("S3__SECRETKEY", s3Section.GetValue<string>("SECRETKEY"))
-        .WithEnvironment("S3__BUCKETNAME", s3Section.GetValue<string>("BUCKETNAME"))
-        .WithEnvironment("SENDGRID__VERIFICATIONKEY", "VERIFIED")
-        ;
-
-    builder.AddProject<Projects.SendgridParquetViewer>("sendgridparquetviewer")
-        .WithEnvironment("S3__SERVICEURL", s3Section.GetValue<string>("SERVICEURL"))
-        .WithEnvironment("S3__REGION", s3Section.GetValue<string>("REGION"))
-        .WithEnvironment("S3__ACCESSKEY", s3Section.GetValue<string>("ACCESSKEY"))
-        .WithEnvironment("S3__SECRETKEY", s3Section.GetValue<string>("SECRETKEY"))
-        .WithEnvironment("S3__BUCKETNAME", s3Section.GetValue<string>("BUCKETNAME"))
-        .WithEnvironment("AzureAd__Instance", "")
-        ;
+    // Add the SendGrid Parquet apps using S3 settings from configuration
+    AddSolutionApps(
+        () => s3Section.GetValue<string>("SERVICEURL")!,
+        s3Section.GetValue<string>("REGION")!,
+        s3Section.GetValue<string>("ACCESSKEY")!,
+        s3Section.GetValue<string>("SECRETKEY")!,
+        s3Section.GetValue<string>("BUCKETNAME")!);
 }
 
 builder.Build().Run();
