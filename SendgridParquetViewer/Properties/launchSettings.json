@@ -16,11 +16,6 @@
         "launchBrowser": true,
         "applicationUrl": "https://localhost:7100;http://localhost:5007",
         "environmentVariables": {
-          "S3__ACCESSKEY": "HLAZ0PA706Z8T99Y3ZY0",
-          "S3__SECRETKEY": "Wa8GVSHCoqu=LKLpslj1zbH5bRsvJPMHWKJy7gzH",
-          "S3__SERVICEURL": "https://s3.isk01.sakurastorage.jp",
-          "S3__REGION": "jp-north-1",
-          "S3__BUCKETNAME": "sendgrid-events",
           "ASPNETCORE_ENVIRONMENT": "Development"
         }
       }

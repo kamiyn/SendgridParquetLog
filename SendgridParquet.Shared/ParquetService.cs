@@ -39,7 +39,6 @@ public class ParquetService
         var typeField = new DataField(SendGridWebHookFields.Type, typeof(string));
         var bounceClassificationField = new DataField(SendGridWebHookFields.BounceClassification, typeof(string));
         var asmGroupIdField = new DataField(SendGridWebHookFields.AsmGroupId, typeof(int?));
-        // Invalid Error: Payload value bigger than allowed が発生するため除外
         // 業務上必要であれば UniqueArgs から個別に取得する
         //var uniqueArgsField = new DataField(SendGridWebHookFields.UniqueArgs, typeof(string));
         var marketingCampaignIdField = new DataField(SendGridWebHookFields.MarketingCampaignId, typeof(int?));
