@@ -42,10 +42,7 @@ public class WebhookHelper(
         switch (requestValidatorResult)
         {
             case RequestValidator.RequestValidatorResult.Verified:
-#if DEBUG
-            // DEBUG ビルド時は NotConfigured も許可
-            case RequestValidator.RequestValidatorResult.NotConfigured:
-#endif
+            // case RequestValidator.RequestValidatorResult.NotConfigured: // 許容しない
                 try
                 {
                     var events = JsonSerializer.Deserialize(payloadBytes, SendgridParquetLogger.Models.AppJsonSerializerContext.Default.SendGridEventArray) ?? [];
@@ -58,7 +55,7 @@ public class WebhookHelper(
                 }
                 break;
             default:
-                logger.ZLogInformation($"VerigySignature: {requestValidatorResult}");
+                logger.ZLogInformation($"ValidatorResult: {requestValidatorResult}");
                 break;
         }
         return (HttpStatusCode.BadRequest, Array.Empty<SendGridEvent>());
@@ -194,12 +191,7 @@ public class WebhookHelper(
                 return (nonOkResults.First(), null);
             }
 
-            string okBody =
-#if DEBUG
-                $"{{\"count\":{events.Count},\"message\":\"Events processed successfully\"}}";
-#else
-                $"{{\"count\":{events.Count}}}";
-#endif
+            string okBody = $"{{\"count\":{events.Count}}}";
             return (HttpStatusCode.OK, okBody);
         }
         catch (Exception ex)

@@ -6,9 +6,11 @@ public class SendGridOptions
 {
     public const string SectionName = "SENDGRID";
 
-#if !DEBUG
+    /// <summary>
+    /// https://app.sendgrid.com/settings/mail_settings/webhook_settings BASE64 文字列
+    /// VERIFIED / FAILED を指定すると挙動確認をすることができる
+    /// </summary>
     [Required(ErrorMessage = "SENDGRID VERIFICATIONKEY is required")]
-#endif
     public string VERIFICATIONKEY { get; set; } = string.Empty;
 
     /// <summary>
