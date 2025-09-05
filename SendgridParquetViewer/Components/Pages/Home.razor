@@ -39,6 +39,8 @@
             </FluentSelect>
         </div>
 
+        @* 2025年9月5日現在: 次のエラーが発生するため無効にしています
+        Error querying events by s3://sendgrid-events/v3raw/2025/09/* /* Invalid Error: Payload value bigger than allowed. Corrupted file?
         <!-- Date Selection Mode -->
         <div style="min-width: 250px;">
             <FluentLabel>日付の扱い</FluentLabel>
@@ -46,7 +48,7 @@
                 <FluentRadio Value="@DateSelectionMode.YearMonth">年月のみ使用（日付は無視）</FluentRadio>
                 <FluentRadio Value="@DateSelectionMode.YearMonthDay">年月日すべて使用</FluentRadio>
             </FluentRadioGroup>
-        </div>
+        </div> *@
 
         <!-- Date Picker - Always Visible -->
         <div style="min-width: 200px;">
@@ -252,7 +254,7 @@ else if (_hasSearched)
     private string _selectedEmail = "";
     private string _selectedEventType = SendGridEventTypes.Delivered;
     private string _selectedSgTemplateId = "";
-    private DateSelectionMode _dateSelectionMode = DateSelectionMode.YearMonth;
+    private DateSelectionMode _dateSelectionMode = DateSelectionMode.YearMonthDay;
     private DateTime? _selectedDate;
     private string _selectedHourString = "";
     private int? SelectedHour => int.TryParse(_selectedHourString, out int v) ? v : null;
