@@ -28,7 +28,7 @@ public class SendGridEventParquet
 
     public string? SgTemplateId { get; set; }
 
-    public string? SmtpId { get; set; }
+    //public string? SmtpId { get; set; }
 
     public string? UserAgent { get; set; }
 
@@ -42,7 +42,7 @@ public class SendGridEventParquet
 
     public string? Response { get; set; }
 
-    public int? Tls { get; set; }
+    //public int? Tls { get; set; }
 
     public string? Attempt { get; set; }
 
@@ -52,18 +52,17 @@ public class SendGridEventParquet
 
     public int? AsmGroupId { get; set; }
 
-    public string? UniqueArgs { get; set; }
+    //public string? UniqueArgs { get; set; }
 
-    public int? MarketingCampaignId { get; set; }
+    //public int? MarketingCampaignId { get; set; }
 
     public string? MarketingCampaignName { get; set; }
-
-    //public Pool? Pool { get; set; }
 
     public long? SendAt { get; set; }
 
     // Additional properties for Viewer compatibility
-    public string? PoolName { get; set; }
+    //public Pool? Pool { get; set; }
+    //public string? PoolName { get; set; }
     public int? PoolId { get; set; }
 
     // SQL SelectColumns for DuckDB queries
@@ -75,22 +74,22 @@ public class SendGridEventParquet
         $"{SendGridWebHookFields.SgEventId} AS {nameof(SgEventId)}",
         $"{SendGridWebHookFields.SgMessageId} AS {nameof(SgMessageId)}",
         $"{SendGridWebHookFields.SgTemplateId} AS {nameof(SgTemplateId)}",
-        $"{SendGridWebHookFields.SmtpIdParquetColumn} AS {nameof(SmtpId)}",
+        //$"{SendGridWebHookFields.SmtpIdParquetColumn} AS {nameof(SmtpId)}",
         $"{SendGridWebHookFields.UserAgent} AS {nameof(UserAgent)}",
         $"{SendGridWebHookFields.Ip} AS {nameof(Ip)}",
         $"{SendGridWebHookFields.Url} AS {nameof(Url)}",
         $"{SendGridWebHookFields.Reason} AS {nameof(Reason)}",
         $"{SendGridWebHookFields.Status} AS {nameof(Status)}",
         $"{SendGridWebHookFields.Response} AS {nameof(Response)}",
-        $"{SendGridWebHookFields.Tls} AS {nameof(Tls)}",
+        //$"{SendGridWebHookFields.Tls} AS {nameof(Tls)}",
         $"{SendGridWebHookFields.Attempt} AS {nameof(Attempt)}",
         $"{SendGridWebHookFields.Type} AS {nameof(Type)}",
         $"{SendGridWebHookFields.BounceClassification} AS {nameof(BounceClassification)}",
         $"{SendGridWebHookFields.AsmGroupId} AS {nameof(AsmGroupId)}",
-        $"{SendGridWebHookFields.UniqueArgs} AS {nameof(UniqueArgs)}",
-        $"{SendGridWebHookFields.MarketingCampaignId} AS {nameof(MarketingCampaignId)}",
+        //$"{SendGridWebHookFields.UniqueArgs} AS {nameof(UniqueArgs)}", // Payload too large
+        //$"{SendGridWebHookFields.MarketingCampaignId} AS {nameof(MarketingCampaignId)}",
         $"{SendGridWebHookFields.MarketingCampaignName} AS {nameof(MarketingCampaignName)}",
-        $"{SendGridWebHookFields.PoolNameParquetColumn} AS {nameof(PoolName)}",
+        //$"{SendGridWebHookFields.PoolNameParquetColumn} AS {nameof(PoolName)}",
         $"{SendGridWebHookFields.PoolIdParquetColumn} AS {nameof(PoolId)}",
         $"{SendGridWebHookFields.SendAt} AS {nameof(SendAt)}"
     });

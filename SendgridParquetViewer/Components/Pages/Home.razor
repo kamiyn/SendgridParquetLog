@@ -158,10 +158,10 @@ else if (_hasSearched)
                     {
                         <div><strong>SG Template ID:</strong> @_selectedEvent.SgTemplateId</div>
                     }
-                    @if (!string.IsNullOrEmpty(_selectedEvent.SmtpId))
+                    @* @if (!string.IsNullOrEmpty(_selectedEvent.SmtpId))
                     {
                         <div><strong>SMTP ID:</strong> @_selectedEvent.SmtpId</div>
-                    }
+                    } *@
                     @if (!string.IsNullOrEmpty(_selectedEvent.UserAgent))
                     {
                         <div><strong>User Agent:</strong> @_selectedEvent.UserAgent</div>
@@ -186,10 +186,10 @@ else if (_hasSearched)
                     {
                         <div><strong>Response:</strong> @_selectedEvent.Response</div>
                     }
-                    @if (_selectedEvent.Tls.HasValue)
+                    @* @if (_selectedEvent.Tls.HasValue)
                     {
                         <div><strong>TLS:</strong> @_selectedEvent.Tls</div>
-                    }
+                    } *@
                     @if (!string.IsNullOrEmpty(_selectedEvent.Attempt))
                     {
                         <div><strong>Attempt:</strong> @_selectedEvent.Attempt</div>
@@ -206,22 +206,22 @@ else if (_hasSearched)
                     {
                         <div><strong>ASM Group ID:</strong> @_selectedEvent.AsmGroupId</div>
                     }
-                    @if (_selectedEvent.UniqueArgs != null && _selectedEvent.UniqueArgs.Any())
+                    @* @if (_selectedEvent.UniqueArgs != null && _selectedEvent.UniqueArgs.Any())
                     {
                         <div><strong>Unique Args:</strong> @JsonSerializer.Serialize(_selectedEvent.UniqueArgs)</div>
                     }
                     @if (_selectedEvent.MarketingCampaignId.HasValue)
                     {
                         <div><strong>Marketing Campaign ID:</strong> @_selectedEvent.MarketingCampaignId</div>
-                    }
+                    } *@
                     @if (!string.IsNullOrEmpty(_selectedEvent.MarketingCampaignName))
                     {
                         <div><strong>Marketing Campaign Name:</strong> @_selectedEvent.MarketingCampaignName</div>
                     }
-                    @if (!string.IsNullOrEmpty(_selectedEvent.PoolName))
+                    @* @if (!string.IsNullOrEmpty(_selectedEvent.PoolName))
                     {
                         <div><strong>Pool Name:</strong> @_selectedEvent.PoolName</div>
-                    }
+                    } *@
                     @if (_selectedEvent.PoolId.HasValue)
                     {
                         <div><strong>Pool ID:</strong> @_selectedEvent.PoolId</div>
