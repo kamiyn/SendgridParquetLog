@@ -116,7 +116,7 @@ public class CompactionService(
     /// <summary>
     /// Compaction対象の日付とパスの一覧を取得する
     /// </summary>
-    /// <param name="olderThanOrEqual">この時刻以前の日付のみを対象とする</param>
+    /// <param name="olderThanOrEqual">この日付以前を対象とする</param>
     /// <param name="cancellationToken"></param>
     /// <returns></returns>
     private async Task<IList<(DateOnly dateOnly, string pathPrefix)>> GetCompactionTargetAsync(DateOnly olderThanOrEqual,
