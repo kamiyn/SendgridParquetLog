@@ -32,6 +32,8 @@ public class RunStatus
     [JsonPropertyName("currentDayProcessedFiles")]
     public int? CurrentDayProcessedFiles { get; set; }
 
+    public string CurrentDay
+
     [JsonPropertyName("outputFilesCreated")]
     public int OutputFilesCreated { get; set; }
 

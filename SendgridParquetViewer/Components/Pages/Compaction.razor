@@ -26,17 +26,16 @@
                 @if (_runStatus != null)
                 {
                     <p>
-                        <strong>Start Time:</strong> @_runStatus.StartTime.ToString("yyyy-MM-dd HH:mm:ss UTC")<br />
+                        <div><strong>Start Time:</strong> @_runStatus.StartTime.ToString("s")</div>
                         @if (_runStatus.EndTime.HasValue)
                         {
-                            <strong>End Time:</strong> @_runStatus.EndTime.Value.ToString("yyyy-MM-dd HH:mm:ss UTC")<br />
-                            <strong>Status:</strong> <FluentBadge BackgroundColor="var(--success)" Color="white">Completed</FluentBadge>
+                            <div><strong>End Time:</strong> @_runStatus.EndTime.Value.ToString("s")</div>
+                            <div><strong>Status:</strong>Completed</div>
                         }
                         else
                         {
-                            <strong>Status:</strong> <FluentBadge BackgroundColor="var(--accent-fill-rest)">Running</FluentBadge>
-                            <br />
-                            <strong>Completed Days:</strong> @_runStatus.CompletedDays / @_runStatus.TargetDays.Count
+                            <div><strong>Status:</strong>Running</div>
+                            <div><strong>Completed Days:</strong> @(_runStatus.CompletedDays) / @(_runStatus.TargetDays.Count)</div>
                             @if (_runStatus.CurrentDay.HasValue)
                             {
                                 <br />
@@ -48,11 +47,9 @@
                                 }
                             }
                             <br />
-                            <strong>Output Files Created:</strong> @_runStatus.OutputFilesCreated
-                            <br />
-                            <small>Last Updated: @_runStatus.LastUpdated.ToString("yyyy-MM-dd HH:mm:ss UTC")</small>
+                            <div><strong>Output Files Created:</strong> @_runStatus.OutputFilesCreated</div>
+                            <div><small>Last Updated: @_runStatus.LastUpdated.ToString("s")</small></div>
                         }
-                        <br />
                         <strong>Target Days:</strong> @_runStatus.TargetDays.Count<br />
                         <strong>Target Paths:</strong> @string.Join(", ", _runStatus.TargetPathPrefixes.Take(3))
                         @if (_runStatus.TargetPathPrefixes.Count > 3)
