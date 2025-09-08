@@ -143,7 +143,7 @@ public class CompactionService(
                     {
                         var dayPath = SendGridPathUtility.GetS3NonCompactionPrefix(year, month, day);
                         DateOnly dateOnly = new(year, month, day);
-                        if (dateOnly < olderThanOrEqual)
+                        if (dateOnly <= olderThanOrEqual)
                         {
                             targetDays.Add((dateOnly, dayPath));
                         }
@@ -280,7 +280,7 @@ public class CompactionService(
         while (remainFiles.Any())
         {
             int previousCount = remainFiles.Count;
-            var processedFiles = await CompactionBatchAsync(targetDate, targetParquetFiles, token);
+            var processedFiles = await CompactionBatchAsync(targetDate, remainFiles, token);
             RemoveProcessedFiles(remainFiles, processedFiles);
             if (previousCount == remainFiles.Count)
             {
