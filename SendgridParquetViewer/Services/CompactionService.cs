@@ -50,7 +50,7 @@ public class CompactionService(
 
     public async Task<CompactionStartResult> StartCompactionAsync(CancellationToken cancellationToken = default)
     {
-        var now = timeProvider.GetUtcNow();
+        var nowUTC = timeProvider.GetUtcNow();
         var lockId = Guid.NewGuid().ToString();
 
         var lockAcquired = await TryAcquireLockAsync(lockId, cancellationToken);
@@ -68,7 +68,7 @@ public class CompactionService(
             RunStatus? currentStatus = await GetRunStatusAsync(cancellationToken);
             if (currentStatus is { EndTime: null })
             {
-                var daysSinceStart = (now - currentStatus.StartTime);
+                var daysSinceStart = (nowUTC - currentStatus.StartTime);
                 if (daysSinceStart <= MaxRunningDuration)
                 {
                     return new CompactionStartResult
@@ -79,13 +79,13 @@ public class CompactionService(
                 }
             }
 
-            var yesterday = now.AddDays(-1);
-            var olderThan = new DateOnly(yesterday.Year, yesterday.Month, yesterday.Day);
-            var targetDays = await GetCompactionTargetAsync(olderThan, cancellationToken);
+            var yesterday = nowUTC.AddDays(-1); // UTC基準で昨日以前のものが対象になる = 日本時間で午前9時以降に昨日分が対象になる
+            var olderThanOrEqual = new DateOnly(yesterday.Year, yesterday.Month, yesterday.Day);
+            var targetDays = await GetCompactionTargetAsync(olderThanOrEqual, cancellationToken);
             var runStatusNew = new RunStatus
             {
                 LockId = lockId,
-                StartTime = now,
+                StartTime = nowUTC,
                 EndTime = null,
                 TargetDays = targetDays.Select(x => x.dateOnly).ToArray(),
                 TargetPathPrefixes = targetDays.Select(x => x.pathPrefix).ToArray(),
@@ -107,7 +107,7 @@ public class CompactionService(
             return new CompactionStartResult
             {
                 CanStart = true,
-                StartTime = now,
+                StartTime = nowUTC,
                 Reason = "Compaction started successfully"
             };
         }
@@ -122,10 +122,10 @@ public class CompactionService(
     /// <summary>
     /// Compaction対象の日付とパスの一覧を取得する
     /// </summary>
-    /// <param name="olderThan">この時刻よりも前の日付のみを対象とする</param>
+    /// <param name="olderThanOrEqual">この日付以前を対象とする</param>
     /// <param name="cancellationToken"></param>
     /// <returns></returns>
-    private async Task<IList<(DateOnly dateOnly, string pathPrefix)>> GetCompactionTargetAsync(DateOnly olderThan,
+    private async Task<IList<(DateOnly dateOnly, string pathPrefix)>> GetCompactionTargetAsync(DateOnly olderThanOrEqual,
         CancellationToken cancellationToken)
     {
         var now = timeProvider.GetUtcNow();
@@ -149,7 +149,7 @@ public class CompactionService(
                     {
                         var dayPath = SendGridPathUtility.GetS3NonCompactionPrefix(year, month, day);
                         DateOnly dateOnly = new(year, month, day);
-                        if (dateOnly < olderThan)
+                        if (dateOnly <= olderThanOrEqual)
                         {
                             targetDays.Add((dateOnly, dayPath));
                         }
