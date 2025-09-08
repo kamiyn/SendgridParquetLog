@@ -94,7 +94,7 @@
 
     @if (!string.IsNullOrEmpty(_message))
     {
-        <FluentMessageBar Intent="@_messageIntent" OnDismiss="() => message = string.Empty">
+        <FluentMessageBar Intent="@_messageIntent" OnDismiss="() => _message = string.Empty">
             @_message
         </FluentMessageBar>
     }
