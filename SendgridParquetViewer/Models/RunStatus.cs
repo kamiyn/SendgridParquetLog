@@ -18,4 +18,30 @@ public class RunStatus
 
     [JsonPropertyName("targetPaths")]
     public IList<string> TargetPathPrefixes { get; init; } = [];
+
+    // Progress fields (optional for backward compatibility)
+    [JsonPropertyName("completedDays")]
+    public int CompletedDays { get; set; }
+
+    public string DaysProgress() => $"{CompletedDays} / {TargetDays.Count}";
+
+    [JsonPropertyName("currentDay")]
+    public DateOnly? CurrentDay { get; set; }
+
+    [JsonPropertyName("currentDayTotalFiles")]
+    public int? CurrentDayTotalFiles { get; set; }
+
+    [JsonPropertyName("currentDayProcessedFiles")]
+    public int? CurrentDayProcessedFiles { get; set; }
+
+    public string CurrentDayProgress() => $"{CurrentDayProcessedFiles} / {CurrentDayTotalFiles}";
+
+    [JsonPropertyName("outputFilesCreated")]
+    public int OutputFilesCreated { get; set; }
+
+    [JsonPropertyName("failedFilesCreated")]
+    public int FailedFilesCreated { get; set; }
+
+    [JsonPropertyName("lastUpdated")]
+    public DateTimeOffset LastUpdated { get; set; }
 }
