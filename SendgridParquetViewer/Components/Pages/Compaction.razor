@@ -35,7 +35,7 @@
                         else
                         {
                             <div><strong>Status:</strong>Running</div>
-                            <div><strong>Completed Days:</strong> @(_runStatus.CompletedDays) / @(_runStatus.TargetDays.Count)</div>
+                            <div><strong>Completed Days:</strong> @_runStatus.DaysProgress()</div>
                             @if (_runStatus.CurrentDay.HasValue)
                             {
                                 <br />
@@ -43,7 +43,7 @@
                                 @if (_runStatus.CurrentDayTotalFiles.HasValue && _runStatus.CurrentDayProcessedFiles.HasValue)
                                 {
                                     <br />
-                                    <strong>Day Progress:</strong> @_runStatus.CurrentDayProcessedFiles / @_runStatus.CurrentDayTotalFiles
+                                    <strong>Day Progress:</strong> @_runStatus.CurrentDayProgress()
                                 }
                             }
                             <br />
@@ -106,12 +106,11 @@
     private bool _isStarting;
     private string _message = string.Empty;
     private MessageIntent _messageIntent = MessageIntent.Info;
-    private System.Threading.Timer? _pollTimer;
+    readonly CancellationTokenSource _cts = new CancellationTokenSource();
 
     protected override async Task OnInitializedAsync()
     {
         await RefreshStatus();
-        EnsurePolling();
     }
 
     private async Task RefreshStatus()
@@ -119,8 +118,8 @@
         _isLoadingStatus = true;
         try
         {
-            _runStatus = await CompactionService.GetRunStatusAsync();
-            EnsurePolling();
+            var runStatus = await CompactionService.GetRunStatusAsync();
+            await SetRunStatus(runStatus);
         }
         catch (Exception ex)
         {
@@ -138,7 +137,7 @@
         _isStarting = true;
         try
         {
-            var result = await CompactionService.StartCompactionAsync();
+            var result = await CompactionService.StartCompactionAsync(SetRunStatus, _cts.Token);
             if (result.CanStart)
             {
                 ShowMessage($"Compaction started successfully at {result.StartTime}", MessageIntent.Success);
@@ -167,31 +166,12 @@
         StateHasChanged();
     }
 
-    private void EnsurePolling()
+    private async Task SetRunStatus(RunStatus? runStatus)
     {
-        // Start polling when running; stop when completed or no status
-        bool shouldPoll = _runStatus != null && !_runStatus.EndTime.HasValue;
-        if (shouldPoll && _pollTimer == null)
+        await InvokeAsync(() =>
         {
-            _pollTimer = new System.Threading.Timer(async _ =>
-            {
-                try
-                {
-                    await InvokeAsync(async () => await RefreshStatus());
-                }
-                catch {}
-            }, null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(3));
-        }
-        else if (!shouldPoll && _pollTimer != null)
-        {
-            _pollTimer.Dispose();
-            _pollTimer = null;
-        }
-    }
-
-    public void Dispose()
-    {
-        _pollTimer?.Dispose();
-        _pollTimer = null;
+            _runStatus = runStatus;
+            StateHasChanged();
+        });
     }
 }

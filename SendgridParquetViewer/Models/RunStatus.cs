@@ -23,6 +23,8 @@ public class RunStatus
     [JsonPropertyName("completedDays")]
     public int CompletedDays { get; set; }
 
+    public string DaysProgress() => $"{CompletedDays} / {TargetDays.Count}";
+
     [JsonPropertyName("currentDay")]
     public DateOnly? CurrentDay { get; set; }
 
@@ -32,10 +34,13 @@ public class RunStatus
     [JsonPropertyName("currentDayProcessedFiles")]
     public int? CurrentDayProcessedFiles { get; set; }
 
-    public string CurrentDay
+    public string CurrentDayProgress() => $"{CurrentDayProcessedFiles} / {CurrentDayTotalFiles}";
 
     [JsonPropertyName("outputFilesCreated")]
     public int OutputFilesCreated { get; set; }
+
+    [JsonPropertyName("failedFilesCreated")]
+    public int FailedFilesCreated { get; set; }
 
     [JsonPropertyName("lastUpdated")]
     public DateTimeOffset LastUpdated { get; set; }
