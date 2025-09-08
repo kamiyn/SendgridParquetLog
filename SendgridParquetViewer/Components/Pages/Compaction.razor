@@ -35,6 +35,22 @@
                         else
                         {
                             <strong>Status:</strong> <FluentBadge BackgroundColor="var(--accent-fill-rest)">Running</FluentBadge>
+                            <br />
+                            <strong>Completed Days:</strong> @_runStatus.CompletedDays / @_runStatus.TargetDays.Count
+                            @if (_runStatus.CurrentDay.HasValue)
+                            {
+                                <br />
+                                <strong>Current Day:</strong> @_runStatus.CurrentDay.Value
+                                @if (_runStatus.CurrentDayTotalFiles.HasValue && _runStatus.CurrentDayProcessedFiles.HasValue)
+                                {
+                                    <br />
+                                    <strong>Day Progress:</strong> @_runStatus.CurrentDayProcessedFiles / @_runStatus.CurrentDayTotalFiles
+                                }
+                            }
+                            <br />
+                            <strong>Output Files Created:</strong> @_runStatus.OutputFilesCreated
+                            <br />
+                            <small>Last Updated: @_runStatus.LastUpdated.ToString("yyyy-MM-dd HH:mm:ss UTC")</small>
                         }
                         <br />
                         <strong>Target Days:</strong> @_runStatus.TargetDays.Count<br />
@@ -93,10 +109,12 @@
     private bool _isStarting;
     private string _message = string.Empty;
     private MessageIntent _messageIntent = MessageIntent.Info;
+    private System.Threading.Timer? _pollTimer;
 
     protected override async Task OnInitializedAsync()
     {
         await RefreshStatus();
+        EnsurePolling();
     }
 
     private async Task RefreshStatus()
@@ -105,6 +123,7 @@
         try
         {
             _runStatus = await CompactionService.GetRunStatusAsync();
+            EnsurePolling();
         }
         catch (Exception ex)
         {
@@ -149,5 +168,33 @@
         _message = msg;
         _messageIntent = intent;
         StateHasChanged();
+    }
+
+    private void EnsurePolling()
+    {
+        // Start polling when running; stop when completed or no status
+        bool shouldPoll = _runStatus != null && !_runStatus.EndTime.HasValue;
+        if (shouldPoll && _pollTimer == null)
+        {
+            _pollTimer = new System.Threading.Timer(async _ =>
+            {
+                try
+                {
+                    await InvokeAsync(async () => await RefreshStatus());
+                }
+                catch {}
+            }, null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(3));
+        }
+        else if (!shouldPoll && _pollTimer != null)
+        {
+            _pollTimer.Dispose();
+            _pollTimer = null;
+        }
+    }
+
+    public void Dispose()
+    {
+        _pollTimer?.Dispose();
+        _pollTimer = null;
     }
 }
