@@ -151,7 +151,7 @@ public class ParquetService
         ];
     }
 
-    public async Task<Stream?> ConvertToParquetAsync(ICollection<SendGridEvent> events)
+    public async Task<Stream?> ConvertToParquetAsync(IReadOnlyCollection<SendGridEvent> events)
     {
         if (!events.Any())
         {

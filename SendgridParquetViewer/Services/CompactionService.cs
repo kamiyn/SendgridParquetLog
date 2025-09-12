@@ -362,7 +362,7 @@ public class CompactionService(
     /// 読み込みファイル量が 512MB 達しない範囲でまとめてコンパクションを実行する
     /// </summary>
     /// <returns>対処したファイル</returns>
-    private async Task<CompactionBatchResult> CompactionBatchAsync(DateOnly targetDate, ICollection<string> candidateParquetFiles, CancellationToken token)
+    private async Task<CompactionBatchResult> CompactionBatchAsync(DateOnly targetDate, IReadOnlyCollection<string> candidateParquetFiles, CancellationToken token)
     {
         var ctx = new CompactionBatchContext();
         await ReadParquetFilesAsync(candidateParquetFiles, ctx, token);
@@ -460,7 +460,7 @@ public class CompactionService(
         return !failedFiles.Any();
     }
 
-    private async Task ReadParquetFilesAsync(ICollection<string> files, CompactionBatchContext ctx, CancellationToken token)
+    private async Task ReadParquetFilesAsync(IReadOnlyCollection<string> files, CompactionBatchContext ctx, CancellationToken token)
     {
         var now = timeProvider.GetUtcNow();
         foreach (string parquetFile in files)

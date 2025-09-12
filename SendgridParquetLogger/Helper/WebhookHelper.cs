@@ -22,7 +22,7 @@ public class WebhookHelper(
 {
     private readonly int _maxBodyBytes = Math.Max(1, sendGridOptions.Value.MaxBodyBytes);
 
-    private async Task<(HttpStatusCode, ICollection<SendGridEvent>)> ReadSendGridEvents(
+    private async Task<(HttpStatusCode, IReadOnlyCollection<SendGridEvent>)> ReadSendGridEvents(
         PipeReader source,
         IHeaderDictionary requestHeaders,
         CancellationToken ct)
@@ -183,7 +183,7 @@ public class WebhookHelper(
 
             logger.ZLogInformation($"Received {events.Count} events from SendGrid");
 
-            ICollection<HttpStatusCode> results = await WriteParquetGroupByYmd(events, ct);
+            IReadOnlyCollection<HttpStatusCode> results = await WriteParquetGroupByYmd(events, ct);
 
             var nonOkResults = results.Where(x => x != HttpStatusCode.OK).ToArray();
             if (nonOkResults.Any())
