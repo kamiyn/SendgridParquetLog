@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 using Newtonsoft.Json;
+using Xunit;
 
 using SendgridParquet.Shared;
 
@@ -67,7 +68,7 @@ public class RequestValidatorTest
         return headers;
     }
 
-    [Test]
+    [Fact]
     public void VerifySignature_WithPem_PublicKey_Succeeds()
     {
         var (ts, payload, sig, pem, _) = CreateSignedRequest();
@@ -76,10 +77,10 @@ public class RequestValidatorTest
 
         var result = validator.VerifySignature(payload, headers);
 
-        Assert.That(result, Is.EqualTo(RequestValidator.RequestValidatorResult.Verified));
+        Assert.Equal(RequestValidator.RequestValidatorResult.Verified, result);
     }
 
-    [Test]
+    [Fact]
     public void VerifySignature_WithBase64_PublicKey_Succeeds()
     {
         var (ts, payload, sig, _, base64) = CreateSignedRequest();
@@ -88,10 +89,10 @@ public class RequestValidatorTest
 
         var result = validator.VerifySignature(payload, headers);
 
-        Assert.That(result, Is.EqualTo(RequestValidator.RequestValidatorResult.Verified));
+        Assert.Equal(RequestValidator.RequestValidatorResult.Verified, result);
     }
 
-    [Test]
+    [Fact]
     public void VerifySignature_WithWrongSignature_Fails()
     {
         var (ts, payload, _, pem, _) = CreateSignedRequest();
@@ -100,10 +101,10 @@ public class RequestValidatorTest
 
         var result = validator.VerifySignature(payload, headers);
 
-        Assert.That(result, Is.EqualTo(RequestValidator.RequestValidatorResult.Failed));
+        Assert.Equal(RequestValidator.RequestValidatorResult.Failed, result);
     }
 
-    [Test]
+    [Fact]
     public void VerifySignature_WithSkewTooLarge_Fails()
     {
         var (ts, payload, sig, pem, _) = CreateSignedRequest();
@@ -113,10 +114,10 @@ public class RequestValidatorTest
 
         var result = validator.VerifySignature(payload, headers);
 
-        Assert.That(result, Is.EqualTo(RequestValidator.RequestValidatorResult.Failed));
+        Assert.Equal(RequestValidator.RequestValidatorResult.Failed, result);
     }
 
-    [Test]
+    [Fact]
     public void VerifySignature_NoPublicKey_ReturnsNotConfigured()
     {
         var (ts, payload, _, _, _) = CreateSignedRequest();
@@ -125,7 +126,7 @@ public class RequestValidatorTest
 
         var result = validator.VerifySignature(payload, headers);
 
-        Assert.That(result, Is.EqualTo(RequestValidator.RequestValidatorResult.NotConfigured));
+        Assert.Equal(RequestValidator.RequestValidatorResult.NotConfigured, result);
     }
 
     record RequestParameters(string payload, string pem, string signature, string timestamp);
@@ -137,16 +138,16 @@ public class RequestValidatorTest
         "1756978099"
     );
 
-    [Test]
+    [Fact]
     public void StarkBankValidator_Succeeds()
     {
         (string payload, string pem, string signature, string timestamp) = GetValidPayload();
         var result = StarkBankValidator.VerifySignature(payload, pem, signature, timestamp);
 
-        Assert.That(result, Is.EqualTo(true));
+        Assert.True(result);
     }
 
-    [Test]
+    [Fact]
     public void Validator_Succeeds()
     {
         (string payloadJson, string pem, string sig, string ts) = GetValidPayload();
@@ -155,6 +156,6 @@ public class RequestValidatorTest
         var headers = MakeHeaders(ts, sig);
         var result = validator.VerifySignature(payloadBytes, headers);
 
-        Assert.That(result, Is.EqualTo(RequestValidator.RequestValidatorResult.Verified));
+        Assert.Equal(RequestValidator.RequestValidatorResult.Verified, result);
     }
 }
