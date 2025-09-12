@@ -177,36 +177,36 @@ public class ParquetService
     {
         ParquetSchema schema = parquetReader.Schema;
         // Read required columns safely (if missing or read fails, yield no rows)
-        var emailColumn = await TryReadRequiredColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Email, token);
+        var emailColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Email, token);
         if (emailColumn is null) yield break;
-        var timestampColumn = await TryReadRequiredColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Timestamp, token);
+        var timestampColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Timestamp, token);
         if (timestampColumn is null) yield break;
-        var eventColumn = await TryReadRequiredColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Event, token);
+        var eventColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Event, token);
         if (eventColumn is null) yield break;
 
         // Get optional columns
-        var categoryColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Category);
-        var sgEventIdColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.SgEventId);
-        var sgMessageIdColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.SgMessageId);
-        var sgTemplateIdColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.SgTemplateId);
-        var smtpIdColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.SmtpIdParquetColumn);
-        var userAgentColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.UserAgent);
-        var ipColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Ip);
-        var urlColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Url);
-        var reasonColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Reason);
-        var statusColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Status);
-        var responseColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Response);
-        var tlsColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Tls);
-        var attemptColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Attempt);
-        var typeColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Type);
-        var bounceClassificationColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.BounceClassification);
-        var asmGroupIdColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.AsmGroupId);
-        //var uniqueArgsColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.UniqueArgs);
-        var marketingCampaignIdColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.MarketingCampaignId);
-        var marketingCampaignNameColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.MarketingCampaignName);
-        var poolNameColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.PoolNameParquetColumn);
-        var poolIdColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.PoolIdParquetColumn);
-        var sendAtColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.SendAt);
+        var categoryColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Category, token);
+        var sgEventIdColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.SgEventId, token);
+        var sgMessageIdColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.SgMessageId, token);
+        var sgTemplateIdColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.SgTemplateId, token);
+        var smtpIdColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.SmtpIdParquetColumn, token);
+        var userAgentColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.UserAgent, token);
+        var ipColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Ip, token);
+        var urlColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Url, token);
+        var reasonColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Reason, token);
+        var statusColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Status, token);
+        var responseColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Response, token);
+        var tlsColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Tls, token);
+        var attemptColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Attempt, token);
+        var typeColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.Type, token);
+        var bounceClassificationColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.BounceClassification, token);
+        var asmGroupIdColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.AsmGroupId, token);
+        //var uniqueArgsColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.UniqueArgs, token);
+        var marketingCampaignIdColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.MarketingCampaignId, token);
+        var marketingCampaignNameColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.MarketingCampaignName, token);
+        var poolNameColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.PoolNameParquetColumn, token);
+        var poolIdColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.PoolIdParquetColumn, token);
+        var sendAtColumn = await TryReadColumnAsync(rowGroupReader, schema, SendGridWebHookFields.SendAt, token);
 
         int rowCount = emailColumn.Data.Length;
         for (int idx = 0; idx < rowCount; idx++)
@@ -245,29 +245,12 @@ public class ParquetService
         }
     }
 
-    private async Task<DataColumn?> TryReadColumnAsync(ParquetRowGroupReader rowGroupReader, ParquetSchema schema, string fieldName)
+    private async Task<DataColumn?> TryReadColumnAsync(ParquetRowGroupReader rowGroupReader, ParquetSchema schema, string fieldName, CancellationToken token)
     {
         try
         {
             DataField? field = schema.GetDataFields().FirstOrDefault(f => f.Name == fieldName);
-            return field == null ? null : await rowGroupReader.ReadColumnAsync(field);
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private async Task<DataColumn?> TryReadRequiredColumnAsync(ParquetRowGroupReader rowGroupReader, ParquetSchema schema, string fieldName, CancellationToken token)
-    {
-        try
-        {
-            DataField? field = schema.GetDataFields().FirstOrDefault(f => f.Name == fieldName);
-            if (field == null)
-            {
-                return null;
-            }
-            return await rowGroupReader.ReadColumnAsync(field, token);
+            return field == null ? null : await rowGroupReader.ReadColumnAsync(field, token);
         }
         catch
         {
