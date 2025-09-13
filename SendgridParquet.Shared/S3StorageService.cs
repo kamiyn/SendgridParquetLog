@@ -284,6 +284,10 @@ public class S3StorageService(
 
         do
         {
+            if (ct.IsCancellationRequested)
+            {
+                break;
+            }
             var content = await ListObjectsAsync(new ListObjectsRequest(prefix, Delimiter: "/", now, continuationToken), ct);
             if (string.IsNullOrEmpty(content))
             {
