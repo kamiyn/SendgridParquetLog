@@ -80,6 +80,11 @@ ASP.NET Core のOptions パターンを使用して設定を管理します。
 | SENDGRID__VERIFICATIONKEY | SendGrid Event Webhook 検証用公開鍵 (PEM または Base64(SPKI)) | -----BEGIN PUBLIC KEY----- ... |
 | SENDGRID__MAXBODYBYTES | Webhook リクエストボディ上限 (バイト) | 1048576 |
 | SENDGRID__ALLOWEDSKEW | タイムスタンプ許容スキュー (TimeSpan.Parse 形式) | 00:05:00 |
+| OTEL_EXPORTER_OTLP_ENDPOINT | OpenTelemetry OTLP エンドポイントURL | http://localhost:4318 |
+| OTEL_EXPORTER_OTLP_PROTOCOL | OTLP プロトコル (`grpc`/`http/protobuf`) | http/protobuf |
+| OTEL_EXPORTER_OTLP_HEADERS | OTLP 追加ヘッダー（`k=v,k2=v2` 形式） | x-api-key=xxxxx |
+
+補足: `.NET Aspire` のローカル開発時は `DOTNET_DASHBOARD_OTLP_ENDPOINT_URL`（ダッシュボードの OTLP URL）が設定される場合があり、`OTEL_EXPORTER_OTLP_ENDPOINT` が未設定でも自動的にそれを利用してメトリクス/トレース/ログを送信します。いずれの接続先情報も未設定の場合は OpenTelemetry の「送信」は行われません（計測は有効）。
 
 ### appsettings.json での設定
 
