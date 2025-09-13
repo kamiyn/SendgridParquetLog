@@ -6,6 +6,39 @@ SendGrid WebHookを受信してParquet形式でS3互換ストレージに保存�
 
 このアプリケーションは、SendGridのEvent Webhookを受信し、イベントデータをParquet形式に変換してS3互換ストレージに保存します。保存されたデータはDuckDBなどのツールで効率的に分析できます。
 
+## データフロー図（サービスの役割）
+
+```mermaid
+flowchart LR
+  %% Providers as subgraphs
+  subgraph SG[SendGrid]
+    sg["Event Webhook\n+Verification Key"]
+  end
+
+  subgraph SI[さくらインターネット]
+    platform["コンテナ実行基盤 (Docker)"]
+    app["Webhook Receiver (.NET App)"]
+    storage["S3互換ストレージ"]
+  end
+
+  subgraph GH[GitHub]
+    repo["ソースコードリポジトリ"]
+    actions["GitHub Actions (CI/CD)"]
+  end
+
+  %% CI/CD and hosting
+  repo -- Push/PR --> actions
+  actions -- Build/Deploy --> platform
+  platform --> app
+
+  %% Webhook + verification
+  sg -- "Event Webhook (JSON)" --> app
+  sg -- "VerificationKey (公開鍵)" --> app
+
+  %% Data sink
+  app -- "Parquet 書き込み" --> storage
+```
+
 ## 機能
 
 - SendGrid Event Webhookの受信 (POST /webhook/sendgrid)
