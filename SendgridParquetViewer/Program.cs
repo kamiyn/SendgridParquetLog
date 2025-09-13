@@ -142,4 +142,10 @@ app.MapHealthChecks("/health6QQl").AllowAnonymous();
 app.MapDefaultEndpoints();
 #endif
 
+{
+    // Start the compaction process in the background
+    var compactionService = app.Services.GetRequiredService<CompactionService>();
+    _ = compactionService.StartCompactionAsync((_) => Task.CompletedTask, CancellationToken.None);
+}
+
 app.Run();
