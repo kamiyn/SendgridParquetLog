@@ -2,9 +2,48 @@
 
 SendGrid WebHookを受信してParquet形式でS3互換ストレージに保存する.NET 10.0アプリケーション
 
+## 目次
+
+- [データフロー図（サービスの役割）](#service-flow)
+- [GitHub Actions 図解](#gha-flow)
+
 ## 概要
 
 このアプリケーションは、SendGridのEvent Webhookを受信し、イベントデータをParquet形式に変換してS3互換ストレージに保存します。保存されたデータはDuckDBなどのツールで効率的に分析できます。
+
+<a id="service-flow"></a>
+## データフロー図（サービスの役割）
+
+```mermaid
+flowchart LR
+  %% Providers as subgraphs
+  subgraph SG[SendGrid]
+    sg["Event Webhook\n+Verification Key"]
+  end
+
+  subgraph SI[さくらインターネット]
+    platform["コンテナ実行基盤 (Docker)"]
+    app["Webhook Receiver (.NET App)"]
+    storage["S3互換ストレージ"]
+  end
+
+  subgraph GH[GitHub]
+    repo["ソースコードリポジトリ"]
+    actions["GitHub Actions (CI/CD)"]
+  end
+
+  %% CI/CD and hosting
+  repo -- Push/PR --> actions
+  actions -- Build/Deploy --> platform
+  platform --> app
+
+  %% Webhook + verification
+  sg -- "Event Webhook (JSON)" --> app
+  sg -- "VerificationKey (公開鍵)" --> app
+
+  %% Data sink
+  app -- "Parquet 書き込み" --> storage
+```
 
 ## 機能
 
@@ -312,6 +351,37 @@ curl -X POST http://localhost:5000/webhook/sendgrid \
 ## GitHub Actions による自動デプロイ
 
 このプロジェクトは GitHub Actions を使用して自動的にビルドとデプロイを行います。
+
+<a id="gha-flow"></a>
+### 図解
+
+```mermaid
+flowchart LR
+  subgraph GitHub
+    repo["リポジトリ (main)"]
+    actions["Actions ワークフロー"]
+    vars["Variables"]
+    secrets["Secrets"]
+  end
+
+  subgraph CI[CI/CD]
+    buildx["Docker Buildx セットアップ"]
+    login["コンテナレジストリ ログイン"]
+    build["docker compose build"]
+    push["イメージ Push"]
+    deploy["02deploy.sh でデプロイ"]
+  end
+
+  subgraph Sakura[さくらインターネット]
+    platform["コンテナ実行基盤"]
+  end
+
+  repo --> actions
+  actions --> buildx --> login --> build --> push --> deploy --> platform
+
+  vars -. 参照 .-> actions
+  secrets -. 参照 .-> actions
+```
 
 ### 必要な設定
 
