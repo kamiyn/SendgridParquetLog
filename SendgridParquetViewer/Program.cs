@@ -12,7 +12,12 @@ using SendgridParquetViewer.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-#if DEBUG // 認証機能については 安全のため Release ビルドで明示的に無効化された状態にする
+#if UseAspire
+// Add Aspire service defaults (service discovery, health checks, OpenTelemetry)
+builder.AddServiceDefaults();
+#endif
+
+#if DEBUG // Dev認証機能については 安全のため Release ビルドで明示的に無効化された状態にする
 var azureAdSection = builder.Configuration.GetSection("AzureAd");
 if (string.IsNullOrEmpty(azureAdSection.GetValue<string>("Instance")))
 {
@@ -131,5 +136,10 @@ app.MapControllers();
 
 // Map health check endpoint (allow anonymous access)
 app.MapHealthChecks("/health6QQl").AllowAnonymous();
+
+#if UseAspire
+// Map Aspire default endpoints (health checks etc. in dev)
+app.MapDefaultEndpoints();
+#endif
 
 app.Run();

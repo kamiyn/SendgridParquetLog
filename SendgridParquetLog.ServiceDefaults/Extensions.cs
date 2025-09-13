@@ -6,7 +6,9 @@ using Microsoft.Extensions.Logging;
 
 using OpenTelemetry;
 using OpenTelemetry.Metrics;
+using OpenTelemetry.Exporter;
 using OpenTelemetry.Trace;
+using Azure.Monitor.OpenTelemetry.AspNetCore;
 
 namespace Microsoft.Extensions.Hosting;
 
@@ -71,19 +73,40 @@ public static class Extensions
 
     private static IHostApplicationBuilder AddOpenTelemetryExporters(this IHostApplicationBuilder builder)
     {
-        var useOtlpExporter = !string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]);
-
-        if (useOtlpExporter)
+        var endpoint = builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"];
+        var fromDashboard = false;
+        if (string.IsNullOrWhiteSpace(endpoint))
         {
-            builder.Services.AddOpenTelemetry().UseOtlpExporter();
+            // Fallback for .NET Aspire Dashboard local dev
+            endpoint = builder.Configuration["DOTNET_DASHBOARD_OTLP_ENDPOINT_URL"];
+            fromDashboard = !string.IsNullOrWhiteSpace(endpoint);
         }
 
-        // Uncomment the following lines to enable the Azure Monitor exporter (requires the Azure.Monitor.OpenTelemetry.AspNetCore package)
-        //if (!string.IsNullOrEmpty(builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"]))
-        //{
-        //    builder.Services.AddOpenTelemetry()
-        //       .UseAzureMonitor();
-        //}
+        if (!string.IsNullOrWhiteSpace(endpoint))
+        {
+            var uri = new Uri(endpoint);
+            var protoEnv = builder.Configuration["OTEL_EXPORTER_OTLP_PROTOCOL"];
+            var protocol = OtlpExportProtocol.Grpc;
+            if (!string.IsNullOrWhiteSpace(protoEnv))
+            {
+                protocol = protoEnv.Equals("http/protobuf", StringComparison.OrdinalIgnoreCase)
+                    ? OtlpExportProtocol.HttpProtobuf
+                    : OtlpExportProtocol.Grpc;
+            }
+            else if (fromDashboard || uri.Scheme.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+            {
+                protocol = OtlpExportProtocol.HttpProtobuf;
+            }
+
+            // Use overload compatible with OpenTelemetry 1.12.0
+            builder.Services.AddOpenTelemetry().UseOtlpExporter(protocol, uri);
+        }
+
+        // Enable the Azure Monitor exporter when connection string is provided
+        if (!string.IsNullOrWhiteSpace(builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"]))
+        {
+            builder.Services.AddOpenTelemetry().UseAzureMonitor();
+        }
 
         return builder;
     }

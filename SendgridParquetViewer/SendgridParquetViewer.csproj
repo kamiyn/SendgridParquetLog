@@ -20,4 +20,13 @@
     <ProjectReference Include="../SendgridParquet.Shared/SendgridParquet.Shared.csproj" />
   </ItemGroup>
 
+  <!-- Aspire はデバッグビルドのみ有効 -->
+  <ItemGroup Condition="'$(Configuration)' == 'Debug'">
+    <ProjectReference Include="../SendgridParquetLog.ServiceDefaults/SendgridParquetLog.ServiceDefaults.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+    <DefineConstants>UseAspire;$(DefineConstants)</DefineConstants>
+  </PropertyGroup>
+
 </Project>
