@@ -15,15 +15,17 @@ SendGrid WebHookを受信してParquet形式でS3互換ストレージに保存�
 ## データフロー図（サービスの役割）
 
 ```mermaid
-flowchart LR
+flowchart TD
   %% Providers as subgraphs
   subgraph SG[SendGrid]
-    sg["Event Webhook\n+Verification Key"]
+    sg["Event Webhook\nVerification Key"]
   end
 
   subgraph SI[さくらインターネット]
-    platform["コンテナ実行基盤 (Docker)"]
-    app["Webhook Receiver (.NET App)"]
+    subgraph platform["コンテナ実行基盤 (Docker)"]
+      app["Webhook Receiver (.NET App)"]
+      viewer["Viewer / Compaction (.NET App)"]
+    end
     storage["S3互換ストレージ"]
   end
 
@@ -32,17 +34,23 @@ flowchart LR
     actions["GitHub Actions (CI/CD)"]
   end
 
+  subgraph AZ[Microsoft Azure]
+    entra["Azure Entra ID (認証)"]
+  end
+
   %% CI/CD and hosting
   repo -- Push/PR --> actions
-  actions -- Build/Deploy --> platform
-  platform --> app
+  actions -- Build/Deploy --> app
+  actions -- Build/Deploy --> viewer
 
   %% Webhook + verification
   sg -- "Event Webhook (JSON)" --> app
   sg -- "VerificationKey (公開鍵)" --> app
 
-  %% Data sink
+  %% Data flows
   app -- "Parquet 書き込み" --> storage
+  viewer -. "OIDC/OAuth2 認証" .-> entra
+  viewer -- "Parquet 読み取り / クエリ" --> storage
 ```
 
 ## 機能
@@ -356,7 +364,7 @@ curl -X POST http://localhost:5000/webhook/sendgrid \
 ### 図解
 
 ```mermaid
-flowchart LR
+flowchart TD
   subgraph GitHub
     repo["リポジトリ (main)"]
     actions["Actions ワークフロー"]
@@ -369,7 +377,7 @@ flowchart LR
     login["コンテナレジストリ ログイン"]
     build["docker compose build"]
     push["イメージ Push"]
-    deploy["02deploy.sh でデプロイ"]
+    deploy["SakuraCloud.sh でデプロイ"]
   end
 
   subgraph Sakura[さくらインターネット]
@@ -395,8 +403,6 @@ GitHub リポジトリの Settings > Secrets and variables > Actions > Variables
 | CONTAINER_REGISTRY_USERNAME | レジストリのユーザー名 | your-username |
 | SAKURACLOUD_ACCESS_TOKEN | さくらのクラウドAPIトークン | your-access-token |
 
-#### 2. Repository Variables の追加設定
-
 S3設定に関する Repository Variables も設定してください:
 
 | 変数名 | 説明 | 例 |
@@ -413,7 +419,7 @@ SendGrid Webhook に関する Repository Variables も任意で設定できま�
 | SENDGRID__MAXBODYBYTES | Webhook リクエストボディ上限 (バイト) | 1048576 |
 | SENDGRID__ALLOWEDSKEW | タイムスタンプ許容スキュー (`TimeSpan.Parse` 形式) | 00:05:00 |
 
-#### 3. Repository Secrets の設定
+#### 2. Repository Secrets の設定
 
 GitHub リポジトリの Settings > Secrets and variables > Actions > Secrets タブで以下のシークレットを設定:
 
@@ -465,7 +471,7 @@ GitHub Actions ワークフローは以下の条件でトリガーされます:
 3. コンテナレジストリにログイン
 4. `docker compose build` でイメージをビルド
 5. ビルドしたイメージをレジストリにプッシュ
-6. `02deploy.sh` スクリプトを実行してさくらのクラウドにデプロイ
+6. `SakuraCloud.sh` スクリプトを実行してさくらのクラウドにデプロイ
 
 ### デプロイの確認
 
