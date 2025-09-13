@@ -279,31 +279,85 @@ public class S3StorageService(
     /// <returns></returns>
     public async ValueTask<IEnumerable<string>> ListDirectoriesAsync(string prefix, DateTimeOffset now, CancellationToken ct)
     {
-        var content = await ListObjectsAsync(new ListObjectsRequest(prefix, Delimiter: "/", now), ct);
-        XDocument doc = XDocument.Parse(content);
-        XNamespace ns = doc.Root?.GetDefaultNamespace() ?? XNamespace.None;
-        return doc.Descendants(ns + "CommonPrefixes")
-            .Select(cp => cp.Element(ns + "Prefix")?.Value)
-            .Where(p => !string.IsNullOrEmpty(p))
-            .Select(p => p!.TrimEnd('/').Split('/').LastOrDefault() ?? string.Empty)
-            .Where(d => !string.IsNullOrEmpty(d));
+        var results = new List<string>();
+        string? continuationToken = null;
+
+        do
+        {
+            var content = await ListObjectsAsync(new ListObjectsRequest(prefix, Delimiter: "/", now, continuationToken), ct);
+            if (string.IsNullOrEmpty(content))
+            {
+                break;
+            }
+
+            XDocument doc = XDocument.Parse(content);
+            XNamespace ns = doc.Root?.GetDefaultNamespace() ?? XNamespace.None;
+
+            results.AddRange(
+                doc.Descendants(ns + "CommonPrefixes")
+                    .Select(cp => cp.Element(ns + "Prefix")?.Value)
+                    .Where(p => !string.IsNullOrEmpty(p))
+                    .Select(p => p!.TrimEnd('/').Split('/').LastOrDefault() ?? string.Empty)
+                    .Where(d => !string.IsNullOrEmpty(d))
+            );
+
+            bool isTruncated = string.Equals(doc.Root?.Element(ns + "IsTruncated")?.Value, "true", StringComparison.OrdinalIgnoreCase);
+            continuationToken = isTruncated ? doc.Root?.Element(ns + "NextContinuationToken")?.Value : null;
+        } while (!string.IsNullOrEmpty(continuationToken));
+
+        return results;
     }
 
     public async ValueTask<IEnumerable<string>> ListFilesAsync(string prefix, DateTimeOffset now, CancellationToken ct)
     {
-        var content = await ListObjectsAsync(new ListObjectsRequest(prefix, Delimiter: null, now), ct);
-        XDocument doc = XDocument.Parse(content);
-        XNamespace ns = doc.Root?.GetDefaultNamespace() ?? XNamespace.None;
-        return doc.Descendants(ns + "Contents")
-            .Select(cp => cp.Element(ns + "Key")?.Value!)
-            .Where(p => !string.IsNullOrEmpty(p));
+        var results = new List<string>();
+        string? continuationToken = null;
+
+        do
+        {
+            var content = await ListObjectsAsync(new ListObjectsRequest(prefix, Delimiter: null, now, continuationToken), ct);
+            if (string.IsNullOrEmpty(content))
+            {
+                break;
+            }
+
+            XDocument doc = XDocument.Parse(content);
+            XNamespace ns = doc.Root?.GetDefaultNamespace() ?? XNamespace.None;
+
+            results.AddRange(
+                doc.Descendants(ns + "Contents")
+                   .Select(cp => cp.Element(ns + "Key")?.Value!)
+                   .Where(p => !string.IsNullOrEmpty(p))
+            );
+
+            bool isTruncated = string.Equals(doc.Root?.Element(ns + "IsTruncated")?.Value, "true", StringComparison.OrdinalIgnoreCase);
+            continuationToken = isTruncated ? doc.Root?.Element(ns + "NextContinuationToken")?.Value : null;
+        } while (!string.IsNullOrEmpty(continuationToken));
+
+        return results;
     }
 
-    public record struct ListObjectsRequest(string Prefix, string? Delimiter, DateTimeOffset Now)
+    public record struct ListObjectsRequest(string Prefix, string? Delimiter, DateTimeOffset Now, string? ContinuationToken)
     {
-        internal string GetQueryString() =>
-            $"prefix={Uri.EscapeDataString(Prefix.TrimEnd('/') + "/")}" +
-            (string.IsNullOrEmpty(Delimiter) ? string.Empty : $"&delimiter={Uri.EscapeDataString(Delimiter)}");
+        internal string GetQueryString()
+        {
+            var query = new StringBuilder();
+            // Use ListObjectsV2 (supports continuation-token)
+            query.Append("list-type=2");
+            query.Append("&prefix=");
+            query.Append(Uri.EscapeDataString(Prefix.TrimEnd('/') + "/"));
+            if (!string.IsNullOrEmpty(Delimiter))
+            {
+                query.Append("&delimiter=");
+                query.Append(Uri.EscapeDataString(Delimiter));
+            }
+            if (!string.IsNullOrEmpty(ContinuationToken))
+            {
+                query.Append("&continuation-token=");
+                query.Append(Uri.EscapeDataString(ContinuationToken));
+            }
+            return query.ToString();
+        }
     }
 
     private async ValueTask<string> ListObjectsAsync(ListObjectsRequest req, CancellationToken ct)

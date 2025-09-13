@@ -64,6 +64,11 @@ flowchart TD
 
 補足: 保存されるタイムスタンプは UTC の Unix 秒です。一方で保存先のディレクトリ構造は JST(UTC+9) の日単位でグルーピングされます。
 
+## 更新情報
+
+- 2025-09-13: コンパクション実行時の対象ファイル取得を見直し、S3 の ListObjectsV2 によるページング処理に対応しました。これにより、対象日付配下の Parquet ファイルが1000件に制限されず「全件」処理されます（`SendgridParquet.Shared/S3StorageService.cs` の `ListFilesAsync` / `ListDirectoriesAsync` を継続トークンで全ページ走査する実装に変更）。コンパクション自体は `MaxBatchSizeBytes` に基づいて複数バッチに分割して進行します。
+  - 注: Viewer のホーム画面一覧（`Components/Pages/Home.razor`）には表示パフォーマンスのため `const int limit = 1000` が残っていますが、これは画面表示のみの制限であり、コンパクション処理には影響しません。
+
 ## 設定方法
 
 ASP.NET Core のOptions パターンを使用して設定を管理します。
