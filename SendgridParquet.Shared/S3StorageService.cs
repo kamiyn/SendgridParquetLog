@@ -319,6 +319,10 @@ public class S3StorageService(
 
         do
         {
+            if (ct.IsCancellationRequested)
+            {
+                break;
+            }
             var content = await ListObjectsAsync(new ListObjectsRequest(prefix, Delimiter: null, now, continuationToken), ct);
             if (string.IsNullOrEmpty(content))
             {
@@ -341,6 +345,9 @@ public class S3StorageService(
         return results;
     }
 
+    /// <summary>
+    /// https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListObjectsV2.html
+    /// </summary>
     public record struct ListObjectsRequest(string Prefix, string? Delimiter, DateTimeOffset Now, string? ContinuationToken)
     {
         internal string GetQueryString()
