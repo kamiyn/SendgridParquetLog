@@ -22,9 +22,10 @@ flowchart TD
   end
 
   subgraph SI[さくらインターネット]
-    platform["コンテナ実行基盤 (Docker)"]
-    app["Webhook Receiver (.NET App)"]
-    viewer["Viewer (Docker/.NET)"]
+    subgraph platform["コンテナ実行基盤 (Docker)"]
+      app["Webhook Receiver (.NET App)"]
+      viewer["Viewer / Compaction (.NET App)"]
+    end
     storage["S3互換ストレージ"]
   end
 
@@ -39,9 +40,8 @@ flowchart TD
 
   %% CI/CD and hosting
   repo -- Push/PR --> actions
-  actions -- Build/Deploy --> platform
-  platform --> app
-  platform --> viewer
+  actions -- Build/Deploy --> app
+  actions -- Build/Deploy --> viewer
 
   %% Webhook + verification
   sg -- "Event Webhook (JSON)" --> app
@@ -403,8 +403,6 @@ GitHub リポジトリの Settings > Secrets and variables > Actions > Variables
 | CONTAINER_REGISTRY_USERNAME | レジストリのユーザー名 | your-username |
 | SAKURACLOUD_ACCESS_TOKEN | さくらのクラウドAPIトークン | your-access-token |
 
-#### 2. Repository Variables の追加設定
-
 S3設定に関する Repository Variables も設定してください:
 
 | 変数名 | 説明 | 例 |
@@ -421,7 +419,7 @@ SendGrid Webhook に関する Repository Variables も任意で設定できま�
 | SENDGRID__MAXBODYBYTES | Webhook リクエストボディ上限 (バイト) | 1048576 |
 | SENDGRID__ALLOWEDSKEW | タイムスタンプ許容スキュー (`TimeSpan.Parse` 形式) | 00:05:00 |
 
-#### 3. Repository Secrets の設定
+#### 2. Repository Secrets の設定
 
 GitHub リポジトリの Settings > Secrets and variables > Actions > Secrets タブで以下のシークレットを設定:
 
