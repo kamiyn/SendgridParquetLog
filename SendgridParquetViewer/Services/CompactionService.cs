@@ -24,7 +24,6 @@ public class CompactionService(
     private readonly ParquetService _parquetService = parquetService;
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
     private static readonly TimeSpan LockDuration = TimeSpan.FromMinutes(30);
-    private static readonly TimeSpan MaxRunningDuration = TimeSpan.FromDays(3);
     private static readonly TimeSpan MaxInactivityDuration = TimeSpan.FromDays(1);
     private static readonly string InstanceId = $"{Environment.MachineName}_{Guid.NewGuid():N}";
 
@@ -506,9 +505,9 @@ public class CompactionService(
 
     private async Task ReadParquetFilesAsync(IReadOnlyCollection<string> files, CompactionBatchContext ctx, CancellationToken token)
     {
-        var now = timeProvider.GetUtcNow();
         foreach (string parquetFile in files)
         {
+            var now = timeProvider.GetUtcNow();
             try
             {
                 logger.ZLogInformation($"Reading Parquet file: {parquetFile}");
