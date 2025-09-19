@@ -25,6 +25,7 @@ public class CompactionService(
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
     private static readonly TimeSpan LockDuration = TimeSpan.FromMinutes(30);
     private static readonly TimeSpan MaxRunningDuration = TimeSpan.FromDays(3);
+    private static readonly TimeSpan MaxInactivityDuration = TimeSpan.FromDays(1);
     private static readonly string InstanceId = $"{Environment.MachineName}_{Guid.NewGuid():N}";
 
     public async Task<RunStatus?> GetRunStatusAsync(CancellationToken cancellationToken = default)
@@ -56,6 +57,25 @@ public class CompactionService(
     public async Task<CompactionStartResult> StartCompactionAsync(Func<RunStatus?, Task> setRunStatus, CancellationToken ct = default)
     {
         var nowUTC = timeProvider.GetUtcNow();
+        RunStatus? currentStatus = await GetRunStatusAsync(ct);
+        if (currentStatus is { EndTime: null })
+        {
+            var lastActivity = GetLastActivityTimestamp(currentStatus);
+            if (nowUTC - lastActivity > MaxInactivityDuration)
+            {
+                currentStatus = await FinalizeStalledRunAsync(currentStatus, nowUTC, setRunStatus);
+            }
+            else
+            {
+                await setRunStatus(currentStatus);
+                return new CompactionStartResult
+                {
+                    CanStart = false,
+                    Reason = $"Compaction is already running (started {currentStatus.StartTime:s}, last update {lastActivity:s})"
+                };
+            }
+        }
+
         var lockId = Guid.NewGuid().ToString();
 
         var lockAcquired = await TryAcquireLockAsync(lockId, ct);
@@ -70,20 +90,6 @@ public class CompactionService(
 
         try
         {
-            RunStatus? currentStatus = await GetRunStatusAsync(ct);
-            if (currentStatus is { EndTime: null })
-            {
-                var daysSinceStart = nowUTC - currentStatus.StartTime;
-                if (daysSinceStart <= MaxRunningDuration)
-                {
-                    return new CompactionStartResult
-                    {
-                        CanStart = false,
-                        Reason = $"Compaction is already running (started {currentStatus.StartTime:s})"
-                    };
-                }
-            }
-
             var yesterday = nowUTC.AddDays(-1); // UTC基準で昨日以前のものが対象になる = 日本時間で午前9時以降に昨日分が対象になる
             var olderThanOrEqual = new DateOnly(yesterday.Year, yesterday.Month, yesterday.Day);
             var targetDays = await GetCompactionTargetAsync(olderThanOrEqual, ct);
@@ -134,6 +140,44 @@ public class CompactionService(
             await ReleaseLockAsync(lockId, ct);
             throw;
         }
+    }
+
+    private static DateTimeOffset GetLastActivityTimestamp(RunStatus status)
+    {
+        return status.LastUpdated == default ? status.StartTime : status.LastUpdated;
+    }
+
+    private async Task<RunStatus> FinalizeStalledRunAsync(RunStatus stalledStatus, DateTimeOffset nowUtc, Func<RunStatus?, Task> setRunStatus)
+    {
+        logger.ZLogWarning($"Detected stalled compaction run (started {stalledStatus.StartTime:s}, last update {GetLastActivityTimestamp(stalledStatus):s}). Forcing completion and releasing lock.");
+
+        try
+        {
+            await ReleaseLockAsync(stalledStatus.LockId, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            logger.ZLogError(ex, "Failed to release stale compaction lock");
+        }
+
+        stalledStatus.EndTime = nowUtc;
+        stalledStatus.LastUpdated = nowUtc;
+
+        try
+        {
+            var (runJsonPath, _) = SendGridPathUtility.GetS3CompactionRunFile();
+            await using var ms = new MemoryStream();
+            await JsonSerializer.SerializeAsync(ms, stalledStatus, JsonOptions, CancellationToken.None);
+            ms.Seek(0, SeekOrigin.Begin);
+            await s3StorageService.PutObjectAsync(ms, runJsonPath, nowUtc, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            logger.ZLogError(ex, "Failed to persist forced completion status for stalled compaction run");
+        }
+
+        await setRunStatus(stalledStatus);
+        return stalledStatus;
     }
 
     /// <summary>
