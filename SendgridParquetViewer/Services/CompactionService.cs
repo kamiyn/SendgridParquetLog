@@ -157,7 +157,7 @@ public class CompactionService(
         }
         catch (Exception ex)
         {
-            logger.ZLogError(ex, "Failed to release stale compaction lock");
+            logger.ZLogError(ex, $"Failed to release stale compaction lock");
         }
 
         stalledStatus.EndTime = nowUtc;
@@ -173,7 +173,7 @@ public class CompactionService(
         }
         catch (Exception ex)
         {
-            logger.ZLogError(ex, "Failed to persist forced completion status for stalled compaction run");
+            logger.ZLogError(ex, $"Failed to persist forced completion status for stalled compaction run");
         }
 
         await setRunStatus(stalledStatus);
