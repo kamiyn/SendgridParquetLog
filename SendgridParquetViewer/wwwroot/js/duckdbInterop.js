@@ -30,6 +30,7 @@ const state = {
   db: null,
   connection: null,
   dbReady: null,
+  worker: null,
   indexedDb: null,
   manifestCache: new Map(), // monthKey -> manifest
   dayFileMap: new Map(), // dayKey -> Set(fileKey)
@@ -111,13 +112,22 @@ async function ensureDuckDb() {
 
     const duckdb = await import("https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/+esm");
     const bundles = await duckdb.selectBundle(duckdb.getJsDelivrBundles());
-    const db = new duckdb.AsyncDuckDB(new duckdb.ConsoleLogger(), bundles.mainModule, bundles.mainWorker);
-    await db.instantiate(bundles.mainModule);
+    const worker = new Worker(bundles.mainWorker, { type: "module" });
+    const db = new duckdb.AsyncDuckDB(new duckdb.ConsoleLogger(), worker);
+
+    try {
+      await db.instantiate(bundles.mainModule);
+    } catch (err) {
+      worker.terminate();
+      throw err;
+    }
+
     const connection = await db.connect();
 
     state.duckdb = duckdb;
     state.db = db;
     state.connection = connection;
+    state.worker = worker;
     return connection;
   })();
 
