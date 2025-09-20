@@ -1,5 +1,7 @@
 # AGENTS.md
 
+プロンプトに書かれた内容、および、処理内容 を Markdown 形式 ./codinglog/Gpt<yyyyMMddHHmm>.md ファイルへ記録してください
+
 ## Important Notes
 
 - do not use 'sudo' command

@@ -105,6 +105,7 @@ builder.Services.AddScoped<ParquetService>();
 
 // Add Compaction service
 builder.Services.AddScoped<CompactionService>();
+builder.Services.AddHostedService<CompactionStartupHostedService>();
 
 // Add health checks
 builder.Services.AddHealthChecks();
@@ -142,11 +143,5 @@ app.MapHealthChecks("/health6QQl").AllowAnonymous();
 // Map Aspire default endpoints (health checks etc. in dev)
 app.MapDefaultEndpoints();
 #endif
-
-{
-    // Start the compaction process in the background
-    var compactionService = app.Services.GetRequiredService<CompactionService>();
-    _ = compactionService.StartCompactionAsync((_) => Task.CompletedTask, CancellationToken.None);
-}
 
 app.Run();
