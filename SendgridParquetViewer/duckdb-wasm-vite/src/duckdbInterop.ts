@@ -76,6 +76,174 @@ interface FileMetadata {
 
 type DuckDbConnectionPromise = Promise<AsyncDuckDBConnection>;
 
+type DownloadStage =
+  | 'download:init'
+  | 'download:manifest-ready'
+  | 'download:days:start'
+  | 'download:day:start'
+  | 'download:day:complete'
+  | 'download:file:cache-hit'
+  | 'download:file:cache-miss'
+  | 'download:file:start'
+  | 'download:file:success'
+  | 'download:file:hash-mismatch'
+  | 'download:error';
+
+export interface DownloadProgressEvent {
+  readonly stage: DownloadStage;
+  readonly detail: Record<string, unknown>;
+  readonly timestamp: string;
+}
+
+interface TelemetryConfig {
+  readonly enabled: boolean;
+  readonly endpoint?: string;
+  readonly protocol?: string;
+  readonly headers: Record<string, string>;
+  readonly serviceName?: string;
+}
+
+type ProgressListener = (event: DownloadProgressEvent) => void;
+
+let progressListener: ProgressListener | null = null;
+
+export function setDownloadProgressListener(listener: ProgressListener | null): void {
+  progressListener = listener;
+}
+
+let telemetryConfigPromise: Promise<TelemetryConfig | null> | null = null;
+
+async function fetchTelemetryConfig(): Promise<TelemetryConfig | null> {
+  if (!telemetryConfigPromise) {
+    telemetryConfigPromise = (async () => {
+      try {
+        const response = await fetch('/api/telemetry/config', {
+          credentials: 'include',
+          cache: 'no-store',
+        });
+        if (!response.ok) {
+          return null;
+        }
+        const json = await response.json() as Partial<TelemetryConfig> & { headers?: Record<string, string> };
+        if (!json || !json.enabled || !json.endpoint) {
+          return null;
+        }
+        return {
+          enabled: true,
+          endpoint: json.endpoint,
+          protocol: json.protocol ?? 'http/protobuf',
+          headers: json.headers ?? {},
+          serviceName: json.serviceName ?? 'SendgridParquetViewer',
+        } satisfies TelemetryConfig;
+      } catch (error) {
+        console.warn('[duckdb-download] telemetry config fetch failed', error);
+        return null;
+      }
+    })();
+  }
+
+  return telemetryConfigPromise;
+}
+
+function emitProgress(stage: DownloadStage, detail: Record<string, unknown>): void {
+  const event: DownloadProgressEvent = {
+    stage,
+    detail,
+    timestamp: new Date().toISOString(),
+  };
+
+  try {
+    console.info('[duckdb-download]', event);
+  } catch {
+    /* ignore */
+  }
+
+  if (progressListener) {
+    try {
+      progressListener(event);
+    } catch (error) {
+      console.warn('[duckdb-download] progress listener error', error);
+    }
+  }
+
+  void sendTelemetry(event);
+}
+
+async function sendTelemetry(event: DownloadProgressEvent): Promise<void> {
+  const config = await fetchTelemetryConfig();
+  if (!config?.enabled || !config.endpoint) {
+    return;
+  }
+
+  if (config.protocol && config.protocol.toLowerCase() === 'grpc') {
+    console.warn('[duckdb-download] grpc protocol not supported in browser telemetry');
+    return;
+  }
+
+  let target = config.endpoint.trim();
+  if (!target.endsWith('/v1/logs')) {
+    target = `${target.replace(/\/$/,'')}/v1/logs`;
+  }
+
+  const timeUnixNano = `${Date.now()}000000`;
+  const attributes = [
+    {
+      key: 'download.stage',
+      value: { stringValue: event.stage },
+    },
+  ];
+
+  const body = {
+    resourceLogs: [
+      {
+        resource: {
+          attributes: [
+            {
+              key: 'service.name',
+              value: { stringValue: config.serviceName ?? 'SendgridParquetViewer' },
+            },
+          ],
+        },
+        scopeLogs: [
+          {
+            scope: {
+              name: 'duckdbInterop',
+              version: '1.0.0',
+            },
+            logRecords: [
+              {
+                timeUnixNano,
+                severityText: 'INFO',
+                body: { stringValue: JSON.stringify(event) },
+                attributes,
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+
+  const headers: Record<string, string> = {
+    'content-type': 'application/json',
+  };
+
+  for (const [key, value] of Object.entries(config.headers)) {
+    headers[key] = value;
+  }
+
+  try {
+    await fetch(target, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      keepalive: true,
+    });
+  } catch (error) {
+    console.warn('[duckdb-download] telemetry send failed', error);
+  }
+}
+
 const state: {
   db: AsyncDuckDB | null;
   connection: AsyncDuckDBConnection | null;
@@ -106,7 +274,13 @@ export async function ensureMonthPrepared(year: number, month: number): Promise<
   downloadedDays: number[];
 }> {
   await initialize();
+  emitProgress('download:init', { year, month });
   const manifest = await fetchManifest(year, month);
+  emitProgress('download:manifest-ready', {
+    year,
+    month,
+    days: manifest.Days?.length ?? 0,
+  });
   const downloadedDays = await ensureMonthFiles(manifest);
   return {
     manifest,
@@ -247,6 +421,11 @@ async function ensureMonthFiles(manifest: MonthManifest | null | undefined): Pro
 
   const year = manifest.Year;
   const month = manifest.Month;
+  emitProgress('download:days:start', {
+    year,
+    month,
+    days: manifest.Days.length,
+  });
 
   for (const dayEntry of manifest.Days) {
     if (!dayEntry || typeof dayEntry.Day !== 'number' || !Array.isArray(dayEntry.Files)) {
@@ -255,6 +434,12 @@ async function ensureMonthFiles(manifest: MonthManifest | null | undefined): Pro
 
     const dayKey = makeDayKey(year, month, dayEntry.Day);
     const filesForDay: string[] = [];
+    emitProgress('download:day:start', {
+      year,
+      month,
+      day: dayEntry.Day,
+      fileCount: dayEntry.Files.length,
+    });
 
     for (const fileEntry of dayEntry.Files) {
       if (!fileEntry?.Key) {
@@ -269,6 +454,12 @@ async function ensureMonthFiles(manifest: MonthManifest | null | undefined): Pro
     if (filesForDay.length > 0) {
       state.dayFileMap.set(dayKey, new Set(filesForDay));
       downloadedDays.add(dayEntry.Day);
+      emitProgress('download:day:complete', {
+        year,
+        month,
+        day: dayEntry.Day,
+        files: filesForDay.length,
+      });
     }
   }
 
@@ -281,6 +472,7 @@ async function ensureFileBuffer(fileEntry: ManifestFile, year: number, month: nu
   if (cached) {
     const cachedHash = cached.hash?.toLowerCase() ?? null;
     if (expectedHash && cachedHash === expectedHash) {
+      emitProgress('download:file:cache-hit', { key: fileEntry.Key, year, month, day, source: 'match' });
       return new Uint8Array(cached.data);
     }
 
@@ -291,13 +483,16 @@ async function ensureFileBuffer(fileEntry: ManifestFile, year: number, month: nu
       if (cachedHash !== computed) {
         await storeFileRecord({ key: fileEntry.Key, hash: computed, data: cached.data });
       }
+      emitProgress('download:file:cache-hit', { key: fileEntry.Key, year, month, day, hashMismatchResolved: cachedHash !== computed });
       return new Uint8Array(cached.data);
     }
   }
 
-  const buffer = await downloadFile(fileEntry.Key);
+  emitProgress('download:file:cache-miss', { key: fileEntry.Key, year, month, day });
+  const buffer = await downloadFile(fileEntry.Key, year, month, day);
   const computedHash = await computeSha256Hex(buffer);
   if (expectedHash && computedHash !== expectedHash) {
+    emitProgress('download:file:hash-mismatch', { key: fileEntry.Key, year, month, day, expectedHash, computedHash });
     throw new Error(`Hash mismatch for ${fileEntry.Key}`);
   }
 
@@ -305,9 +500,17 @@ async function ensureFileBuffer(fileEntry: ManifestFile, year: number, month: nu
   return new Uint8Array(buffer);
 }
 
-async function downloadFile(key: string): Promise<ArrayBuffer> {
-  const response = await fetch(`/api/parquet/file?key=${encodeURIComponent(key)}`, { cache: 'no-store' });
+async function downloadFile(key: string, year: number, month: number, day: number): Promise<ArrayBuffer> {
+  emitProgress('download:file:start', { key, year, month, day });
+  let response: Response;
+  try {
+    response = await fetch(`/api/parquet/file?key=${encodeURIComponent(key)}`, { cache: 'no-store' });
+  } catch (error) {
+    emitProgress('download:error', { stage: 'download:file:start', key, year, month, day, message: (error as Error).message });
+    throw error;
+  }
   if (!response.ok) {
+    emitProgress('download:error', { stage: 'download:file:start', key, year, month, day, status: response.status });
     throw new Error(`Failed to download ${key}: ${response.status}`);
   }
 
@@ -317,10 +520,12 @@ async function downloadFile(key: string): Promise<ArrayBuffer> {
     const formattedHeaderHash = headerHash.toLowerCase();
     const computed = await computeSha256Hex(buffer);
     if (computed !== formattedHeaderHash) {
+      emitProgress('download:file:hash-mismatch', { key, year, month, day, expectedHash: formattedHeaderHash, computedHash: computed, source: 'header' });
       throw new Error(`Hash mismatch for ${key} (header)`);
     }
   }
 
+  emitProgress('download:file:success', { key, year, month, day, source: 'network' });
   return buffer;
 }
 

@@ -43,3 +43,5 @@ Scratch/
 app.db
 app.db-shm
 app.db-wal
+
+SendgridParquetViewer/wwwroot/js/duckdbInterop.js
