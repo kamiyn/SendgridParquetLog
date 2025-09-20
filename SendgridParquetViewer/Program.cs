@@ -96,6 +96,10 @@ builder.Services.AddFluentUIComponents();
 builder.Services.AddTransient<DuckDbService>();
 
 
+// Add Parquet catalog service for browser downloads
+builder.Services.AddScoped<ParquetCatalogService>();
+
+
 // Add S3 storage service
 builder.Services.AddHttpClient<S3StorageService>();
 

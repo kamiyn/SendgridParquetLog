@@ -1,4 +1,7 @@
-﻿using System.Text.Json;
+﻿using System.Collections.Generic;
+using System.IO;
+using System.Security.Cryptography;
+using System.Text.Json;
 
 using Microsoft.Extensions.Options;
 
@@ -455,8 +458,16 @@ public class CompactionService(
                 }
 
                 outputFileName = SendGridPathUtility.GetParquetCompactionFileName(date, hour, outputStream);
+
+                var sha256Hex = ComputeSha256Hex(outputStream);
+
                 outputStream.Seek(0, SeekOrigin.Begin);
-                await s3StorageService.PutObjectAsync(outputStream, outputFileName, token);
+                var metadata = new Dictionary<string, string>
+                {
+                    ["sha256"] = sha256Hex
+                };
+
+                await s3StorageService.PutObjectAsync(outputStream, outputFileName, token, metadata);
                 ctx.OutputFiles.Add(outputFileName);
 
                 logger.ZLogInformation($"Created compacted file: {outputFileName} for hour {hour}");
@@ -467,6 +478,25 @@ public class CompactionService(
                 throw;
             }
         }
+    }
+
+    private static string ComputeSha256Hex(Stream stream)
+    {
+        long originalPosition = stream.CanSeek ? stream.Position : 0;
+        if (stream.CanSeek)
+        {
+            stream.Seek(0, SeekOrigin.Begin);
+        }
+
+        using var sha256 = SHA256.Create();
+        byte[] hash = sha256.ComputeHash(stream);
+
+        if (stream.CanSeek)
+        {
+            stream.Seek(originalPosition, SeekOrigin.Begin);
+        }
+
+        return Convert.ToHexString(hash).ToLowerInvariant();
     }
 
     /// <summary>

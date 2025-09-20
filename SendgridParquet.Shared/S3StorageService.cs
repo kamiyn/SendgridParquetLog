@@ -28,14 +28,23 @@ public class S3StorageService(
     private readonly S3Options _options = options.Value;
     private readonly TimeProvider _timeProvider = timeProvider;
 
-    public async ValueTask<bool> PutObjectAsync(Stream content, string key, CancellationToken ct)
+    public async ValueTask<bool> PutObjectAsync(Stream content, string key, CancellationToken ct,
+        IReadOnlyDictionary<string, string>? metadata = null)
     {
         var uri = new Uri($"{_options.SERVICEURL}/{_options.BUCKETNAME}/{key}");
         try
         {
             using var request = new HttpRequestMessage(HttpMethod.Put, uri);
 
-            AddAwsSignatureHeaders(request, content);
+            IEnumerable<KeyValuePair<string, string>>? metadataHeaders = null;
+            if (metadata is { Count: > 0 })
+            {
+                metadataHeaders = metadata
+                    .Select(kvp => new KeyValuePair<string, string>($"x-amz-meta-{kvp.Key}".ToLowerInvariant(), kvp.Value))
+                    .ToArray();
+            }
+
+            AddAwsSignatureHeaders(request, content, metadataHeaders);
 
             content.Seek(0, SeekOrigin.Begin);
             request.Content = new StreamContent(content);
@@ -61,6 +70,55 @@ public class S3StorageService(
         {
             logger.ZLogError(ex, $"Error uploading file {uri} to S3");
             return false;
+        }
+    }
+
+    public async ValueTask<S3ObjectMetadata?> GetObjectMetadataAsync(string key, CancellationToken ct)
+    {
+        var uri = new Uri($"{_options.SERVICEURL}/{_options.BUCKETNAME}/{key}");
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Head, uri);
+            using var requestContent = new MemoryStream([]);
+            AddAwsSignatureHeaders(request, requestContent);
+
+            using HttpResponseMessage response = await httpClient.SendAsync(request, ct);
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                return null;
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                string responseContent = await response.Content.ReadAsStringAsync(ct);
+                logger.ZLogError($"Error retrieving metadata for object {uri} from S3. Status: {response.StatusCode}, Response: {responseContent}");
+                throw new InvalidOperationException($"Failed to retrieve metadata: {response.StatusCode}");
+            }
+
+            long? contentLength = response.Content.Headers.ContentLength;
+            DateTimeOffset? lastModified = response.Content.Headers.LastModified;
+            if (lastModified == null && response.Headers.TryGetValues("Last-Modified", out var lastModifiedValues))
+            {
+                if (DateTimeOffset.TryParse(lastModifiedValues.FirstOrDefault(), out var parsed))
+                {
+                    lastModified = parsed;
+                }
+            }
+
+            string? sha256 = null;
+            if (response.Headers.TryGetValues("x-amz-meta-sha256", out var shaValues))
+            {
+                sha256 = shaValues.FirstOrDefault();
+            }
+
+            string? etag = response.Headers.ETag?.Tag;
+
+            return new S3ObjectMetadata(key, contentLength, lastModified, sha256, etag);
+        }
+        catch (Exception ex)
+        {
+            logger.ZLogError(ex, $"Error retrieving metadata for object {uri} from S3");
+            throw;
         }
     }
 
@@ -402,22 +460,29 @@ public class S3StorageService(
         return new S3SignatureSource(now, _options.REGION);
     }
 
-    private void AddAwsSignatureHeaders(HttpRequestMessage request, Stream content)
+    private void AddAwsSignatureHeaders(HttpRequestMessage request, Stream content,
+        IEnumerable<KeyValuePair<string, string>>? additionalHeaders = null)
     {
         var signatureSource = CreateSignatureSource();
         content.Seek(0, SeekOrigin.Begin);
         var contentHash = CalculateSHA256Hash(content);
         var uri = request.RequestUri!;
         var hostHeader = uri.IsDefaultPort ? uri.Host : $"{uri.Host}:{uri.Port}";
-        var headers = new KeyValuePair<string, string>[]
+        var headers = new List<KeyValuePair<string, string>>
         {
             new("Host", hostHeader),
             new("X-Amz-Date", signatureSource.AmzDate),
             new("X-Amz-Content-Sha256", contentHash)
         };
+
+        if (additionalHeaders != null)
+        {
+            headers.AddRange(additionalHeaders);
+        }
+
         foreach (var header in headers)
         {
-            request.Headers.Add(header.Key, header.Value);
+            request.Headers.TryAddWithoutValidation(header.Key, header.Value);
         }
 
         // Create canonical request
@@ -620,6 +685,8 @@ public class S3StorageService(
         return Convert.ToHexString(hash).ToLowerInvariant();
     }
 }
+
+public record S3ObjectMetadata(string Key, long? ContentLength, DateTimeOffset? LastModified, string? Sha256Hash, string? ETag);
 
 internal class S3CanonicalHeaders
 {
