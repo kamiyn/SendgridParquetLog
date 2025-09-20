@@ -1,8 +1,25 @@
 # Build stage
+# Build duckdb-wasm assets with Node
+ARG NODE_VERSION=20-bullseye
+FROM node:${NODE_VERSION} AS duckdb-wasm
+WORKDIR /src/SendgridParquetViewer
+
+# Install dependencies and build frontend bundle
+COPY SendgridParquetViewer/duckdb-wasm-vite/package*.json ./duckdb-wasm-vite/
+RUN cd duckdb-wasm-vite \
+ && npm ci
+
+COPY SendgridParquetViewer ./
+RUN cd duckdb-wasm-vite \
+ && npm run build
+
+# Build stage
 FROM mcr.microsoft.com/dotnet/sdk:10.0-preview AS build
 WORKDIR /src
 
 COPY . .
+# Overwrite bundled assets with freshly built output
+COPY --from=duckdb-wasm /src/SendgridParquetViewer/wwwroot/js/ SendgridParquetViewer/wwwroot/js/
 RUN dotnet restore
 
 # Publish for linux-x64 so native assets (libduckdb.so) are included

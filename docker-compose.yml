@@ -33,6 +33,8 @@ services:
     build:
       context: .
       dockerfile: SendgridParquetViewer/Dockerfile
+      args:
+        NODE_VERSION: 20-bullseye
     platform: linux/amd64
     container_name: sendgrid-parquet-viewer
     ports:
