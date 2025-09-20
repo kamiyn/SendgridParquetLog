@@ -119,14 +119,13 @@ public class WebhookHelper(
         IEnumerable<SendGridEvent> events,
         CancellationToken ct)
     {
-        DateTimeOffset now = timeProvider.GetUtcNow();
         var results = new List<HttpStatusCode>(2);
         foreach (var grp in events
                      .Select(sendgridEvent => (sendgridEvent, timestamp: JstExtension.JstUnixTimeSeconds(sendgridEvent.Timestamp)))
                      .GroupBy(pair => new DateOnly(pair.timestamp.Year, pair.timestamp.Month, pair.timestamp.Day), pair => pair.sendgridEvent))
         {
             DateOnly targetDay = grp.Key;
-            HttpStatusCode result = await WriteParquet(grp, targetDay, now, ct);
+            HttpStatusCode result = await WriteParquet(grp, targetDay, ct);
             results.Add(result);
         }
         return results;
@@ -135,7 +134,6 @@ public class WebhookHelper(
     private async ValueTask<HttpStatusCode> WriteParquet(
         IEnumerable<SendGridEvent> eventsEnumerable,
         DateOnly targetDay,
-        DateTimeOffset now,
         CancellationToken ct)
     {
         var events = eventsEnumerable.ToArray();
@@ -147,7 +145,7 @@ public class WebhookHelper(
         }
 
         string fileName = SendGridPathUtility.GetParquetNonCompactionFileName(targetDay, parquetData);
-        bool uploadSuccess = await s3StorageService.PutObjectAsync(parquetData, fileName, now, ct);
+        bool uploadSuccess = await s3StorageService.PutObjectAsync(parquetData, fileName, ct);
         if (!uploadSuccess)
         {
             logger.ZLogError($"Failed to upload Parquet file to S3");

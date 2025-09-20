@@ -328,12 +328,10 @@ else if (_hasSearched)
     private async Task<IEnumerable<SendGridEventParquet>> ExecuteSearchAsync(YearMonthDayOptional ymd, CancellationToken ct)
     {
         const int limit = 1000;
-        var now = TimeProvider.GetUtcNow();
-
         async ValueTask<IList<SendGridEventParquet>> GetFromCompactionFolder()
         {
             var prefix = SendGridPathUtility.GetS3CompactionPrefix(ymd.Year, ymd.Month, ymd.Day, ymd.Hour);
-            if (await ExistsAsync(prefix, now, ct))
+            if (await ExistsAsync(prefix, ct))
             {
                 var folder = SendGridPathUtility.GetS3CompactionWildcard(ymd.Year, ymd.Month, ymd.Day, ymd.Hour);
                 var condition = CreateSearchCondition();
@@ -346,7 +344,7 @@ else if (_hasSearched)
         async ValueTask<IList<SendGridEventParquet>> GetFromNonCompactionFolder()
         {
             var prefix = SendGridPathUtility.GetS3NonCompactionPrefix(ymd.Year, ymd.Month, ymd.Day);
-            if (await ExistsAsync(prefix, now, ct))
+            if (await ExistsAsync(prefix, ct))
             {
                 var folder = SendGridPathUtility.GetS3NonCompactionWildcard(ymd.Year, ymd.Month, ymd.Day);
                 var condition = CreateSearchCondition();
@@ -363,14 +361,14 @@ else if (_hasSearched)
     /// <summary>
     /// ディレクトリ または ファイルが存在すれば true
     /// </summary>
-    private async Task<bool> ExistsAsync(string prefix, DateTimeOffset now, CancellationToken ct)
+    private async Task<bool> ExistsAsync(string prefix, CancellationToken ct)
     {
-        var directories = await S3StorageService.ListDirectoriesAsync(prefix, now, ct);
+        var directories = await S3StorageService.ListDirectoriesAsync(prefix, ct);
         if (directories.Any())
         {
             return true;
         }
-        var files= await S3StorageService.ListFilesAsync(prefix, now, ct);
+        var files= await S3StorageService.ListFilesAsync(prefix, ct);
         if (files.Any())
         {
             return true;

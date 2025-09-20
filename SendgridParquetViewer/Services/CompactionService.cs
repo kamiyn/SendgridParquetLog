@@ -29,11 +29,10 @@ public class CompactionService(
 
     public async Task<RunStatus?> GetRunStatusAsync(CancellationToken cancellationToken = default)
     {
-        var now = timeProvider.GetUtcNow();
         var (runJsonPath, _) = SendGridPathUtility.GetS3CompactionRunFile();
         try
         {
-            var jsonContent = await s3StorageService.GetObjectAsByteArrayAsync(runJsonPath, now, cancellationToken);
+            var jsonContent = await s3StorageService.GetObjectAsByteArrayAsync(runJsonPath, cancellationToken);
             if (!jsonContent.Any())
             {
                 return null;
@@ -110,11 +109,10 @@ public class CompactionService(
             {
                 // 呼び出し元のキャンセル操作にかかわらず ログを記録したい
                 var cancellationToken = CancellationToken.None;
-                var now = timeProvider.GetUtcNow();
                 var (runJsonPath, _) = SendGridPathUtility.GetS3CompactionRunFile();
                 await using var ms = new MemoryStream();
                 await JsonSerializer.SerializeAsync(ms, status, JsonOptions, cancellationToken);
-                await s3StorageService.PutObjectAsync(ms, runJsonPath, now, cancellationToken);
+                await s3StorageService.PutObjectAsync(ms, runJsonPath, cancellationToken);
 
                 await setRunStatus(status); // 呼び出し元の RunStatus を変更する
             });
@@ -168,7 +166,7 @@ public class CompactionService(
             await using var ms = new MemoryStream();
             await JsonSerializer.SerializeAsync(ms, stalledStatus, JsonOptions, CancellationToken.None);
             ms.Seek(0, SeekOrigin.Begin);
-            await s3StorageService.PutObjectAsync(ms, runJsonPath, nowUtc, CancellationToken.None);
+            await s3StorageService.PutObjectAsync(ms, runJsonPath, CancellationToken.None);
         }
         catch (Exception ex)
         {
@@ -188,22 +186,21 @@ public class CompactionService(
     private async Task<IList<(DateOnly dateOnly, string pathPrefix)>> GetCompactionTargetAsync(DateOnly olderThanOrEqual,
         CancellationToken cancellationToken)
     {
-        var now = timeProvider.GetUtcNow();
         var targetDays = new List<(DateOnly dateOnly, string pathPrefix)>();
         try
         {
             var yearDir = await s3StorageService.ListDirectoriesAsync(
-                SendGridPathUtility.GetS3NonCompactionPrefix(null, null, null), now, cancellationToken);
+                SendGridPathUtility.GetS3NonCompactionPrefix(null, null, null), cancellationToken);
 
             foreach (int year in yearDir.Select(d => int.TryParse(d, out int v) ? v : 0).Where(year => year > 0))
             {
                 var yearPath = SendGridPathUtility.GetS3NonCompactionPrefix(year, null, null);
-                var monthDirs = await s3StorageService.ListDirectoriesAsync(yearPath, now, cancellationToken);
+                var monthDirs = await s3StorageService.ListDirectoriesAsync(yearPath, cancellationToken);
 
                 foreach (var month in monthDirs.Select(d => int.TryParse(d, out int v) ? v : 0).Where(month => month > 0))
                 {
                     var monthPath = SendGridPathUtility.GetS3NonCompactionPrefix(year, month, null);
-                    var dayDirs = await s3StorageService.ListDirectoriesAsync(monthPath, now, cancellationToken);
+                    var dayDirs = await s3StorageService.ListDirectoriesAsync(monthPath, cancellationToken);
 
                     foreach (var day in dayDirs.Select(d => int.TryParse(d, out int v) ? v : 0).Where(day => day > 0))
                     {
@@ -231,7 +228,7 @@ public class CompactionService(
         var now = timeProvider.GetUtcNow();
 
         // Try to get existing lock
-        var existingLockJson = await s3StorageService.GetObjectAsByteArrayAsync(lockPath, now, cancellationToken);
+        var existingLockJson = await s3StorageService.GetObjectAsByteArrayAsync(lockPath, cancellationToken);
         if (existingLockJson.Any())
         {
             var existingLock = JsonSerializer.Deserialize<LockInfo>(existingLockJson);
@@ -256,7 +253,7 @@ public class CompactionService(
 
         // Use conditional put with ETag to ensure atomic operation
         var success = await s3StorageService.PutObjectWithConditionAsync(
-            lockPath, lockJson, existingLockJson, now, cancellationToken);
+            lockPath, lockJson, existingLockJson, cancellationToken);
 
         if (success)
         {
@@ -268,16 +265,15 @@ public class CompactionService(
 
     private async Task ReleaseLockAsync(string lockId, CancellationToken cancellationToken)
     {
-        var now = timeProvider.GetUtcNow();
         var (_, lockPath) = SendGridPathUtility.GetS3CompactionRunFile();
-        var existingLockJson = await s3StorageService.GetObjectAsByteArrayAsync(lockPath, now, cancellationToken);
+        var existingLockJson = await s3StorageService.GetObjectAsByteArrayAsync(lockPath, cancellationToken);
 
         if (existingLockJson.Any())
         {
             var existingLock = JsonSerializer.Deserialize<LockInfo>(existingLockJson);
             if (existingLock?.LockId == lockId)
             {
-                await s3StorageService.DeleteObjectAsync(lockPath, now, cancellationToken);
+                await s3StorageService.DeleteObjectAsync(lockPath, cancellationToken);
                 logger.ZLogInformation($"Lock released successfully. Lock ID: {lockId}");
             }
         }
@@ -326,8 +322,7 @@ public class CompactionService(
     {
         logger.ZLogInformation($"List files for {targetDate} at path {pathPrefix}");
 
-        var now = timeProvider.GetUtcNow();
-        var allObjects = await s3StorageService.ListFilesAsync(pathPrefix, now, token);
+        var allObjects = await s3StorageService.ListFilesAsync(pathPrefix, token);
         var targetParquetFiles = allObjects
             .Where(key => key.EndsWith(SendGridPathUtility.ParquetFileExtension, StringComparison.OrdinalIgnoreCase))
             .ToArray();
@@ -414,10 +409,9 @@ public class CompactionService(
         if (await VerifyOutputFilesAsync(ctx, token))
         {
             // Delete original files after successful verification
-            var now = timeProvider.GetUtcNow();
             foreach (string originalFile in ctx.ProcessingFiles)
             {
-                await s3StorageService.DeleteObjectAsync(originalFile, now, token);
+                await s3StorageService.DeleteObjectAsync(originalFile, token);
             }
         }
 
@@ -444,7 +438,6 @@ public class CompactionService(
     {
         foreach (var hourGroup in ctx.SendGridEvents.GroupBy(e => e.Timestamp / 3600 /* 1時間単位に分割 */))
         {
-            var now = timeProvider.GetUtcNow();
             DateTimeOffset timestampFirst = JstExtension.JstUnixTimeSeconds(hourGroup.Select(x => x.Timestamp).First());
             var date = new DateOnly(timestampFirst.Year, timestampFirst.Month, timestampFirst.Day);
             int hour = timestampFirst.Hour;
@@ -463,7 +456,7 @@ public class CompactionService(
 
                 outputFileName = SendGridPathUtility.GetParquetCompactionFileName(date, hour, outputStream);
                 outputStream.Seek(0, SeekOrigin.Begin);
-                await s3StorageService.PutObjectAsync(outputStream, outputFileName, now, token);
+                await s3StorageService.PutObjectAsync(outputStream, outputFileName, token);
                 ctx.OutputFiles.Add(outputFileName);
 
                 logger.ZLogInformation($"Created compacted file: {outputFileName} for hour {hour}");
@@ -481,13 +474,12 @@ public class CompactionService(
     /// </summary>
     private async Task<bool> VerifyOutputFilesAsync(CompactionBatchContext ctx, CancellationToken token)
     {
-        var now = timeProvider.GetUtcNow();
         var failedFiles = new List<string>();
         foreach (string outputFile in ctx.OutputFiles)
         {
             try
             {
-                byte[] verifyData = await s3StorageService.GetObjectAsByteArrayAsync(outputFile, now, token);
+                byte[] verifyData = await s3StorageService.GetObjectAsByteArrayAsync(outputFile, token);
                 using var verifyMs = new MemoryStream(verifyData);
                 using ParquetReader verifyReader = await ParquetReader.CreateAsync(verifyMs, cancellationToken: token);
                 logger.ZLogInformation($"Verified compacted file: {outputFile} (RowGroups: {verifyReader.RowGroupCount})");
@@ -496,7 +488,7 @@ public class CompactionService(
             {
                 failedFiles.Add(outputFile);
                 logger.ZLogError(ex, $"Failed to verify compacted file: {outputFile}");
-                await s3StorageService.DeleteObjectAsync(outputFile, now, token);
+                await s3StorageService.DeleteObjectAsync(outputFile, token);
             }
         }
 
@@ -511,7 +503,7 @@ public class CompactionService(
             try
             {
                 logger.ZLogInformation($"Reading Parquet file: {parquetFile}");
-                byte[] parquetData = await s3StorageService.GetObjectAsByteArrayAsync(parquetFile, now, token);
+                byte[] parquetData = await s3StorageService.GetObjectAsByteArrayAsync(parquetFile, token);
                 if (ctx.ProcessedBytes + parquetData.Length > _compactionOptions.MaxBatchSizeBytes)
                 {
                     logger.ZLogInformation($"Reached read limit {_compactionOptions.MaxBatchSizeBytes}, stopping further reads in this batch");
