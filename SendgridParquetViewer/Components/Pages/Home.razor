@@ -1,11 +1,15 @@
-﻿@page "/"
+@page "/"
 @rendermode InteractiveServer
 @attribute [Authorize]
+@implements IAsyncDisposable
+@using System
+@using System.Collections.Generic
+@using System.Linq
+@using Microsoft.JSInterop
 @using SendgridParquetViewer.Models
-@using SendgridParquetViewer.Services
-@inject DuckDbService DuckDbService
+@using SendgridParquet.Shared
+@inject IJSRuntime JSRuntime
 @inject TimeProvider TimeProvider
-@inject S3StorageService S3StorageService
 @inject ILogger<Home> Logger
 
 <PageTitle>SendGrid Events Viewer</PageTitle>
@@ -15,20 +19,15 @@
 <div style="padding: 20px; background-color: #f8f9fa; border-radius: 8px; margin-bottom: 20px;">
     <h3>検索条件</h3>
 
-    <!-- Search Form with Flow Layout -->
     <FluentStack Orientation="Orientation.Horizontal" Wrap="true" Style="gap: 20px; align-items: flex-start;">
-
-        <!-- Email Address Field -->
         <div style="min-width: 250px;">
             <FluentTextField @bind-Value="_selectedEmail" @oninput="OnInputChange" Label="email（LIKE句）" Style="width: 100%;" Placeholder="example@domain.com" />
         </div>
 
-        <!-- SG Template ID Field -->
         <div style="min-width: 250px;">
             <FluentTextField @bind-Value="_selectedSgTemplateId" @oninput="OnInputChange" Label="sg_template_id（完全一致）" Style="width: 100%;" Placeholder="d-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
         </div>
 
-        <!-- Event Type Selection -->
         <div style="min-width: 200px;">
             <FluentLabel>イベントタイプ</FluentLabel>
             <FluentSelect TOption="string" @bind-Value="_selectedEventType" @onchange="OnEventTypeChange" Style="width: 100%; margin-top: 5px;">
@@ -39,47 +38,23 @@
             </FluentSelect>
         </div>
 
-        @* 2025年9月5日現在: 次のエラーが発生するため無効にしています
-        Error querying events by s3://sendgrid-events/v3raw/2025/09/* /* Invalid Error: Payload value bigger than allowed. Corrupted file?
-        <!-- Date Selection Mode -->
-        <div style="min-width: 250px;">
-            <FluentLabel>日付の扱い</FluentLabel>
-            <FluentRadioGroup @bind-Value="_dateSelectionMode" @onchange="OnDateSelectionModeChange" Style="margin-top: 5px;">
-                <FluentRadio Value="@DateSelectionMode.YearMonth">年月のみ使用（日付は無視）</FluentRadio>
-                <FluentRadio Value="@DateSelectionMode.YearMonthDay">年月日すべて使用</FluentRadio>
-            </FluentRadioGroup>
-        </div> *@
-
-        <!-- Date Picker - Always Visible -->
-        <div style="min-width: 200px;">
-            <FluentDatePicker @bind-Value="_selectedDate" @oninput="OnInputChange" Label="日付選択" Style="width: 100%;" />
-            @if (_dateSelectionMode == DateSelectionMode.YearMonth)
-            {
-                <small style="color: #666; margin-top: 5px; display: block;">※ 日付部分は検索で無視されます</small>
-            }
+        <div style="min-width: 260px;">
+            <FluentLabel>対象年月</FluentLabel>
+            <FluentStack Orientation="Orientation.Horizontal" Style="gap: 8px; align-items: center;">
+                <FluentButton Appearance="Appearance.Neutral" Disabled="@_isDownloading" OnClick="@(async () => await ChangeMonthAsync(-1))">前月</FluentButton>
+                <FluentDatePicker Value="_currentMonthDate" ValueChanged="OnMonthPickerChanged" ValueExpression="() => _currentMonthDate" Style="width: 160px;" />
+                <FluentButton Appearance="Appearance.Neutral" Disabled="@_isDownloading" OnClick="@(async () => await ChangeMonthAsync(1))">翌月</FluentButton>
+            </FluentStack>
+            <small style="color: #666; display: block; margin-top: 4px;">月を変更するとその月のParquetを自動取得します</small>
         </div>
 
-        @if (_dateSelectionMode == DateSelectionMode.YearMonthDay)
-        {
-            <!-- Hour Selection (Optional) -->
-            <div style="min-width: 150px;">
-                <FluentLabel>時間（オプション）</FluentLabel>
-                <FluentSelect TOption="string" @bind-Value="_selectedHourString" @onchange="OnHourSelectionChange" Style="width: 100%; margin-top: 5px;">
-                    <FluentOption TOption="string" Value="">全時間</FluentOption>
-                    @for (int i = 0; i < 24; i++)
-                    {
-                        var hour = i;
-                        <FluentOption TOption="string" Value="@hour.ToString()">@($"{hour:D2}:00 - {hour:D2}:59")</FluentOption>
-                    }
-                </FluentSelect>
-            </div>
-        }
-
-        <!-- Search Button -->
         <div style="margin-top: 25px;">
-            <FluentButton Appearance="Appearance.Accent" OnClick="SearchAsync">検索</FluentButton>
+            <FluentButton Appearance="Appearance.Accent" Disabled="@_isDownloading" OnClick="@(async () => await EnsureMonthDataAsync())">月データ再取得</FluentButton>
         </div>
 
+        <div style="margin-top: 25px;">
+            <FluentButton Appearance="Appearance.Neutral" Disabled="@(_isLoading || _isDownloading || !_selectedDay.HasValue)" OnClick="@(async () => await SearchAsync())">検索</FluentButton>
+        </div>
     </FluentStack>
 </div>
 
@@ -92,17 +67,81 @@
     </FluentMessageBar>
 }
 
+@if (_isDownloading)
+{
+    <FluentProgress />
+    <p>月データをダウンロード中です...</p>
+}
+else if (_manifestLoaded)
+{
+    <div style="margin-bottom: 10px; display: flex; gap: 16px; flex-wrap: wrap; align-items: center;">
+        <span>ダウンロード済み日数: @_downloadedDays.Count / @_availableDays.Count</span>
+        @if (_selectedDay.HasValue)
+        {
+            <span>選択中の日付: @_selectedDay.Value 日</span>
+        }
+    </div>
+
+    <div class="calendar-container">
+        <table class="calendar-table">
+            <thead>
+            <tr>
+                <th>日</th>
+                <th>月</th>
+                <th>火</th>
+                <th>水</th>
+                <th>木</th>
+                <th>金</th>
+                <th>土</th>
+            </tr>
+            </thead>
+            <tbody>
+            @foreach (var week in _calendarWeeks)
+            {
+                <tr>
+                    @foreach (var date in week)
+                    {
+                        if (date is null)
+                        {
+                            <td class="calendar-day empty"></td>
+                        }
+                        else
+                        {
+                            bool hasData = _downloadedDays.Contains(date.Value.Day);
+                            bool available = _availableDays.Contains(date.Value.Day);
+                            bool selected = _selectedDay == date.Value.Day;
+                            string buttonClass = GetCalendarButtonClass(hasData, available, selected);
+                            bool disabled = !hasData || _isLoading || _isDownloading;
+
+                            <td class="calendar-day">
+                                <button class="@buttonClass" disabled="@disabled" @onclick="@(async () => await OnDaySelectedAsync(date.Value.Day))">
+                                    @date.Value.Day
+                                </button>
+                            </td>
+                        }
+                    }
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+}
+else
+{
+    <p>月データを読み込んでください。</p>
+}
+
 @if (_isLoading)
 {
     <FluentProgress />
     <p>データを検索中...</p>
 }
-else if (_sendGridEvents.Any())
+else if (_sendGridEvents.Length > 0)
 {
     <div style="margin-top: 10px;">
-        <p>検索結果: @_sendGridEvents.Count() 件</p>
+        <p>検索結果: @_sendGridEvents.Length 件</p>
 
-        <FluentDataGrid Items="@_sendGridEvents" Pagination="@_pagination">
+        <FluentDataGrid Items="@_sendGridEvents.AsQueryable()" Pagination="@_pagination">
             <TemplateColumn Title="詳細" Style="width: 40px;">
                 <FluentButton Appearance="Appearance.Lightweight" @onclick="() => ShowEventDetails(context)">表示</FluentButton>
             </TemplateColumn>
@@ -125,7 +164,6 @@ else if (_hasSearched)
     <p>検索結果が見つかりませんでした。</p>
 }
 
-<!-- Event Details Dialog -->
 <FluentDialog Hidden="@(!ShowEventDetailsDialog)" Modal="true" TrapFocus="true">
     <FluentDialogHeader>
         <FluentStack VerticalAlignment="VerticalAlignment.Center">
@@ -142,7 +180,7 @@ else if (_hasSearched)
                     <div><strong>Event:</strong> @_selectedEvent.Event</div>
                     @if (_selectedEvent.SendAt.HasValue)
                     {
-                        <div><strong>Send At:</strong> @ToJst(_selectedEvent.SendAt.Value).ToString("yyyy-MM-dd HH:mm:ss"))</div>
+                        <div><strong>Send At:</strong> @ToJst(_selectedEvent.SendAt.Value).ToString("yyyy-MM-dd HH:mm:ss")</div>
                     }
                     @if (!string.IsNullOrEmpty(_selectedEvent.Category))
                     {
@@ -160,10 +198,6 @@ else if (_hasSearched)
                     {
                         <div><strong>SG Template ID:</strong> @_selectedEvent.SgTemplateId</div>
                     }
-                    @* @if (!string.IsNullOrEmpty(_selectedEvent.SmtpId))
-                    {
-                        <div><strong>SMTP ID:</strong> @_selectedEvent.SmtpId</div>
-                    } *@
                     @if (!string.IsNullOrEmpty(_selectedEvent.UserAgent))
                     {
                         <div><strong>User Agent:</strong> @_selectedEvent.UserAgent</div>
@@ -188,10 +222,6 @@ else if (_hasSearched)
                     {
                         <div><strong>Response:</strong> @_selectedEvent.Response</div>
                     }
-                    @* @if (_selectedEvent.Tls.HasValue)
-                    {
-                        <div><strong>TLS:</strong> @_selectedEvent.Tls</div>
-                    } *@
                     @if (!string.IsNullOrEmpty(_selectedEvent.Attempt))
                     {
                         <div><strong>Attempt:</strong> @_selectedEvent.Attempt</div>
@@ -208,22 +238,10 @@ else if (_hasSearched)
                     {
                         <div><strong>ASM Group ID:</strong> @_selectedEvent.AsmGroupId</div>
                     }
-                    @* @if (_selectedEvent.UniqueArgs != null && _selectedEvent.UniqueArgs.Any())
-                    {
-                        <div><strong>Unique Args:</strong> @JsonSerializer.Serialize(_selectedEvent.UniqueArgs)</div>
-                    }
-                    @if (_selectedEvent.MarketingCampaignId.HasValue)
-                    {
-                        <div><strong>Marketing Campaign ID:</strong> @_selectedEvent.MarketingCampaignId</div>
-                    } *@
                     @if (!string.IsNullOrEmpty(_selectedEvent.MarketingCampaignName))
                     {
                         <div><strong>Marketing Campaign Name:</strong> @_selectedEvent.MarketingCampaignName</div>
                     }
-                    @* @if (!string.IsNullOrEmpty(_selectedEvent.PoolName))
-                    {
-                        <div><strong>Pool Name:</strong> @_selectedEvent.PoolName</div>
-                    } *@
                     @if (_selectedEvent.PoolId.HasValue)
                     {
                         <div><strong>Pool ID:</strong> @_selectedEvent.PoolId</div>
@@ -238,155 +256,272 @@ else if (_hasSearched)
 </FluentDialog>
 
 @code {
-    // Enum for date selection mode
-    public enum DateSelectionMode
-    {
-        YearMonth,
-        YearMonthDay
-    }
-
-    private IQueryable<SendGridEventParquet> _sendGridEvents = Array.Empty<SendGridEventParquet>().AsQueryable();
+    private IJSObjectReference? _duckDbModule;
+    private bool _isDownloading;
     private bool _isLoading;
+    private bool _manifestLoaded;
+    private string? _errorMessage;
+
+    private int _currentYear;
+    private int _currentMonth;
+    private DateTime _currentMonthDate;
+    private int? _selectedDay;
+
+    private HashSet<int> _downloadedDays = new();
+    private HashSet<int> _availableDays = new();
+    private DateTime?[][] _calendarWeeks = Array.Empty<DateTime?[]>();
+
+    private SendGridEventParquet[] _sendGridEvents = Array.Empty<SendGridEventParquet>();
     private bool _hasSearched;
-    private string _errorMessage = "";
 
-    // Search parameters
-    private string _selectedEmail = "";
+    private string _selectedEmail = string.Empty;
     private string _selectedEventType = SendGridEventTypes.Delivered;
-    private string _selectedSgTemplateId = "";
-    private DateSelectionMode _dateSelectionMode = DateSelectionMode.YearMonthDay;
-    private DateTime? _selectedDate;
-    private string _selectedHourString = "";
-    private int? SelectedHour => int.TryParse(_selectedHourString, out int v) ? v : null;
+    private string _selectedSgTemplateId = string.Empty;
 
-    // Dialog
     private SendGridEventParquet? _selectedEvent;
     private bool ShowEventDetailsDialog => _selectedEvent != null;
 
     private readonly PaginationState _pagination = new() { ItemsPerPage = 50 };
 
-    protected override async Task OnInitializedAsync()
+    protected override void OnInitialized()
     {
-        _selectedDate = TimeProvider.GetLocalNow().DateTime;
-        await base.OnInitializedAsync();
+        var today = TimeProvider.GetLocalNow().DateTime;
+        _currentYear = today.Year;
+        _currentMonth = today.Month;
+        _currentMonthDate = new DateTime(today.Year, today.Month, 1);
     }
 
-    private void OnInputChange()
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        // Reset search state when any input changes
+        if (firstRender)
+        {
+            await EnsureDuckDbModuleAsync();
+            if (_duckDbModule != null)
+            {
+                await EnsureMonthDataAsync();
+            }
+        }
+    }
+
+    private async Task EnsureDuckDbModuleAsync()
+    {
+        if (_duckDbModule != null)
+        {
+            return;
+        }
+
+        try
+        {
+            _duckDbModule = await JSRuntime.InvokeAsync<IJSObjectReference>("import", "./js/duckdbInterop.js");
+            await _duckDbModule.InvokeVoidAsync("initialize");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to initialize duckdb interop module");
+            _errorMessage = $"DuckDB 初期化に失敗しました: {ex.Message}";
+        }
+    }
+
+    private async Task ChangeMonthAsync(int delta)
+    {
+        var target = new DateTime(_currentYear, _currentMonth, 1).AddMonths(delta);
+        await SetMonthAsync(target.Year, target.Month);
+    }
+
+    private async Task OnMonthPickerChanged(DateTime? value)
+    {
+        if (!value.HasValue)
+        {
+            return;
+        }
+        var target = new DateTime(value.Value.Year, value.Value.Month, 1);
+        await SetMonthAsync(target.Year, target.Month);
+    }
+
+    private async Task SetMonthAsync(int year, int month)
+    {
+        if (year == _currentYear && month == _currentMonth)
+        {
+            return;
+        }
+
+        _currentYear = year;
+        _currentMonth = month;
+        _currentMonthDate = new DateTime(year, month, 1);
+        _selectedDay = null;
+        _sendGridEvents = Array.Empty<SendGridEventParquet>();
         _hasSearched = false;
-        _errorMessage = "";
+        _downloadedDays.Clear();
+        _availableDays.Clear();
+        _calendarWeeks = Array.Empty<DateTime?[]>();
+        _errorMessage = null;
+
+        if (_duckDbModule != null)
+        {
+            await EnsureMonthDataAsync();
+        }
     }
 
-    private void OnDateSelectionModeChange()
+    private async Task EnsureMonthDataAsync()
     {
-        // Reset search state when date selection mode changes
-        OnInputChange();
+        if (_duckDbModule == null)
+        {
+            return;
+        }
+
+        _isDownloading = true;
+        _errorMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var result = await _duckDbModule.InvokeAsync<MonthLoadResult>("ensureMonthPrepared", _currentYear, _currentMonth);
+            _downloadedDays = result.DownloadedDays?.ToHashSet() ?? new HashSet<int>();
+            _availableDays = result.Manifest.Days.Select(d => d.Day).ToHashSet();
+            RebuildCalendar();
+        }
+        catch (JSException jsEx)
+        {
+            Logger.LogError(jsEx, "Failed to prepare month data via duckdb interop");
+            _errorMessage = $"月データの取得に失敗しました: {jsEx.Message}";
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to prepare month data");
+            _errorMessage = $"月データの取得に失敗しました: {ex.Message}";
+        }
+        finally
+        {
+            _isDownloading = false;
+            StateHasChanged();
+        }
     }
 
-    private void OnHourSelectionChange()
+    private void RebuildCalendar()
     {
-        // Reset search state when hour selection changes
-        OnInputChange();
+        var firstDay = new DateTime(_currentYear, _currentMonth, 1);
+        int daysInMonth = DateTime.DaysInMonth(_currentYear, _currentMonth);
+        const int MaxWeeks = 6;
+
+        var weeks = new DateTime?[MaxWeeks][];
+        var currentWeek = new DateTime?[7];
+        int weekCount = 0;
+        int dayOfWeekIndex = 0;
+        int offset = (int)firstDay.DayOfWeek;
+
+        for (int i = 0; i < offset; i++)
+        {
+            currentWeek[dayOfWeekIndex++] = null;
+        }
+
+        for (int day = 1; day <= daysInMonth; day++)
+        {
+            currentWeek[dayOfWeekIndex++] = new DateTime(_currentYear, _currentMonth, day);
+            if (dayOfWeekIndex == 7)
+            {
+                weeks[weekCount++] = currentWeek;
+                currentWeek = new DateTime?[7];
+                dayOfWeekIndex = 0;
+            }
+        }
+
+        if (dayOfWeekIndex > 0)
+        {
+            for (int i = dayOfWeekIndex; i < 7; i++)
+            {
+                currentWeek[i] = null;
+            }
+            weeks[weekCount++] = currentWeek;
+        }
+
+        _calendarWeeks = weekCount == 0
+            ? Array.Empty<DateTime?[]>()
+            : weeks[..weekCount].ToArray();
+        _manifestLoaded = true;
     }
 
-    private void OnEventTypeChange()
+    private static string GetCalendarButtonClass(bool hasData, bool available, bool selected)
     {
-        // Reset search state when event type selection changes
-        OnInputChange();
+        var statusClass = hasData ? "downloaded" : available ? "available" : "no-data";
+        return selected ? $"calendar-button {statusClass} selected" : $"calendar-button {statusClass}";
+    }
+
+    private async Task OnDaySelectedAsync(int day)
+    {
+        if (!_downloadedDays.Contains(day) || _isLoading)
+        {
+            return;
+        }
+
+        _selectedDay = day;
+        await LoadEventsAsync();
     }
 
     private async Task SearchAsync()
     {
-        _errorMessage = "";
+        if (!_selectedDay.HasValue)
+        {
+            _errorMessage = "日付を選択してください。";
+            return;
+        }
+
+        await LoadEventsAsync();
+    }
+
+    private async Task LoadEventsAsync()
+    {
+        if (_duckDbModule == null || !_selectedDay.HasValue)
+        {
+            return;
+        }
+
         _isLoading = true;
-        _sendGridEvents = Array.Empty<SendGridEventParquet>().AsQueryable();
+        _errorMessage = null;
+        _sendGridEvents = Array.Empty<SendGridEventParquet>();
+        StateHasChanged();
+
         try
         {
-            var ymd = _dateSelectionMode switch
-            {
-                DateSelectionMode.YearMonth => new YearMonthDayOptional(_selectedDate?.Year, _selectedDate?.Month, null, null),
-                DateSelectionMode.YearMonthDay => new YearMonthDayOptional(_selectedDate?.Year, _selectedDate?.Month, _selectedDate?.Day, SelectedHour),
-                _ => throw new ArgumentOutOfRangeException()
-            };
-            _sendGridEvents = (await ExecuteSearchAsync(ymd, CancellationToken.None)).AsQueryable();
+            var request = new QueryRequest(
+                _currentYear,
+                _currentMonth,
+                _selectedDay.Value,
+                string.IsNullOrWhiteSpace(_selectedEmail) ? null : _selectedEmail,
+                string.IsNullOrWhiteSpace(_selectedEventType) ? null : _selectedEventType,
+                string.IsNullOrWhiteSpace(_selectedSgTemplateId) ? null : _selectedSgTemplateId,
+                1000);
+
+            var results = await _duckDbModule.InvokeAsync<SendGridEventParquet[]>("queryEvents", request);
+            _sendGridEvents = results ?? Array.Empty<SendGridEventParquet>();
+            _hasSearched = true;
+        }
+        catch (JSException jsEx)
+        {
+            Logger.LogError(jsEx, "Query via duckdb interop failed");
+            _errorMessage = $"検索中にエラーが発生しました: {jsEx.Message}";
         }
         catch (Exception ex)
         {
+            Logger.LogError(ex, "Query failed");
             _errorMessage = $"検索中にエラーが発生しました: {ex.Message}";
         }
         finally
         {
             _isLoading = false;
-            _hasSearched = true;
-            StateHasChanged(); // Force UI update
+            StateHasChanged();
         }
     }
 
-    record struct YearMonthDayOptional(int? Year, int? Month, int? Day, int? Hour);
-
-    private async Task<IEnumerable<SendGridEventParquet>> ExecuteSearchAsync(YearMonthDayOptional ymd, CancellationToken ct)
+    private void OnInputChange()
     {
-        const int limit = 1000;
-        async ValueTask<IList<SendGridEventParquet>> GetFromCompactionFolder()
-        {
-            var prefix = SendGridPathUtility.GetS3CompactionPrefix(ymd.Year, ymd.Month, ymd.Day, ymd.Hour);
-            if (await ExistsAsync(prefix, ct))
-            {
-                var folder = SendGridPathUtility.GetS3CompactionWildcard(ymd.Year, ymd.Month, ymd.Day, ymd.Hour);
-                var condition = CreateSearchCondition();
-                var events = await DuckDbService.GetEventsByDateAsync(folder, condition, limit, ct);
-                Logger.LogDebug("Compaction count: {count}", events.Count);
-                return events;
-            }
-            return [];
-        }
-        async ValueTask<IList<SendGridEventParquet>> GetFromNonCompactionFolder()
-        {
-            var prefix = SendGridPathUtility.GetS3NonCompactionPrefix(ymd.Year, ymd.Month, ymd.Day);
-            if (await ExistsAsync(prefix, ct))
-            {
-                var folder = SendGridPathUtility.GetS3NonCompactionWildcard(ymd.Year, ymd.Month, ymd.Day);
-                var condition = CreateSearchCondition();
-                var events = await DuckDbService.GetEventsByDateAsync(folder, condition, limit, ct);
-                Logger.LogDebug("NonCompaction count: {count}", events.Count);
-                return events;
-            }
-            return [];
-        }
-
-        return (await GetFromCompactionFolder()).Concat(await GetFromNonCompactionFolder());
+        _hasSearched = false;
+        _errorMessage = null;
     }
 
-    /// <summary>
-    /// ディレクトリ または ファイルが存在すれば true
-    /// </summary>
-    private async Task<bool> ExistsAsync(string prefix, CancellationToken ct)
+    private void OnEventTypeChange()
     {
-        var directories = await S3StorageService.ListDirectoriesAsync(prefix, ct);
-        if (directories.Any())
-        {
-            return true;
-        }
-        var files= await S3StorageService.ListFilesAsync(prefix, ct);
-        if (files.Any())
-        {
-            return true;
-        }
-        return false;
+        OnInputChange();
     }
-
-    /// <summary>
-    /// Create search condition from current UI state
-    /// </summary>
-    /// <returns>Search condition object</returns>
-    private SendGridSearchCondition CreateSearchCondition() => 
-    new SendGridSearchCondition
-        {
-            Email = string.IsNullOrWhiteSpace(_selectedEmail) ? null : _selectedEmail,
-            Event = string.IsNullOrWhiteSpace(_selectedEventType) ? null : _selectedEventType,
-            SgTemplateId = string.IsNullOrWhiteSpace(_selectedSgTemplateId) ? null : _selectedSgTemplateId
-        };
 
     private void ShowEventDetails(SendGridEventParquet sendGridEvent)
     {
@@ -401,4 +536,22 @@ else if (_hasSearched)
     }
 
     DateTimeOffset ToJst(long u) => JstExtension.JstUnixTimeSeconds(u);
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_duckDbModule is not null)
+        {
+            try
+            {
+                await _duckDbModule.DisposeAsync();
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Failed to dispose duckdb module");
+            }
+        }
+    }
+
+    private sealed record MonthLoadResult(ParquetMonthManifest Manifest, int[] DownloadedDays);
+    private sealed record QueryRequest(int Year, int Month, int Day, string? Email, string? EventType, string? SgTemplateId, int Limit);
 }

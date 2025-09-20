@@ -3,6 +3,10 @@
 ## Important Notes
 
 - do not use 'sudo' command
+- なるべく immuntable なデータ構造を使うこと。関数内で生成されたデータは IReadOnlyList<T> で返すのが望ましい
+- IReadOnlyList<T> を作る際に、事前に要素数がわかるなら　ToArray() を使って配列にする。List<T> は避ける
+- foreach に渡すオブジェクトは IEnumerable<T> を返すような ローカル関数 として実装してメモリ割り当てを避ける
+- コード修正の最後に dotnet format を実行する
 
 ## Project Overview
 

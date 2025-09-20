@@ -58,3 +58,81 @@ h1:focus {
 .form-floating > .form-control-plaintext:focus::placeholder, .form-floating > .form-control:focus::placeholder {
     text-align: start;
 }
+
+.calendar-container {
+    max-width: 640px;
+}
+
+.calendar-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    background-color: #ffffff;
+    border: 1px solid #d6d6d6;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.calendar-table th,
+.calendar-table td {
+    text-align: center;
+    padding: 6px;
+    border-bottom: 1px solid #ececec;
+}
+
+.calendar-table thead th {
+    background-color: #f0f4f8;
+    font-weight: 600;
+}
+
+.calendar-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.calendar-day.empty {
+    background-color: #fafafa;
+}
+
+.calendar-button {
+    width: 100%;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 0;
+    font-size: 0.95rem;
+    transition: all 0.15s ease-in-out;
+    cursor: pointer;
+}
+
+.calendar-button.downloaded {
+    background-color: #0f6cbd;
+    color: #ffffff;
+}
+
+.calendar-button.available {
+    background-color: #e2ecf9;
+    color: #0f6cbd;
+}
+
+.calendar-button.no-data {
+    background-color: #f2f2f2;
+    color: #b5b5b5;
+    cursor: not-allowed;
+}
+
+.calendar-button.selected {
+    outline: 2px solid #ffb347;
+    outline-offset: 2px;
+}
+
+.calendar-button:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+}
+
+.calendar-button.downloaded:not(:disabled):hover {
+    background-color: #0c57a0;
+}
+
+.calendar-button.available:not(:disabled):hover {
+    background-color: #cddff7;
+}

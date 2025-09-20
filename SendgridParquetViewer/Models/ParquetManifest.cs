@@ -1,9 +1,9 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 
 namespace SendgridParquetViewer.Models;
 
-public record ParquetFileManifest(
+public sealed record ParquetFileManifest(
     string Key,
     int Day,
     int Hour,
@@ -13,6 +13,6 @@ public record ParquetFileManifest(
     string? ETag
 );
 
-public record ParquetDayManifest(int Day, IReadOnlyList<ParquetFileManifest> Files);
+public sealed record ParquetDayManifest(int Day, IReadOnlyList<ParquetFileManifest> Files);
 
-public record ParquetMonthManifest(int Year, int Month, IReadOnlyList<ParquetDayManifest> Days);
+public sealed record ParquetMonthManifest(int Year, int Month, IReadOnlyList<ParquetDayManifest> Days);

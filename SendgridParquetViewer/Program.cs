@@ -92,9 +92,6 @@ builder.Services.AddControllersWithViews()
 // Add Fluent UI
 builder.Services.AddFluentUIComponents();
 
-// Add DuckDB service
-builder.Services.AddTransient<DuckDbService>();
-
 
 // Add Parquet catalog service for browser downloads
 builder.Services.AddScoped<ParquetCatalogService>();

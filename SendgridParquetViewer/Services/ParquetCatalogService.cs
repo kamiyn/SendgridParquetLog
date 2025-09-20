@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -26,7 +26,10 @@ public class ParquetCatalogService(
     {
         var prefix = SendGridPathUtility.GetS3CompactionPrefix(year, month, null, null);
         var objectKeys = (await _s3StorageService.ListFilesAsync(prefix, ct)).ToArray();
-        var entries = new List<ParquetFileManifest>(objectKeys.Length);
+
+        var bufferLength = objectKeys.Length;
+        var entriesBuffer = bufferLength == 0 ? Array.Empty<ParquetFileManifest>() : new ParquetFileManifest[bufferLength];
+        var entryCount = 0;
 
         foreach (string key in objectKeys)
         {
@@ -49,7 +52,13 @@ public class ParquetCatalogService(
                 continue;
             }
 
-            entries.Add(new ParquetFileManifest(
+            if (entryCount == entriesBuffer.Length)
+            {
+                var newSize = Math.Max(4, entriesBuffer.Length * 2);
+                Array.Resize(ref entriesBuffer, newSize);
+            }
+
+            entriesBuffer[entryCount++] = new ParquetFileManifest(
                 Key: key,
                 Day: parts.Day,
                 Hour: parts.Hour,
@@ -57,8 +66,12 @@ public class ParquetCatalogService(
                 LastModified: metadata.LastModified,
                 Sha256Hash: metadata.Sha256Hash,
                 ETag: metadata.ETag
-            ));
+            );
         }
+
+        var entries = entryCount == 0
+            ? Array.Empty<ParquetFileManifest>()
+            : entriesBuffer.AsSpan(0, entryCount).ToArray();
 
         var grouped = entries
             .GroupBy(e => e.Day)
