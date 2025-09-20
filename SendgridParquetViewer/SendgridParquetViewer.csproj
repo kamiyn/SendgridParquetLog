@@ -33,8 +33,46 @@
     <DuckDbWasmVersion>1.29.0</DuckDbWasmVersion>
     <DuckDbWasmBaseUrl>https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@$(DuckDbWasmVersion)/dist</DuckDbWasmBaseUrl>
     <ApacheArrowVersion>17.0.0</ApacheArrowVersion>
-    <DuckDbAssetDirectory>$(ProjectDir)wwwroot/lib/duckdb-wasm</DuckDbAssetDirectory>
+    <DuckDbRuntimeDirectory>$(ProjectDir)wwwroot/lib/duckdb-wasm</DuckDbRuntimeDirectory>
+    <!-- The DuckDB browser bundle imports Apache Arrow using the "/npm/apache-arrow@{version}/+esm" path.
+         See https://github.com/duckdb/duckdb-wasm/blob/v1.29.0/packages/duckdb-browser/src/loader.ts -->
+    <DuckDbArrowDirectory>$(ProjectDir)wwwroot/npm/apache-arrow@$(ApacheArrowVersion)/+esm</DuckDbArrowDirectory>
   </PropertyGroup>
-  <Import Project="duckdb-wasm.targets" />
+
+  <ItemGroup>
+    <DuckDbAsset Include="$(DuckDbWasmBaseUrl)/duckdb-browser.mjs">
+      <DestinationFolder>$(DuckDbRuntimeDirectory)</DestinationFolder>
+      <DestinationFileName>duckdb-browser.mjs</DestinationFileName>
+    </DuckDbAsset>
+    <DuckDbAsset Include="$(DuckDbWasmBaseUrl)/duckdb-eh.wasm">
+      <DestinationFolder>$(DuckDbRuntimeDirectory)</DestinationFolder>
+      <DestinationFileName>duckdb-eh.wasm</DestinationFileName>
+    </DuckDbAsset>
+    <DuckDbAsset Include="$(DuckDbWasmBaseUrl)/duckdb-browser-eh.worker.js">
+      <DestinationFolder>$(DuckDbRuntimeDirectory)</DestinationFolder>
+      <DestinationFileName>duckdb-browser-eh.worker.js</DestinationFileName>
+    </DuckDbAsset>
+    <DuckDbAsset Include="$(DuckDbWasmBaseUrl)/duckdb-browser-coi.pthread.worker.js">
+      <DestinationFolder>$(DuckDbRuntimeDirectory)</DestinationFolder>
+      <DestinationFileName>duckdb-browser-coi.pthread.worker.js</DestinationFileName>
+    </DuckDbAsset>
+    <DuckDbAsset Include="https://cdn.jsdelivr.net/npm/apache-arrow@$(ApacheArrowVersion)/+esm">
+      <DestinationFolder>$(DuckDbArrowDirectory)</DestinationFolder>
+      <DestinationFileName>index.mjs</DestinationFileName>
+    </DuckDbAsset>
+  </ItemGroup>
+
+  <Target Name="EnsureDuckDbWasmAssets" BeforeTargets="BeforeBuild" Condition="'$(NoDuckDbDownload)' != 'true'">
+    <ItemGroup>
+      <DuckDbAssetToDownload Include="@(DuckDbAsset)" Condition="!Exists('%(DuckDbAsset.DestinationFolder)/%(DuckDbAsset.DestinationFileName)')" />
+      <DuckDbDirectories Include="%(DuckDbAssetToDownload.DestinationFolder)" />
+    </ItemGroup>
+
+    <MakeDir Directories="@(DuckDbDirectories)" Condition="@(DuckDbDirectories) != ''" />
+
+    <DownloadFile SourceUrl="%(DuckDbAssetToDownload.Identity)"
+                  DestinationFolder="%(DuckDbAssetToDownload.DestinationFolder)"
+                  DestinationFileName="%(DuckDbAssetToDownload.DestinationFileName)" />
+  </Target>
 
 </Project>
