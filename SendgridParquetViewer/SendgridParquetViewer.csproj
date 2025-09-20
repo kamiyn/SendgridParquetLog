@@ -29,4 +29,12 @@
     <DefineConstants>UseAspire;$(DefineConstants)</DefineConstants>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <DuckDbWasmVersion>1.29.0</DuckDbWasmVersion>
+    <DuckDbWasmBaseUrl>https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@$(DuckDbWasmVersion)/dist</DuckDbWasmBaseUrl>
+    <ApacheArrowVersion>17.0.0</ApacheArrowVersion>
+    <DuckDbAssetDirectory>$(ProjectDir)wwwroot/lib/duckdb-wasm</DuckDbAssetDirectory>
+  </PropertyGroup>
+  <Import Project="duckdb-wasm.targets" />
+
 </Project>

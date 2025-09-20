@@ -110,10 +110,14 @@ async function ensureDuckDb() {
       return state.connection;
     }
 
-    const duckdb = await import("https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/+esm");
-    const bundles = await duckdb.selectBundle(duckdb.getJsDelivrBundles());
+    const duckdbModule = await import("/lib/duckdb-wasm/duckdb-browser.mjs");
+    const bundleBase = "/lib/duckdb-wasm";
+    const bundles = {
+      mainModule: `${bundleBase}/duckdb-eh.wasm`,
+      mainWorker: `${bundleBase}/duckdb-browser-eh.worker.js`,
+    };
     const worker = new Worker(bundles.mainWorker, { type: "module" });
-    const db = new duckdb.AsyncDuckDB(new duckdb.ConsoleLogger(), worker);
+    const db = new duckdbModule.AsyncDuckDB(new duckdbModule.ConsoleLogger(), worker);
 
     try {
       await db.instantiate(bundles.mainModule);
@@ -124,7 +128,7 @@ async function ensureDuckDb() {
 
     const connection = await db.connect();
 
-    state.duckdb = duckdb;
+    state.duckdb = duckdbModule;
     state.db = db;
     state.connection = connection;
     state.worker = worker;

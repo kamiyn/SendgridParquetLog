@@ -1,0 +1,87 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <UsingTask TaskName="DownloadFileTask" TaskFactory="CodeTaskFactory" AssemblyName="Microsoft.Build.Tasks.Core">
+    <ParameterGroup>
+      <SourceUrl ParameterType="System.String" Required="true" />
+      <DestinationPath ParameterType="System.String" Required="true" />
+    </ParameterGroup>
+    <Task>
+      <Reference Include="System.Net.Http" />
+      <Using Namespace="System" />
+      <Using Namespace="System.IO" />
+      <Using Namespace="System.Net.Http" />
+      <Code Type="Fragment" Language="cs"><![CDATA[
+        var directory = Path.GetDirectoryName(DestinationPath);
+        if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        if (!File.Exists(DestinationPath))
+        {
+            using var client = new HttpClient();
+            var data = client.GetByteArrayAsync(SourceUrl).GetAwaiter().GetResult();
+            File.WriteAllBytes(DestinationPath, data);
+        }
+
+        return true;
+      ]]></Code>
+    </Task>
+  </UsingTask>
+
+  <UsingTask TaskName="ReplaceInFileTask" TaskFactory="CodeTaskFactory" AssemblyName="Microsoft.Build.Tasks.Core">
+    <ParameterGroup>
+      <FilePath ParameterType="System.String" Required="true" />
+      <OldValue ParameterType="System.String" Required="true" />
+      <NewValue ParameterType="System.String" Required="true" />
+    </ParameterGroup>
+    <Task>
+      <Using Namespace="System" />
+      <Using Namespace="System.IO" />
+      <Code Type="Fragment" Language="cs"><![CDATA[
+        if (!File.Exists(FilePath))
+        {
+            return true;
+        }
+
+        var text = File.ReadAllText(FilePath);
+        var updated = text.Replace(OldValue, NewValue, StringComparison.Ordinal);
+        if (!ReferenceEquals(text, updated))
+        {
+            File.WriteAllText(FilePath, updated);
+        }
+
+        return true;
+      ]]></Code>
+    </Task>
+  </UsingTask>
+
+  <ItemGroup>
+    <DuckDbAsset Include="$(DuckDbWasmBaseUrl)/duckdb-browser.mjs">
+      <Destination>$(DuckDbAssetDirectory)/duckdb-browser.mjs</Destination>
+    </DuckDbAsset>
+    <DuckDbAsset Include="$(DuckDbWasmBaseUrl)/duckdb-eh.wasm">
+      <Destination>$(DuckDbAssetDirectory)/duckdb-eh.wasm</Destination>
+    </DuckDbAsset>
+    <DuckDbAsset Include="$(DuckDbWasmBaseUrl)/duckdb-browser-eh.worker.js">
+      <Destination>$(DuckDbAssetDirectory)/duckdb-browser-eh.worker.js</Destination>
+    </DuckDbAsset>
+    <DuckDbAsset Include="$(DuckDbWasmBaseUrl)/duckdb-browser-coi.pthread.worker.js">
+      <Destination>$(DuckDbAssetDirectory)/duckdb-browser-coi.pthread.worker.js</Destination>
+    </DuckDbAsset>
+    <DuckDbAsset Include="https://cdn.jsdelivr.net/npm/apache-arrow@$(ApacheArrowVersion)/+esm">
+      <Destination>$(DuckDbAssetDirectory)/apache-arrow.mjs</Destination>
+    </DuckDbAsset>
+  </ItemGroup>
+
+  <Target Name="EnsureDuckDbWasmAssets" BeforeTargets="BeforeBuild" Condition="'$(NoDuckDbDownload)' != 'true'">
+    <ItemGroup>
+      <DuckDbAssetToDownload Include="@(DuckDbAsset)" Condition="!Exists('%(DuckDbAsset.Destination)')" />
+    </ItemGroup>
+
+    <DownloadFileTask SourceUrl="%(DuckDbAssetToDownload.Identity)" DestinationPath="%(DuckDbAssetToDownload.Destination)" />
+
+    <ReplaceInFileTask FilePath="$(DuckDbAssetDirectory)/duckdb-browser.mjs"
+                       OldValue="\"/npm/apache-arrow@$(ApacheArrowVersion)/+esm\""
+                       NewValue="\"./apache-arrow.mjs\"" />
+  </Target>
+</Project>

@@ -43,3 +43,6 @@ Scratch/
 app.db
 app.db-shm
 app.db-wal
+
+# Generated DuckDB WASM assets
+SendgridParquetViewer/wwwroot/lib/duckdb-wasm/
