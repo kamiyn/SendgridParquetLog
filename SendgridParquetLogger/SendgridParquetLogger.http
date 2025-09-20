@@ -318,15 +318,7 @@ Content-Type: application/json
     "category": "cat facts",
     "sg_event_id": "sg_event_id_202403011300_1757941316",
     "sg_message_id": "sg_message_id_202403011300_1757941316"
-  }
-]
-
-###
-# Sendgrid WebHook Event
-POST {{SendgridParquetLogger_HostAddress}}/webhook/sendgrid
-Content-Type: application/json
-
-[
+  },
   {
     "email": "example@example.com",
     "timestamp": 1709194530,
