@@ -175,9 +175,10 @@ async function sendTelemetry(event: DownloadProgressEvent): Promise<void> {
     return;
   }
 
-  if (config.protocol && config.protocol.toLowerCase() === 'grpc') {
-    console.warn('[duckdb-download] grpc protocol not supported in browser telemetry');
-    return;
+  let protocol = config.protocol?.toLowerCase();
+  if (protocol === 'grpc') {
+    console.warn('[duckdb-download] grpc protocol not supported in browsers; falling back to http/protobuf');
+    protocol = 'http/protobuf';
   }
 
   let target = config.endpoint.trim();
