@@ -42,7 +42,7 @@
             <FluentLabel>対象年月</FluentLabel>
             <FluentStack Orientation="Orientation.Horizontal" Style="gap: 8px; align-items: center;">
                 <FluentButton Appearance="Appearance.Neutral" Disabled="@_isDownloading" OnClick="@(async () => await ChangeMonthAsync(-1))">前月</FluentButton>
-                <FluentDatePicker Value="_currentMonthDate" ValueChanged="OnMonthPickerChanged" ValueExpression="() => _currentMonthDate" Style="width: 160px;" />
+                <FluentDatePicker Value="CurrentMonthDate" ValueChanged="OnMonthPickerChanged" ValueExpression="() => CurrentMonthDate" Style="width: 160px;" />
                 <FluentButton Appearance="Appearance.Neutral" Disabled="@_isDownloading" OnClick="@(async () => await ChangeMonthAsync(1))">翌月</FluentButton>
             </FluentStack>
             <small style="color: #666; display: block; margin-top: 4px;">月を変更するとその月のParquetを自動取得します</small>
@@ -264,7 +264,7 @@ else if (_hasSearched)
 
     private int _currentYear;
     private int _currentMonth;
-    private DateTime _currentMonthDate;
+    private DateTime? CurrentMonthDate { get; set; }
     private int? _selectedDay;
 
     private HashSet<int> _downloadedDays = new();
@@ -288,7 +288,7 @@ else if (_hasSearched)
         var today = TimeProvider.GetLocalNow().DateTime;
         _currentYear = today.Year;
         _currentMonth = today.Month;
-        _currentMonthDate = new DateTime(today.Year, today.Month, 1);
+        CurrentMonthDate = new DateTime(today.Year, today.Month, 1);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -347,7 +347,7 @@ else if (_hasSearched)
 
         _currentYear = year;
         _currentMonth = month;
-        _currentMonthDate = new DateTime(year, month, 1);
+        CurrentMonthDate = new DateTime(year, month, 1);
         _selectedDay = null;
         _sendGridEvents = Array.Empty<SendGridEventParquet>();
         _hasSearched = false;
