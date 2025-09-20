@@ -468,25 +468,30 @@ public class S3StorageService(
         var contentHash = CalculateSHA256Hash(content);
         var uri = request.RequestUri!;
         var hostHeader = uri.IsDefaultPort ? uri.Host : $"{uri.Host}:{uri.Port}";
-        var headers = new List<KeyValuePair<string, string>>
+        IEnumerable<(string Key, string Value)> EnumerateHeaders()
         {
-            new("Host", hostHeader),
-            new("X-Amz-Date", signatureSource.AmzDate),
-            new("X-Amz-Content-Sha256", contentHash)
-        };
+            yield return ("Host", hostHeader);
+            yield return ("X-Amz-Date", signatureSource.AmzDate);
+            yield return ("X-Amz-Content-Sha256", contentHash);
 
-        if (additionalHeaders != null)
-        {
-            headers.AddRange(additionalHeaders);
+            if (additionalHeaders == null)
+            {
+                yield break;
+            }
+
+            foreach (var header in additionalHeaders)
+            {
+                yield return (header.Key, header.Value);
+            }
         }
 
-        foreach (var header in headers)
+        foreach (var (key, value) in EnumerateHeaders())
         {
-            request.Headers.TryAddWithoutValidation(header.Key, header.Value);
+            request.Headers.TryAddWithoutValidation(key, value);
         }
 
         // Create canonical request
-        var canonicalHeaders = new S3CanonicalHeaders(headers);
+        var canonicalHeaders = new S3CanonicalHeaders(EnumerateHeaders());
         var canonicalRequest = CreateCanonicalRequest(request, contentHash, canonicalHeaders);
         var canonicalRequestHash = CalculateSHA256Hash(Encoding.UTF8.GetBytes(canonicalRequest));
         var credentialScope = signatureSource.GetCredentialScope();
@@ -691,7 +696,7 @@ public record S3ObjectMetadata(string Key, long? ContentLength, DateTimeOffset? 
 internal class S3CanonicalHeaders
 {
     private readonly SortedDictionary<string, string> _sortedHeaders;
-    internal S3CanonicalHeaders(IEnumerable<KeyValuePair<string, string>> headers)
+    internal S3CanonicalHeaders(IEnumerable<(string Key, string Value)> headers)
     {
         // Create canonical headers (must be sorted)
         // キーは小文字に変換した状態で管理される
