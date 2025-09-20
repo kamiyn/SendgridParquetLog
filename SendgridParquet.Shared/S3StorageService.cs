@@ -21,20 +21,21 @@ namespace SendgridParquet.Shared;
 public class S3StorageService(
     ILogger<S3StorageService> logger,
     IOptions<S3Options> options,
-    HttpClient httpClient
+    HttpClient httpClient,
+    TimeProvider timeProvider
 )
 {
     private readonly S3Options _options = options.Value;
+    private readonly TimeProvider _timeProvider = timeProvider;
 
-    public async ValueTask<bool> PutObjectAsync(Stream content, string key, DateTimeOffset now, CancellationToken ct)
+    public async ValueTask<bool> PutObjectAsync(Stream content, string key, CancellationToken ct)
     {
-        S3SignatureSource signatureSource = new(now, _options.REGION);
         var uri = new Uri($"{_options.SERVICEURL}/{_options.BUCKETNAME}/{key}");
         try
         {
             using var request = new HttpRequestMessage(HttpMethod.Put, uri);
 
-            AddAwsSignatureHeaders(request, content, signatureSource);
+            AddAwsSignatureHeaders(request, content);
 
             content.Seek(0, SeekOrigin.Begin);
             request.Content = new StreamContent(content);
@@ -63,17 +64,16 @@ public class S3StorageService(
         }
     }
 
-    private async ValueTask<bool> BucketExistsAsync(DateTimeOffset now, CancellationToken ct)
+    private async ValueTask<bool> BucketExistsAsync(CancellationToken ct)
     {
         string uriString = $"{_options.SERVICEURL}/{_options.BUCKETNAME}/?max-keys=1";
         logger.ZLogInformation($"Bucket {uriString} checking");
-        S3SignatureSource signatureSource = new(now, _options.REGION);
         try
         {
             var uri = new Uri(uriString);
             using HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Get, uri);
             using var requestContent = new MemoryStream([]);
-            AddAwsSignatureHeaders(request, requestContent, signatureSource);
+            AddAwsSignatureHeaders(request, requestContent);
             using HttpResponseMessage response = await httpClient.SendAsync(request, ct);
             string content = await response.Content.ReadAsStringAsync(ct);
             logger.ZLogDebug($"Content {content}");
@@ -86,19 +86,18 @@ public class S3StorageService(
         }
     }
 
-    public async ValueTask CreateBucketIfNotExistsAsync(DateTimeOffset now, CancellationToken ct)
+    public async ValueTask CreateBucketIfNotExistsAsync(CancellationToken ct)
     {
-        if (!await BucketExistsAsync(now, ct))
+        if (!await BucketExistsAsync(ct))
         {
             string uriString = $"{_options.SERVICEURL}/{_options.BUCKETNAME}";
             logger.ZLogInformation($"Bucket {uriString} creating");
-            S3SignatureSource signatureSource = new(now, _options.REGION);
             try
             {
                 var uri = new Uri(uriString);
                 var request = new HttpRequestMessage(HttpMethod.Put, uri);
                 using var requestContent = new MemoryStream([]);
-                AddAwsSignatureHeaders(request, requestContent, signatureSource);
+                AddAwsSignatureHeaders(request, requestContent);
                 var response = await httpClient.SendAsync(request, ct);
                 if (response.IsSuccessStatusCode)
                 {
@@ -127,15 +126,14 @@ public class S3StorageService(
     /// <param name="now"></param>
     /// <param name="ct"></param>
     /// <returns></returns>
-    public async ValueTask<byte[]> GetObjectAsByteArrayAsync(string key, DateTimeOffset now, CancellationToken ct)
+    public async ValueTask<byte[]> GetObjectAsByteArrayAsync(string key, CancellationToken ct)
     {
-        S3SignatureSource signatureSource = new(now, _options.REGION);
         var uri = new Uri($"{_options.SERVICEURL}/{_options.BUCKETNAME}/{key}");
         try
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, uri);
             using var requestContent = new MemoryStream([]);
-            AddAwsSignatureHeaders(request, requestContent, signatureSource);
+            AddAwsSignatureHeaders(request, requestContent);
             using HttpResponseMessage response = await httpClient.SendAsync(request, ct);
             byte[] content = await response.Content.ReadAsByteArrayAsync(ct);
 
@@ -162,15 +160,14 @@ public class S3StorageService(
         }
     }
 
-    public async ValueTask<bool> DeleteObjectAsync(string key, DateTimeOffset now, CancellationToken ct)
+    public async ValueTask<bool> DeleteObjectAsync(string key, CancellationToken ct)
     {
-        S3SignatureSource signatureSource = new(now, _options.REGION);
         var uri = new Uri($"{_options.SERVICEURL}/{_options.BUCKETNAME}/{key}");
         try
         {
             using var request = new HttpRequestMessage(HttpMethod.Delete, uri);
             using var requestContent = new MemoryStream([]);
-            AddAwsSignatureHeaders(request, requestContent, signatureSource);
+            AddAwsSignatureHeaders(request, requestContent);
             using HttpResponseMessage response = await httpClient.SendAsync(request, ct);
 
             if (response.IsSuccessStatusCode || response.StatusCode == HttpStatusCode.NoContent)
@@ -192,9 +189,8 @@ public class S3StorageService(
         }
     }
 
-    public async ValueTask<bool> PutObjectWithConditionAsync(string key, byte[] content, byte[] existingLockJson, DateTimeOffset now, CancellationToken ct)
+    public async ValueTask<bool> PutObjectWithConditionAsync(string key, byte[] content, byte[] existingLockJson, CancellationToken ct)
     {
-        S3SignatureSource signatureSource = new(now, _options.REGION);
         var uri = new Uri($"{_options.SERVICEURL}/{_options.BUCKETNAME}/{key}");
         try
         {
@@ -202,7 +198,7 @@ public class S3StorageService(
             string? currentETag = null;
             if (existingLockJson.Any())
             {
-                currentETag = await GetCurrentEtag(uri, signatureSource, ct);
+                currentETag = await GetCurrentEtagAsync(uri, ct);
                 // Expected content but no current object - should fail
                 if (string.IsNullOrEmpty(currentETag))
                 {
@@ -225,7 +221,7 @@ public class S3StorageService(
                 request.Headers.TryAddWithoutValidation("If-None-Match", "*");
             }
 
-            AddAwsSignatureHeaders(request, stream, signatureSource);
+            AddAwsSignatureHeaders(request, stream);
 
             stream.Seek(0, SeekOrigin.Begin);
             request.Content = new StreamContent(stream);
@@ -260,11 +256,11 @@ public class S3StorageService(
     /// <summary>
     /// HEAD リクエストを送り、ETag ヘッダーを取得する
     /// </summary>
-    private async ValueTask<string?> GetCurrentEtag(Uri uri, S3SignatureSource signatureSource, CancellationToken ct)
+    private async ValueTask<string?> GetCurrentEtagAsync(Uri uri, CancellationToken ct)
     {
         using var headRequest = new HttpRequestMessage(HttpMethod.Head, uri);
         using var headRequestContent = new MemoryStream([]);
-        AddAwsSignatureHeaders(headRequest, headRequestContent, signatureSource);
+        AddAwsSignatureHeaders(headRequest, headRequestContent);
         using HttpResponseMessage headResponse = await httpClient.SendAsync(headRequest, ct);
         return headResponse.IsSuccessStatusCode ? headResponse.Headers.ETag?.Tag : null;
     }
@@ -277,7 +273,7 @@ public class S3StorageService(
     /// <param name="now"></param>
     /// <param name="ct"></param>
     /// <returns></returns>
-    public async ValueTask<IEnumerable<string>> ListDirectoriesAsync(string prefix, DateTimeOffset now, CancellationToken ct)
+    public async ValueTask<IEnumerable<string>> ListDirectoriesAsync(string prefix, CancellationToken ct)
     {
         var results = new List<string>();
         string? continuationToken = null;
@@ -288,7 +284,7 @@ public class S3StorageService(
             {
                 break;
             }
-            var content = await ListObjectsAsync(new ListObjectsRequest(prefix, Delimiter: "/", now, continuationToken), ct);
+            var content = await ListObjectsAsync(new ListObjectsRequest(prefix, "/", continuationToken), ct);
             if (string.IsNullOrEmpty(content))
             {
                 break;
@@ -312,7 +308,7 @@ public class S3StorageService(
         return results;
     }
 
-    public async ValueTask<IEnumerable<string>> ListFilesAsync(string prefix, DateTimeOffset now, CancellationToken ct)
+    public async ValueTask<IEnumerable<string>> ListFilesAsync(string prefix, CancellationToken ct)
     {
         var results = new List<string>();
         string? continuationToken = null;
@@ -323,7 +319,7 @@ public class S3StorageService(
             {
                 break;
             }
-            var content = await ListObjectsAsync(new ListObjectsRequest(prefix, Delimiter: null, now, continuationToken), ct);
+            var content = await ListObjectsAsync(new ListObjectsRequest(prefix, null, continuationToken), ct);
             if (string.IsNullOrEmpty(content))
             {
                 break;
@@ -348,7 +344,7 @@ public class S3StorageService(
     /// <summary>
     /// https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListObjectsV2.html
     /// </summary>
-    public record struct ListObjectsRequest(string Prefix, string? Delimiter, DateTimeOffset Now, string? ContinuationToken)
+    public record struct ListObjectsRequest(string Prefix, string? Delimiter, string? ContinuationToken)
     {
         internal string GetQueryString()
         {
@@ -373,14 +369,13 @@ public class S3StorageService(
 
     private async ValueTask<string> ListObjectsAsync(ListObjectsRequest req, CancellationToken ct)
     {
-        S3SignatureSource signatureSource = new(req.Now, _options.REGION);
         try
         {
             var uriString = $"{_options.SERVICEURL}/{_options.BUCKETNAME}/?{req.GetQueryString()}";
             var uri = new Uri(uriString);
             using var request = new HttpRequestMessage(HttpMethod.Get, uri);
             using var requestContent = new MemoryStream([]);
-            AddAwsSignatureHeaders(request, requestContent, signatureSource);
+            AddAwsSignatureHeaders(request, requestContent);
             using HttpResponseMessage response = await httpClient.SendAsync(request, ct);
             string content = await response.Content.ReadAsStringAsync(ct);
 
@@ -401,8 +396,15 @@ public class S3StorageService(
         }
     }
 
-    private void AddAwsSignatureHeaders(HttpRequestMessage request, Stream content, S3SignatureSource signatureSource)
+    private S3SignatureSource CreateSignatureSource()
     {
+        var now = _timeProvider.GetUtcNow();
+        return new S3SignatureSource(now, _options.REGION);
+    }
+
+    private void AddAwsSignatureHeaders(HttpRequestMessage request, Stream content)
+    {
+        var signatureSource = CreateSignatureSource();
         content.Seek(0, SeekOrigin.Begin);
         var contentHash = CalculateSHA256Hash(content);
         var uri = request.RequestUri!;

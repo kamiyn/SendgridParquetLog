@@ -54,7 +54,7 @@ var app = builder.Build();
 // if (!app.Environment.IsDevelopment())
 {
     var s3Service = app.Services.GetRequiredService<S3StorageService>();
-    await s3Service.CreateBucketIfNotExistsAsync(TimeProvider.System.GetUtcNow(), CancellationToken.None);
+    await s3Service.CreateBucketIfNotExistsAsync(CancellationToken.None);
 }
 #if UseSwagger
 {
