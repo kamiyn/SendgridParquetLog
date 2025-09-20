@@ -42,7 +42,7 @@
             <FluentLabel>対象年月</FluentLabel>
             <FluentStack Orientation="Orientation.Horizontal" Style="gap: 8px; align-items: center;">
                 <FluentButton Appearance="Appearance.Neutral" Disabled="@_isDownloading" OnClick="@(async () => await ChangeMonthAsync(-1))">前月</FluentButton>
-                <FluentDatePicker Value="CurrentMonthDate" ValueChanged="OnMonthPickerChanged" ValueExpression="() => CurrentMonthDate" Style="width: 160px;" />
+                <FluentDatePicker @bind-Value="CurrentMonthDate" @bind-Value:after="OnMonthPickerAfterChanged" Style="width: 160px;" />
                 <FluentButton Appearance="Appearance.Neutral" Disabled="@_isDownloading" OnClick="@(async () => await ChangeMonthAsync(1))">翌月</FluentButton>
             </FluentStack>
             <small style="color: #666; display: block; margin-top: 4px;">月を変更するとその月のParquetを自動取得します</small>
@@ -328,13 +328,15 @@ else if (_hasSearched)
         await SetMonthAsync(target.Year, target.Month);
     }
 
-    private async Task OnMonthPickerChanged(DateTime? value)
+    private async Task OnMonthPickerAfterChanged()
     {
-        if (!value.HasValue)
+        if (!CurrentMonthDate.HasValue)
         {
             return;
         }
-        var target = new DateTime(value.Value.Year, value.Value.Month, 1);
+
+        var selected = CurrentMonthDate.Value;
+        var target = new DateTime(selected.Year, selected.Month, 1);
         await SetMonthAsync(target.Year, target.Month);
     }
 
