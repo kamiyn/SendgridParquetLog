@@ -1,6 +1,4 @@
-﻿using System.Collections.Generic;
-using System.IO;
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Text.Json;
 
 using Microsoft.Extensions.Options;
@@ -24,7 +22,6 @@ public class CompactionService(
 )
 {
     private readonly CompactionOptions _compactionOptions = compactionOptions.Value;
-    private readonly ParquetService _parquetService = parquetService;
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
     private static readonly TimeSpan LockDuration = TimeSpan.FromMinutes(30);
     private static readonly TimeSpan MaxInactivityDuration = TimeSpan.FromDays(1);
@@ -450,7 +447,7 @@ public class CompactionService(
             {
                 logger.ZLogInformation($"Creating compacted file for hour {hour} with {hourEvents.Count()} events");
 
-                await using Stream? outputStream = await _parquetService.ConvertToParquetAsync(hourEvents);
+                await using Stream? outputStream = await parquetService.ConvertToParquetAsync(hourEvents);
                 if (outputStream == null)
                 {
                     logger.ZLogWarning($"Failed to create parquet data for hour {hour}");
@@ -529,7 +526,6 @@ public class CompactionService(
     {
         foreach (string parquetFile in files)
         {
-            var now = timeProvider.GetUtcNow();
             try
             {
                 logger.ZLogInformation($"Reading Parquet file: {parquetFile}");
@@ -546,7 +542,7 @@ public class CompactionService(
                     for (int rowGroupIndex = 0; rowGroupIndex < parquetReader.RowGroupCount; rowGroupIndex++)
                     {
                         using ParquetRowGroupReader rowGroupReader = parquetReader.OpenRowGroupReader(rowGroupIndex);
-                        await foreach (SendGridEvent e in _parquetService.ReadRowGroupEventsAsync(rowGroupReader, parquetReader, token))
+                        await foreach (SendGridEvent e in parquetService.ReadRowGroupEventsAsync(rowGroupReader, parquetReader, token))
                         {
                             ctx.SendGridEvents.Add(e);
                         }
