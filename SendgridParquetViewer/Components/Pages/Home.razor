@@ -255,7 +255,7 @@ else if (_hasSearched)
     private string _selectedEventType = SendGridEventTypes.Delivered;
     private string _selectedSgTemplateId = "";
     private DateSelectionMode _dateSelectionMode = DateSelectionMode.YearMonthDay;
-    private DateTime? _selectedDate;
+    private DateTime? _selectedDate = DateTime.UnixEpoch; // FluentDatePicker に bind するときは nullable でなければならない
     private string _selectedHourString = "";
     private int? SelectedHour => int.TryParse(_selectedHourString, out int v) ? v : null;
 
@@ -267,7 +267,7 @@ else if (_hasSearched)
 
     protected override async Task OnInitializedAsync()
     {
-        _selectedDate = TimeProvider.GetLocalNow().DateTime;
+        _selectedDate = TimeProvider.GetLocalNow().AddDays(-3).DateTime;
         await base.OnInitializedAsync();
     }
 
