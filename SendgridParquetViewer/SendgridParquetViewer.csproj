@@ -10,7 +10,6 @@
 
   <ItemGroup>
     <PackageReference Include="Dapper" Version="2.1.66" />
-    <PackageReference Include="DuckDB.NET.Data.Full" Version="1.3.2" />
     <PackageReference Include="Microsoft.FluentUI.AspNetCore.Components" Version="4.12.1" />
     <PackageReference Include="Microsoft.Identity.Web" Version="3.14.1" />
     <PackageReference Include="Microsoft.Identity.Web.UI" Version="3.14.1" />
@@ -34,9 +33,6 @@
     <DuckDbWasmBaseUrl>https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@$(DuckDbWasmVersion)/dist</DuckDbWasmBaseUrl>
     <ApacheArrowVersion>17.0.0</ApacheArrowVersion>
     <DuckDbRuntimeDirectory>$(ProjectDir)wwwroot/lib/duckdb-wasm</DuckDbRuntimeDirectory>
-    <!-- The DuckDB browser bundle imports Apache Arrow using the "/npm/apache-arrow@{version}/+esm" path.
-         See https://github.com/duckdb/duckdb-wasm/blob/v1.29.0/packages/duckdb-browser/src/loader.ts -->
-    <DuckDbArrowDirectory>$(ProjectDir)wwwroot/npm/apache-arrow@$(ApacheArrowVersion)/+esm</DuckDbArrowDirectory>
   </PropertyGroup>
 
   <ItemGroup>
@@ -55,10 +51,6 @@
     <DuckDbAsset Include="$(DuckDbWasmBaseUrl)/duckdb-browser-coi.pthread.worker.js">
       <DestinationFolder>$(DuckDbRuntimeDirectory)</DestinationFolder>
       <DestinationFileName>duckdb-browser-coi.pthread.worker.js</DestinationFileName>
-    </DuckDbAsset>
-    <DuckDbAsset Include="https://cdn.jsdelivr.net/npm/apache-arrow@$(ApacheArrowVersion)/+esm">
-      <DestinationFolder>$(DuckDbArrowDirectory)</DestinationFolder>
-      <DestinationFileName>index.mjs</DestinationFileName>
     </DuckDbAsset>
   </ItemGroup>
 

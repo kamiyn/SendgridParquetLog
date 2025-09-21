@@ -5,7 +5,6 @@ WORKDIR /src
 COPY . .
 RUN dotnet restore
 
-# Publish for linux-x64 so native assets (libduckdb.so) are included
 WORKDIR /src/SendgridParquetViewer
 RUN dotnet publish -c Release -r linux-x64 -o /app/publish \
  --self-contained false \
