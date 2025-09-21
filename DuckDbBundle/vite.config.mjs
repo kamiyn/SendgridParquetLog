@@ -20,7 +20,7 @@ function copySourcePlugin() {
 export default defineConfig({
   plugins: [copySourcePlugin()],
   build: {
-    outDir: resolve(__dirname, '../SendgridParquetViewer/wwwroot/lib/duckdb-wasm'),
+    outDir: resolve(__dirname, '../SendgridParquetViewer/wwwroot/duckdb'),
     emptyOutDir: false,
     sourcemap: true,
     lib: {

@@ -32,7 +32,7 @@
     <DuckDbWasmVersion>1.29.0</DuckDbWasmVersion>
     <DuckDbWasmBaseUrl>https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@$(DuckDbWasmVersion)/dist</DuckDbWasmBaseUrl>
     <ApacheArrowVersion>17.0.0</ApacheArrowVersion>
-    <DuckDbRuntimeDirectory>$(ProjectDir)wwwroot/lib/duckdb-wasm</DuckDbRuntimeDirectory>
+    <DuckDbRuntimeDirectory>$(ProjectDir)wwwroot/duckdb</DuckDbRuntimeDirectory>
   </PropertyGroup>
 
   <ItemGroup>

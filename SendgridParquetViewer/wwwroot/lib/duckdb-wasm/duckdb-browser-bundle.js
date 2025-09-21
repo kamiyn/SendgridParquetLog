@@ -8177,14 +8177,14 @@ const $ = {
   registeredFiles: /* @__PURE__ */ new Set()
 };
 function Il(i) {
-  return i ? i.endsWith("/") ? i.slice(0, -1) : i : "/lib/duckdb-wasm";
+  return i ? i.endsWith("/") ? i.slice(0, -1) : i : "/duckdb";
 }
 function bo(i) {
   if (!i)
     throw new Error("DuckDB configuration is required.");
   if ($.config)
     return $.config;
-  const t = Il(i.bundleBasePath ?? i.BundleBasePath ?? "/lib/duckdb-wasm"), e = i.moduleLoader ?? i.ModuleLoader ?? "duckdb-browser-bundle.js", n = i.mainModule ?? i.MainModule ?? "duckdb-eh.wasm", s = i.pthreadWorker ?? i.PthreadWorker ?? "duckdb-browser-coi.pthread.worker.js", r = i.mainWorker ?? i.MainWorker ?? "duckdb-browser-eh.worker.js";
+  const t = Il(i.bundleBasePath ?? i.BundleBasePath ?? "/duckdb"), e = i.moduleLoader ?? i.ModuleLoader ?? "duckdb-browser-bundle.js", n = i.mainModule ?? i.MainModule ?? "duckdb-eh.wasm", s = i.pthreadWorker ?? i.PthreadWorker ?? "duckdb-browser-coi.pthread.worker.js", r = i.mainWorker ?? i.MainWorker ?? "duckdb-browser-eh.worker.js";
   return $.config = {
     bundleBasePath: t,
     moduleLoader: e,

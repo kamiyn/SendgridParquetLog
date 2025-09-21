@@ -30,9 +30,6 @@ client-app/src/server/**/*.js
 .vs/
 *.user
 
-# DuckDB WASM runtime assets (downloaded at build)
-SendgridParquetViewer/wwwroot/lib/duckdb-wasm/
-
 # Azure Storage Local Emulator
 .azurite
 
@@ -46,3 +43,8 @@ Scratch/
 app.db
 app.db-shm
 app.db-wal
+
+# DuckDB WASM runtime assets (downloaded at build)
+BlazorDuck.Web/wwwroot/duckdb/*
+!BlazorDuck.Web/wwwroot/duckdb/duckdb-browser-bundle.js
+!BlazorDuck.Web/wwwroot/duckdb/README.txt

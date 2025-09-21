@@ -7,7 +7,7 @@ public sealed class DuckDbWasmOptions
     public const string SectionName = "DuckDbWasm";
 
     [Required]
-    public string BundleBasePath { get; set; } = "/lib/duckdb-wasm";
+    public string BundleBasePath { get; set; } = "/duckdb";
 
     [Required]
     public string ModuleLoader { get; set; } = "duckdb-browser-bundle.js";

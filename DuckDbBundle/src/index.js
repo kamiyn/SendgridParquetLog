@@ -8,7 +8,7 @@ const state = {
 
 function normalizeBasePath(path) {
     if (!path) {
-        return '/lib/duckdb-wasm';
+        return '/duckdb';
     }
 
     return path.endsWith('/') ? path.slice(0, -1) : path;
@@ -23,7 +23,7 @@ function ensureConfig(rawConfig) {
         return state.config;
     }
 
-    const bundleBasePath = normalizeBasePath(rawConfig.bundleBasePath ?? rawConfig.BundleBasePath ?? '/lib/duckdb-wasm');
+    const bundleBasePath = normalizeBasePath(rawConfig.bundleBasePath ?? rawConfig.BundleBasePath ?? '/duckdb');
     const moduleLoader = rawConfig.moduleLoader ?? rawConfig.ModuleLoader ?? 'duckdb-browser-bundle.js';
     const mainModule = rawConfig.mainModule ?? rawConfig.MainModule ?? 'duckdb-eh.wasm';
     const pthreadWorker = rawConfig.pthreadWorker ?? rawConfig.PthreadWorker ?? 'duckdb-browser-coi.pthread.worker.js';
