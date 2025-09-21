@@ -4,8 +4,9 @@
 @implements IAsyncDisposable
 @using System
 @using System.Collections.Generic
-@using System.Linq
 @using System.Globalization
+@using System.IO
+@using System.Linq
 @using System.Threading
 @using System.Threading.Tasks
 @using Microsoft.Extensions.Options
@@ -277,7 +278,7 @@ else if (_hasSearched)
 	private HashSet<int> _availableDays = new();
 	private DateTime?[][] _calendarWeeks = [];
 	private ParquetMonthManifest? _monthManifest;
-	private Dictionary<int, string[]> _dayFileKeys = new();
+	private Dictionary<int, string[]> _dayFileUrls = new();
 
 	private SendGridEventParquet[] _sendGridEvents = [];
 	private bool _hasSearched;
@@ -365,7 +366,7 @@ else if (_hasSearched)
 		_calendarWeeks = [];
 		_errorMessage = null;
 		_monthManifest = null;
-		_dayFileKeys.Clear();
+		_dayFileUrls.Clear();
 		await EnsureMonthDataAsync();
 	}
 
@@ -381,11 +382,14 @@ else if (_hasSearched)
 			_monthManifest = manifest;
 			var dayManifests = manifest.Days;
 			_availableDays = dayManifests.Select(d => d.Day).ToHashSet();
-			_dayFileKeys = dayManifests.Count == 0
+			_dayFileUrls = dayManifests.Count == 0
 				? new Dictionary<int, string[]>(0)
 				: dayManifests.ToDictionary(
 					d => d.Day,
-					d => d.Files.Select(f => f.Key).ToArray());
+					d => d.Files
+						.Select(f => BuildCompactionDownloadUrl(_currentYear, _currentMonth, d.Day, f.Hour, Path.GetFileNameWithoutExtension(f.Key)))
+						.Where(url => !string.IsNullOrEmpty(url))
+						.ToArray());
 			_downloadedDays.IntersectWith(_availableDays);
 			RebuildCalendar();
 			_manifestLoaded = true;
@@ -396,7 +400,7 @@ else if (_hasSearched)
 			_errorMessage = $"月データの取得に失敗しました: {ex.Message}";
 			_monthManifest = null;
 			_availableDays.Clear();
-			_dayFileKeys.Clear();
+		_dayFileUrls.Clear();
 			_downloadedDays.Clear();
 			_calendarWeeks = [];
 			_manifestLoaded = false;
@@ -470,6 +474,16 @@ else if (_hasSearched)
 			.ToArray();
 
 		return new ParquetMonthManifest(year, month, dayManifests);
+	}
+
+	private static string BuildCompactionDownloadUrl(int year, int month, int day, int hour, string? hash)
+	{
+		if (string.IsNullOrWhiteSpace(hash))
+		{
+			return string.Empty;
+		}
+
+		return $"/api/parquet/compaction/{year:D4}/{month:D2}/{day:D2}/{hour:D2}/{hash}{SendGridPathUtility.ParquetFileExtension}";
 	}
 
 	private static bool TryParseCompactionKey(string key, out int year, out int month, out int day, out int hour)
@@ -604,7 +618,7 @@ else if (_hasSearched)
 		try
 		{
 			var day = _selectedDay.Value;
-			if (!_dayFileKeys.TryGetValue(day, out var fileKeys) || fileKeys.Length == 0)
+			if (!_dayFileUrls.TryGetValue(day, out var fileUrls) || fileUrls.Length == 0)
 			{
 				_sendGridEvents = Array.Empty<SendGridEventParquet>();
 				_hasSearched = true;
@@ -620,7 +634,7 @@ else if (_hasSearched)
 				string.IsNullOrWhiteSpace(_selectedSgTemplateId) ? null : _selectedSgTemplateId,
 				1000,
 				SendGridEventParquet.SelectColumns,
-				fileKeys);
+				fileUrls);
 
 			using var timeoutCts = new CancellationTokenSource(DuckDbQueryTimeout);
 			var results = await _duckDbInterop.InvokeAsync<SendGridEventParquet[]>("queryEvents", timeoutCts.Token, request);
@@ -726,6 +740,6 @@ else if (_hasSearched)
 	}
 
 	// ReSharper disable NotAccessedPositionalProperty.Local
-	private sealed record QueryEventsRequest(int Year, int Month, int Day, string? Email, string? EventType, string? SgTemplateId, int Limit, string SelectColumns, string[] FileKeys);
+	private sealed record QueryEventsRequest(int Year, int Month, int Day, string? Email, string? EventType, string? SgTemplateId, int Limit, string SelectColumns, string[] FileUrls);
 	// ReSharper restore NotAccessedPositionalProperty.Local
 }

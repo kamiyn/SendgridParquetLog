@@ -1,4 +1,7 @@
-﻿using Microsoft.AspNetCore.Authorization;
+﻿using System;
+using System.IO;
+
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 using SendgridParquet.Shared;
@@ -15,6 +18,8 @@ public class ParquetController(
     ParquetCatalogService catalogService,
     S3StorageService s3StorageService) : ControllerBase
 {
+    private static readonly char[] ValidHashCharacters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_".ToCharArray();
+
     [HttpGet("month/{year:int}/{month:int}")]
     public async Task<ActionResult<ParquetMonthManifest>> GetMonthAsync(int year, int month, CancellationToken ct)
     {
@@ -40,6 +45,52 @@ public class ParquetController(
             return BadRequest("Invalid object key");
         }
 
+        return await DownloadParquetAsync(key, ct);
+    }
+
+    [HttpGet("compaction/{year:int}/{month:int}/{day:int}/{hour:int}/{hash}.parquet")]
+    public async Task<IActionResult> DownloadCompactionAsync(int year, int month, int day, int hour, string hash, CancellationToken ct)
+    {
+        if (!IsValidDate(year, month, day))
+        {
+            return BadRequest("Invalid date");
+        }
+
+        if (hour is < 0 or > 23)
+        {
+            return BadRequest("Invalid hour");
+        }
+
+        if (!IsValidHash(hash))
+        {
+            return BadRequest("Invalid hash");
+        }
+
+        var prefix = SendGridPathUtility.GetS3CompactionPrefix(year, month, day, hour);
+        var key = $"{prefix}/{hash}{SendGridPathUtility.ParquetFileExtension}";
+        return await DownloadParquetAsync(key, ct);
+    }
+
+    [HttpGet("raw/{year:int}/{month:int}/{day:int}/{hash}.parquet")]
+    public async Task<IActionResult> DownloadRawAsync(int year, int month, int day, string hash, CancellationToken ct)
+    {
+        if (!IsValidDate(year, month, day))
+        {
+            return BadRequest("Invalid date");
+        }
+
+        if (!IsValidHash(hash))
+        {
+            return BadRequest("Invalid hash");
+        }
+
+        var prefix = SendGridPathUtility.GetS3NonCompactionPrefix(year, month, day);
+        var key = $"{prefix}/{hash}{SendGridPathUtility.ParquetFileExtension}";
+        return await DownloadParquetAsync(key, ct);
+    }
+
+    private async Task<IActionResult> DownloadParquetAsync(string key, CancellationToken ct)
+    {
         S3ObjectMetadata? metadata = await s3StorageService.GetObjectMetadataAsync(key, ct);
         if (metadata is null)
         {
@@ -63,5 +114,38 @@ public class ParquetController(
         }
 
         return File(content, "application/octet-stream", Path.GetFileName(key));
+    }
+
+    private static bool IsValidDate(int year, int month, int day)
+    {
+        if (year is < 2000 or > 2999)
+        {
+            return false;
+        }
+
+        if (month is < 1 or > 12)
+        {
+            return false;
+        }
+
+        return day >= 1 && day <= DateTime.DaysInMonth(year, month);
+    }
+
+    private static bool IsValidHash(string hash)
+    {
+        if (string.IsNullOrEmpty(hash) || hash.Length > 128)
+        {
+            return false;
+        }
+
+        foreach (char c in hash)
+        {
+            if (Array.IndexOf(ValidHashCharacters, c) < 0)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 }

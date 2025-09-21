@@ -68,30 +68,35 @@ async function loadDuckDb() {
     return state.duckDbPromise;
 }
 
-function toVirtualPath(key) {
-    return `parquet/${key}`;
+function toVirtualPath(identifier) {
+    const trimmed = identifier.startsWith('/') ? identifier.slice(1) : identifier;
+    return `parquet/${trimmed}`;
 }
 
-async function ensureFilesRegistered(db, fileKeys) {
-    if (!Array.isArray(fileKeys) || fileKeys.length === 0) {
+async function ensureFilesRegistered(db, fileUrls) {
+    if (!Array.isArray(fileUrls) || fileUrls.length === 0) {
         return [];
     }
 
     const uniqueKeys = new Set();
     const normalizedKeys = [];
 
-    for (const key of fileKeys) {
+    for (const url of fileUrls) {
+        if (typeof url !== 'string') {
+            continue;
+        }
+
+        const key = url.trim();
         if (typeof key !== 'string') {
             continue;
         }
 
-        const trimmed = key.trim();
-        if (trimmed.length === 0 || uniqueKeys.has(trimmed)) {
+        if (key.length === 0 || uniqueKeys.has(key)) {
             continue;
         }
 
-        uniqueKeys.add(trimmed);
-        normalizedKeys.push(trimmed);
+        uniqueKeys.add(key);
+        normalizedKeys.push(key);
     }
 
     if (normalizedKeys.length === 0) {
@@ -100,10 +105,11 @@ async function ensureFilesRegistered(db, fileKeys) {
 
     const virtualPaths = [];
 
-    for (const key of normalizedKeys) {
-        const virtualPath = toVirtualPath(key);
+    for (const url of normalizedKeys) {
+        const requestUrl = url.startsWith('/') ? url : `/${url}`;
+        const virtualPath = toVirtualPath(url);
         if (!state.registeredFiles.has(virtualPath)) {
-            const response = await fetch(`api/parquet/file?key=${encodeURIComponent(key)}`);
+            const response = await fetch(requestUrl);
             if (!response.ok) {
                 throw new Error(`Failed to download parquet file (${response.status})`);
             }
@@ -182,13 +188,13 @@ function extractNumber(source, primary, fallback) {
     return null;
 }
 
-function extractFileKeys(request) {
-    const keys = request?.FileKeys ?? request?.fileKeys;
-    if (!Array.isArray(keys)) {
+function extractFileUrls(request) {
+    const urls = request?.FileUrls ?? request?.fileUrls;
+    if (!Array.isArray(urls)) {
         return [];
     }
 
-    return keys;
+    return urls;
 }
 
 export async function initialize(rawConfig) {
@@ -204,12 +210,12 @@ export async function queryEvents(request) {
     ensureConfig(state.config ?? {});
     const duck = await loadDuckDb();
 
-    const fileKeys = extractFileKeys(request);
-    if (fileKeys.length === 0) {
+    const fileUrls = extractFileUrls(request);
+    if (fileUrls.length === 0) {
         return [];
     }
 
-    const paths = await ensureFilesRegistered(duck.db, fileKeys);
+    const paths = await ensureFilesRegistered(duck.db, fileUrls);
     if (paths.length === 0) {
         return [];
     }

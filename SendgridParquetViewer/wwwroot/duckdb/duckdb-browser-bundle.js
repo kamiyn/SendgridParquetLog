@@ -8205,7 +8205,7 @@ async function vo() {
   })()), j.duckDbPromise;
 }
 function Sl(i) {
-  return `parquet/${i}`;
+  return `parquet/${i.startsWith("/") ? i.slice(1) : i}`;
 }
 async function Bl(i, t) {
   if (!Array.isArray(t) || t.length === 0)
@@ -8215,21 +8215,21 @@ async function Bl(i, t) {
     if (typeof r != "string")
       continue;
     const o = r.trim();
-    o.length === 0 || e.has(o) || (e.add(o), n.push(o));
+    typeof o == "string" && (o.length === 0 || e.has(o) || (e.add(o), n.push(o)));
   }
   if (n.length === 0)
     return [];
   const s = [];
   for (const r of n) {
-    const o = Sl(r);
-    if (!j.registeredFiles.has(o)) {
-      const a = await fetch(`api/parquet/file?key=${encodeURIComponent(r)}`);
-      if (!a.ok)
-        throw new Error(`Failed to download parquet file (${a.status})`);
-      const c = new Uint8Array(await a.arrayBuffer());
-      await i.registerFileBuffer(o, c), j.registeredFiles.add(o);
+    const o = r.startsWith("/") ? r : `/${r}`, a = Sl(r);
+    if (!j.registeredFiles.has(a)) {
+      const c = await fetch(o);
+      if (!c.ok)
+        throw new Error(`Failed to download parquet file (${c.status})`);
+      const u = new Uint8Array(await c.arrayBuffer());
+      await i.registerFileBuffer(a, u), j.registeredFiles.add(a);
     }
-    s.push(o);
+    s.push(a);
   }
   return s;
 }
@@ -8270,7 +8270,7 @@ function El(i, t, e) {
   return null;
 }
 function Nl(i) {
-  const t = i?.FileKeys ?? i?.fileKeys;
+  const t = i?.FileUrls ?? i?.fileUrls;
   return Array.isArray(t) ? t : [];
 }
 async function Ll(i) {
