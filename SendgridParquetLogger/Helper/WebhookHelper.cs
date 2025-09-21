@@ -13,7 +13,6 @@ namespace SendgridParquetLogger.Helper;
 
 public class WebhookHelper(
     ILogger<WebhookHelper> logger,
-    TimeProvider timeProvider,
     ParquetService parquetService,
     RequestValidator requestValidator,
     S3StorageService s3StorageService,

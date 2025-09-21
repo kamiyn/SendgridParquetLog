@@ -109,9 +109,9 @@ async function ensureDuckDb() {
     if (state.connection) {
       return state.connection;
     }
-
-    const duckdbModule = await import("/lib/duckdb-wasm/duckdb-browser.mjs");
+    // refer https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.30.0/dist/
     const bundleBase = "/lib/duckdb-wasm";
+    const duckdbModule = await import(`${bundleBase}/duckdb-browser.mjs`);
     const bundles = {
       mainModule: `${bundleBase}/duckdb-eh.wasm`,
       mainWorker: `${bundleBase}/duckdb-browser-eh.worker.js`,

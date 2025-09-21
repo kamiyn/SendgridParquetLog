@@ -71,8 +71,9 @@
     <MakeDir Directories="@(DuckDbDirectories)" Condition="@(DuckDbDirectories) != ''" />
 
     <DownloadFile SourceUrl="%(DuckDbAssetToDownload.Identity)"
+                  DestinationFileName="%(DuckDbAssetToDownload.DestinationFileName)"
                   DestinationFolder="%(DuckDbAssetToDownload.DestinationFolder)"
-                  DestinationFileName="%(DuckDbAssetToDownload.DestinationFileName)" />
+                  Condition="'%(DuckDbAssetToDownload.Identity)' != ''" />
   </Target>
 
 </Project>
