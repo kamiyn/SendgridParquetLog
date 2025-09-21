@@ -290,6 +290,7 @@ else if (_hasSearched)
 	private bool ShowEventDetailsDialog => _selectedEvent != null;
 
 	private readonly PaginationState _pagination = new() { ItemsPerPage = 50 };
+	private static readonly TimeSpan DuckDbQueryTimeout = TimeSpan.FromMinutes(5);
 
 	protected override void OnInitialized()
 	{
@@ -621,10 +622,16 @@ else if (_hasSearched)
 				SendGridEventParquet.SelectColumns,
 				fileKeys);
 
-			var results = await _duckDbInterop.InvokeAsync<SendGridEventParquet[]>("queryEvents", request);
+			using var timeoutCts = new CancellationTokenSource(DuckDbQueryTimeout);
+			var results = await _duckDbInterop.InvokeAsync<SendGridEventParquet[]>("queryEvents", timeoutCts.Token, request);
 			_sendGridEvents = results ?? Array.Empty<SendGridEventParquet>();
 			_hasSearched = true;
 			_downloadedDays.Add(day);
+		}
+		catch (TaskCanceledException tcx)
+		{
+			Logger.LogWarning(tcx, "DuckDB query timed out");
+			_errorMessage = "検索がタイムアウトしました。条件を絞り込んで再試行してください。";
 		}
 		catch (JSException jsEx)
 		{
