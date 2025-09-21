@@ -119,13 +119,12 @@ async function ensureFilesRegistered(db, fileKeys) {
     return virtualPaths;
 }
 
-function buildReadParquetLiteral(paths) {
-    if (paths.length === 1) {
-        return JSON.stringify(paths[0]);
-    }
+function escapePathLiteral(path) {
+    return path.replace(/'/g, "''");
+}
 
-    const literals = paths.map((path) => JSON.stringify(path)).join(', ');
-    return `[${literals}]`;
+function buildReadParquetArguments(paths) {
+    return paths.map((path) => `'${escapePathLiteral(path)}'`).join(', ');
 }
 
 function escapeSqlLiteral(value) {
@@ -237,7 +236,8 @@ export async function queryEvents(request) {
     const limitClause = limitValue && limitValue > 0 ? ` LIMIT ${Math.min(limitValue, 5000)}` : '';
 
     const whereClause = clauses.length > 0 ? ` WHERE ${clauses.join(' AND ')}` : '';
-    const sql = `SELECT ${selectColumns} FROM read_parquet(${buildReadParquetLiteral(paths)}, union_by_name=true)${whereClause} ORDER BY Timestamp DESC${limitClause}`;
+    const readArguments = buildReadParquetArguments(paths);
+    const sql = `SELECT ${selectColumns} FROM read_parquet(${readArguments}, union_by_name=true)${whereClause} ORDER BY Timestamp DESC${limitClause}`;
 
     const connection = await duck.db.connect();
 
