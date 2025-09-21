@@ -3,7 +3,6 @@ import { AsyncDuckDB, ConsoleLogger } from '@duckdb/duckdb-wasm';
 const state = {
     config: null,
     duckDbPromise: null,
-    monthCache: new Map(),
     registeredFiles: new Set(),
 };
 
@@ -69,59 +68,39 @@ async function loadDuckDb() {
     return state.duckDbPromise;
 }
 
-function monthKey(year, month) {
-    return `${year}-${month}`;
-}
-
-function createMonthState(manifest) {
-    const days = Array.isArray(manifest?.Days) ? manifest.Days : Array.isArray(manifest?.days) ? manifest.days : [];
-    const dayFiles = new Map();
-
-    for (const entry of days) {
-        const dayNumber = entry?.Day ?? entry?.day;
-        if (typeof dayNumber !== 'number') {
-            continue;
-        }
-
-        const files = Array.isArray(entry?.Files) ? entry.Files : Array.isArray(entry?.files) ? entry.files : [];
-        const orderedKeys = files
-            .map(file => file?.Key ?? file?.key)
-            .filter(key => typeof key === 'string' && key.length > 0)
-            .sort((a, b) => a.localeCompare(b));
-
-        dayFiles.set(dayNumber, orderedKeys);
-    }
-
-    return {
-        manifest,
-        dayFiles,
-        downloadedDays: new Set(),
-    };
-}
-
-async function fetchMonthManifest(year, month) {
-    const response = await fetch(`api/parquet/month/${year}/${month}`);
-    if (!response.ok) {
-        throw new Error(`Failed to download manifest (${response.status})`);
-    }
-
-    return response.json();
-}
-
 function toVirtualPath(key) {
     return `parquet/${key}`;
 }
 
-async function ensureDayFiles(monthState, day) {
-    const files = monthState.dayFiles.get(day);
-    if (!files || files.length === 0) {
+async function ensureFilesRegistered(db, fileKeys) {
+    if (!Array.isArray(fileKeys) || fileKeys.length === 0) {
         return [];
     }
 
-    const { db } = await loadDuckDb();
+    const uniqueKeys = new Set();
+    const normalizedKeys = [];
+
+    for (const key of fileKeys) {
+        if (typeof key !== 'string') {
+            continue;
+        }
+
+        const trimmed = key.trim();
+        if (trimmed.length === 0 || uniqueKeys.has(trimmed)) {
+            continue;
+        }
+
+        uniqueKeys.add(trimmed);
+        normalizedKeys.push(trimmed);
+    }
+
+    if (normalizedKeys.length === 0) {
+        return [];
+    }
+
     const virtualPaths = [];
 
-    for (const key of files) {
+    for (const key of normalizedKeys) {
         const virtualPath = toVirtualPath(key);
         if (!state.registeredFiles.has(virtualPath)) {
             const response = await fetch(`api/parquet/file?key=${encodeURIComponent(key)}`);
@@ -137,7 +116,6 @@ async function ensureDayFiles(monthState, day) {
         virtualPaths.push(virtualPath);
     }
 
-    monthState.downloadedDays.add(day);
     return virtualPaths;
 }
 
@@ -146,7 +124,7 @@ function buildReadParquetLiteral(paths) {
         return JSON.stringify(paths[0]);
     }
 
-    const literals = paths.map(path => JSON.stringify(path)).join(', ');
+    const literals = paths.map((path) => JSON.stringify(path)).join(', ');
     return `[${literals}]`;
 }
 
@@ -204,36 +182,18 @@ function extractNumber(source, primary, fallback) {
     return null;
 }
 
+function extractFileKeys(request) {
+    const keys = request?.FileKeys ?? request?.fileKeys;
+    if (!Array.isArray(keys)) {
+        return [];
+    }
+
+    return keys;
+}
+
 export async function initialize(rawConfig) {
     ensureConfig(rawConfig);
     await loadDuckDb();
-}
-
-export async function ensureMonthPrepared(year, month) {
-    const sanitizedYear = Number.parseInt(year, 10);
-    const sanitizedMonth = Number.parseInt(month, 10);
-
-    if (!Number.isFinite(sanitizedYear) || !Number.isFinite(sanitizedMonth)) {
-        throw new Error('Year and month must be numeric.');
-    }
-
-    ensureConfig(state.config ?? {});
-    await loadDuckDb();
-
-    const key = monthKey(sanitizedYear, sanitizedMonth);
-    let monthState = state.monthCache.get(key);
-
-    if (!monthState) {
-        const manifest = await fetchMonthManifest(sanitizedYear, sanitizedMonth);
-        monthState = createMonthState(manifest);
-        state.monthCache.set(key, monthState);
-    }
-
-    const downloadedDays = Array.from(monthState.downloadedDays).sort((a, b) => a - b);
-    return {
-        Manifest: monthState.manifest,
-        DownloadedDays: downloadedDays,
-    };
 }
 
 export async function queryEvents(request) {
@@ -241,24 +201,15 @@ export async function queryEvents(request) {
         throw new Error('A query request is required.');
     }
 
-    const year = extractNumber(request, 'Year', 'year');
-    const month = extractNumber(request, 'Month', 'month');
-    const day = extractNumber(request, 'Day', 'day');
-
-    if (year === null || month === null || day === null) {
-        throw new Error('Year, month, and day are required.');
-    }
-
     ensureConfig(state.config ?? {});
-    await loadDuckDb();
+    const duck = await loadDuckDb();
 
-    const key = monthKey(year, month);
-    const monthState = state.monthCache.get(key);
-    if (!monthState) {
-        throw new Error('Month manifest is not loaded.');
+    const fileKeys = extractFileKeys(request);
+    if (fileKeys.length === 0) {
+        return [];
     }
 
-    const paths = await ensureDayFiles(monthState, day);
+    const paths = await ensureFilesRegistered(duck.db, fileKeys);
     if (paths.length === 0) {
         return [];
     }
@@ -288,15 +239,14 @@ export async function queryEvents(request) {
     const whereClause = clauses.length > 0 ? ` WHERE ${clauses.join(' AND ')}` : '';
     const sql = `SELECT ${selectColumns} FROM read_parquet(${buildReadParquetLiteral(paths)}, union_by_name=true)${whereClause} ORDER BY Timestamp DESC${limitClause}`;
 
-    const { db } = await loadDuckDb();
-    const connection = await db.connect();
+    const connection = await duck.db.connect();
 
     try {
         const result = await connection.query(sql);
         const columns = Array.isArray(result?.schema?.fields)
-            ? result.schema.fields.map(field => field?.name).filter(name => typeof name === 'string' && name.length > 0)
+            ? result.schema.fields.map((field) => field?.name).filter((name) => typeof name === 'string' && name.length > 0)
             : [];
-        const rows = result.toArray().map(row => normalizeRow(row, columns));
+        const rows = result.toArray().map((row) => normalizeRow(row, columns));
 
         if (typeof result.close === 'function') {
             result.close();
@@ -321,7 +271,6 @@ export async function dispose() {
         instance.worker.terminate();
     } finally {
         state.duckDbPromise = null;
-        state.monthCache.clear();
         state.registeredFiles.clear();
     }
 }

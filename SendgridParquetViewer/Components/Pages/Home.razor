@@ -2,14 +2,21 @@
 @rendermode InteractiveServer
 @attribute [Authorize]
 @implements IAsyncDisposable
+@using System
+@using System.Collections.Generic
 @using System.Linq
+@using System.Globalization
+@using System.Threading
+@using System.Threading.Tasks
 @using Microsoft.Extensions.Options
-@using SendgridParquetViewer.Models
+@using SendgridParquet.Shared
 @using SendgridParquetViewer.Configuration
+@using SendgridParquetViewer.Models
 @inject IJSRuntime JsRuntime
 @inject TimeProvider TimeProvider
 @inject ILogger<Home> Logger
 @inject IOptionsSnapshot<DuckDbWasmOptions> DuckDbOptions
+@inject S3StorageService S3StorageService
 
 <PageTitle>SendGrid Events Viewer</PageTitle>
 
@@ -48,7 +55,7 @@
 		</div>
 
 		<div style="margin-top: 25px;">
-			<FluentButton Appearance="Appearance.Accent" Disabled="@_isDownloading" OnClick="@(async () => await GetMonthDataAsync())">月データ取得</FluentButton>
+			<FluentButton Appearance="Appearance.Accent" Disabled="@_isDownloading" OnClick="@(async () => await EnsureMonthDataAsync())">月データ取得</FluentButton>
 		</div>
 
 		<div style="margin-top: 25px;">
@@ -270,6 +277,7 @@ else if (_hasSearched)
 	private HashSet<int> _availableDays = new();
 	private DateTime?[][] _calendarWeeks = [];
 	private ParquetMonthManifest? _monthManifest;
+	private Dictionary<int, string[]> _dayFileKeys = new();
 
 	private SendGridEventParquet[] _sendGridEvents = [];
 	private bool _hasSearched;
@@ -296,10 +304,7 @@ else if (_hasSearched)
 		if (firstRender)
 		{
 			await EnsureDuckDbModuleAsync();
-			// if (_duckDbInterop != null)
-			// {
-			// 	await GetMonthDataAsync();
-			// }
+			await EnsureMonthDataAsync();
 		}
 	}
 
@@ -359,62 +364,157 @@ else if (_hasSearched)
 		_calendarWeeks = [];
 		_errorMessage = null;
 		_monthManifest = null;
-        await Task.Delay(0);
-        // if (_duckDbInterop != null)
-        // {
-        // 	await GetMonthDataAsync();
-        // }
-    }
+		_dayFileKeys.Clear();
+		await EnsureMonthDataAsync();
+	}
 
-	/// <summary>
-	/// 指定した年月の月データをDuckDB経由で取得する
-	/// </summary>
-	private async Task GetMonthDataAsync()
+	private async Task EnsureMonthDataAsync()
 	{
-		if (_duckDbInterop == null)
-		{
-			return;
-		}
-
 		_isDownloading = true;
 		_errorMessage = null;
 		StateHasChanged();
 
 		try
 		{
-			var result = await _duckDbInterop.InvokeAsync<MonthLoadResult>("ensureMonthPrepared", _currentYear, _currentMonth);
-			if (result.Manifest is null)
-			{
-				_monthManifest = null;
-				_availableDays.Clear();
-				_downloadedDays.Clear();
-				_calendarWeeks = [];
-				_manifestLoaded = false;
-				_errorMessage = "月マニフェストを取得できませんでした。";
-				return;
-			}
-
-			_monthManifest = result.Manifest;
-			_downloadedDays = [..(result.DownloadedDays ?? [])];
-			var dayManifests = _monthManifest.Days;
+			var manifest = await BuildCompactionManifestAsync(_currentYear, _currentMonth, CancellationToken.None);
+			_monthManifest = manifest;
+			var dayManifests = manifest.Days;
 			_availableDays = dayManifests.Select(d => d.Day).ToHashSet();
+			_dayFileKeys = dayManifests.Count == 0
+				? new Dictionary<int, string[]>(0)
+				: dayManifests.ToDictionary(
+					d => d.Day,
+					d => d.Files.Select(f => f.Key).ToArray());
+			_downloadedDays.IntersectWith(_availableDays);
 			RebuildCalendar();
-		}
-		catch (JSException jsEx)
-		{
-			Logger.LogError(jsEx, "Failed to prepare month data via duckdb interop");
-			_errorMessage = $"月データの取得に失敗しました: {jsEx.Message}";
+			_manifestLoaded = true;
 		}
 		catch (Exception ex)
 		{
 			Logger.LogError(ex, "Failed to prepare month data");
 			_errorMessage = $"月データの取得に失敗しました: {ex.Message}";
+			_monthManifest = null;
+			_availableDays.Clear();
+			_dayFileKeys.Clear();
+			_downloadedDays.Clear();
+			_calendarWeeks = [];
+			_manifestLoaded = false;
 		}
 		finally
 		{
 			_isDownloading = false;
 			StateHasChanged();
 		}
+	}
+
+	private async Task<ParquetMonthManifest> BuildCompactionManifestAsync(int year, int month, CancellationToken cancellationToken)
+	{
+		var prefix = SendGridPathUtility.GetS3CompactionPrefix(year, month, null, null);
+		var keys = await S3StorageService.ListFilesAsync(prefix, cancellationToken);
+		var entriesByDay = new Dictionary<int, List<ParquetFileManifest>>();
+
+		foreach (string key in keys)
+		{
+			if (string.IsNullOrWhiteSpace(key))
+			{
+				continue;
+			}
+
+			if (!key.EndsWith(SendGridPathUtility.ParquetFileExtension, StringComparison.OrdinalIgnoreCase))
+			{
+				continue;
+			}
+
+			if (!TryParseCompactionKey(key, out int parsedYear, out int parsedMonth, out int parsedDay, out int parsedHour))
+			{
+				continue;
+			}
+
+			if (parsedYear != year || parsedMonth != month)
+			{
+				continue;
+			}
+
+			if (!entriesByDay.TryGetValue(parsedDay, out var entries))
+			{
+				entries = new List<ParquetFileManifest>();
+				entriesByDay[parsedDay] = entries;
+			}
+
+			entries.Add(new ParquetFileManifest(
+				Key: key,
+				Day: parsedDay,
+				Hour: parsedHour,
+				SizeBytes: null,
+				LastModified: null,
+				Sha256Hash: null,
+				ETag: null));
+		}
+
+		if (entriesByDay.Count == 0)
+		{
+			return new ParquetMonthManifest(year, month, Array.Empty<ParquetDayManifest>());
+		}
+
+		var dayManifests = entriesByDay
+			.OrderBy(static pair => pair.Key)
+			.Select(pair =>
+			{
+				var files = pair.Value
+					.OrderBy(file => file.Hour)
+					.ThenBy(file => file.Key, StringComparer.Ordinal)
+					.ToArray();
+				return new ParquetDayManifest(pair.Key, files);
+			})
+			.ToArray();
+
+		return new ParquetMonthManifest(year, month, dayManifests);
+	}
+
+	private static bool TryParseCompactionKey(string key, out int year, out int month, out int day, out int hour)
+	{
+		year = 0;
+		month = 0;
+		day = 0;
+		hour = 0;
+
+		if (string.IsNullOrWhiteSpace(key))
+		{
+			return false;
+		}
+
+		var segments = key.Split('/', StringSplitOptions.RemoveEmptyEntries);
+		if (segments.Length < 6)
+		{
+			return false;
+		}
+
+		if (!string.Equals(segments[0], "v3compaction", StringComparison.Ordinal))
+		{
+			return false;
+		}
+
+		if (!TryParseInt(segments[1], 4, out year) ||
+		    !TryParseInt(segments[2], 2, out month) ||
+		    !TryParseInt(segments[3], 2, out day) ||
+		    !TryParseInt(segments[4], 2, out hour))
+		{
+			year = month = day = hour = 0;
+			return false;
+		}
+
+		return true;
+	}
+
+	private static bool TryParseInt(string value, int expectedLength, out int result)
+	{
+		if (value.Length != expectedLength)
+		{
+			result = 0;
+			return false;
+		}
+
+		return int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out result);
 	}
 
 	private void RebuildCalendar()
@@ -502,29 +602,29 @@ else if (_hasSearched)
 
 		try
 		{
-			if (_monthManifest is null)
+			var day = _selectedDay.Value;
+			if (!_dayFileKeys.TryGetValue(day, out var fileKeys) || fileKeys.Length == 0)
 			{
-				_errorMessage = "月データが未取得です。";
+				_sendGridEvents = Array.Empty<SendGridEventParquet>();
+				_hasSearched = true;
 				return;
 			}
 
 			var request = new QueryEventsRequest(
 				_currentYear,
 				_currentMonth,
-				_selectedDay.Value,
+				day,
 				string.IsNullOrWhiteSpace(_selectedEmail) ? null : _selectedEmail,
 				string.IsNullOrWhiteSpace(_selectedEventType) ? null : _selectedEventType,
 				string.IsNullOrWhiteSpace(_selectedSgTemplateId) ? null : _selectedSgTemplateId,
 				1000,
-				SendGridEventParquet.SelectColumns);
+				SendGridEventParquet.SelectColumns,
+				fileKeys);
 
 			var results = await _duckDbInterop.InvokeAsync<SendGridEventParquet[]>("queryEvents", request);
-			_sendGridEvents = results;
+			_sendGridEvents = results ?? Array.Empty<SendGridEventParquet>();
 			_hasSearched = true;
-			if (_selectedDay.HasValue)
-			{
-				_downloadedDays.Add(_selectedDay.Value);
-			}
+			_downloadedDays.Add(day);
 		}
 		catch (JSException jsEx)
 		{
@@ -618,8 +718,7 @@ else if (_hasSearched)
 		return $"{basePath}/{moduleLoader}";
 	}
 
-	private sealed record MonthLoadResult(ParquetMonthManifest? Manifest, int[]? DownloadedDays);
 	// ReSharper disable NotAccessedPositionalProperty.Local
-	private sealed record QueryEventsRequest(int Year, int Month, int Day, string? Email, string? EventType, string? SgTemplateId, int Limit, string SelectColumns);
+	private sealed record QueryEventsRequest(int Year, int Month, int Day, string? Email, string? EventType, string? SgTemplateId, int Limit, string SelectColumns, string[] FileKeys);
 	// ReSharper restore NotAccessedPositionalProperty.Local
 }
