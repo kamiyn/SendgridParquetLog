@@ -8237,7 +8237,7 @@ function Al(i) {
   return i.replace(/'/g, "''");
 }
 function Tl(i) {
-  return i.map((t) => `'${Al(t)}'`).join(", ");
+  return `ARRAY[${i.map((e) => `'${Al(e)}'`).join(", ")}]`;
 }
 function Ji(i) {
   return i.replace(/\\/g, "\\\\").replace(/'/g, "''");
