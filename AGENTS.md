@@ -88,6 +88,13 @@ Webhook signature verification requires configuration via Options:
 
 In Aspire environment, these are automatically configured to use local MinIO instance.
 
+## S3 Storage Layout
+
+- Raw webhook uploads land under `v3raw/YYYY/MM/DD/<Base64UrlHash>.parquet`. The hash is the SHA-256 of the Parquet payload, so duplicate retries overwrite.
+- Compacted hourly outputs are written to `v3compaction/YYYY/MM/DD/HH/<Base64UrlHash>.parquet`, sharing the same hashing scheme.
+- `v3compaction/run.json` tracks the active compaction run status (start/end timestamps, progress), and `v3compaction/run.lock` holds the distributed lock metadata.
+- Compaction only targets days up to the prior UTC day; once merged, the per-day folders under `v3raw` can be treated as source archives while queries should use the hourly compaction tree.
+
 ## Important Notes
 
 - Swagger/OpenAPI is only available in DEBUG builds (controlled by conditional compilation)
