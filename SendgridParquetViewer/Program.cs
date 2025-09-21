@@ -7,6 +7,7 @@ using Microsoft.Identity.Web.UI;
 using SendgridParquet.Shared;
 
 using SendgridParquetViewer.Components;
+using SendgridParquetViewer.Configuration;
 using SendgridParquetViewer.Models;
 using SendgridParquetViewer.Services;
 
@@ -69,6 +70,12 @@ else
 // Configure S3 options with validation
 builder.Services.AddOptions<S3Options>()
     .Bind(builder.Configuration.GetSection(S3Options.SectionName))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+
+// Configure DuckDB WASM options
+builder.Services.AddOptions<DuckDbWasmOptions>()
+    .Bind(builder.Configuration.GetSection(DuckDbWasmOptions.SectionName))
     .ValidateDataAnnotations()
     .ValidateOnStart();
 

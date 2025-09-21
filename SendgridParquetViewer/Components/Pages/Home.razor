@@ -5,12 +5,15 @@
 @using System
 @using System.Collections.Generic
 @using System.Linq
+@using Microsoft.Extensions.Options
 @using Microsoft.JSInterop
 @using SendgridParquetViewer.Models
+@using SendgridParquetViewer.Configuration
 @using SendgridParquet.Shared
 @inject IJSRuntime JSRuntime
 @inject TimeProvider TimeProvider
 @inject ILogger<Home> Logger
+@inject IOptionsSnapshot<DuckDbWasmOptions> DuckDbOptions
 
 <PageTitle>SendGrid Events Viewer</PageTitle>
 
@@ -111,7 +114,7 @@ else if (_manifestLoaded)
                             bool available = _availableDays.Contains(date.Value.Day);
                             bool selected = _selectedDay == date.Value.Day;
                             string buttonClass = GetCalendarButtonClass(hasData, available, selected);
-                            bool disabled = !hasData || _isLoading || _isDownloading;
+                            bool disabled = !available || _isLoading || _isDownloading;
 
                             <td class="calendar-day">
                                 <button class="@buttonClass" disabled="@disabled" @onclick="@(async () => await OnDaySelectedAsync(date.Value.Day))">
@@ -256,7 +259,7 @@ else if (_hasSearched)
 </FluentDialog>
 
 @code {
-    private IJSObjectReference? _duckDbModule;
+    private IJSObjectReference? _duckDbInterop;
     private bool _isDownloading;
     private bool _isLoading;
     private bool _manifestLoaded;
@@ -270,6 +273,7 @@ else if (_hasSearched)
     private HashSet<int> _downloadedDays = new();
     private HashSet<int> _availableDays = new();
     private DateTime?[][] _calendarWeeks = Array.Empty<DateTime?[]>();
+    private ParquetMonthManifest? _monthManifest;
 
     private SendGridEventParquet[] _sendGridEvents = Array.Empty<SendGridEventParquet>();
     private bool _hasSearched;
@@ -296,7 +300,7 @@ else if (_hasSearched)
         if (firstRender)
         {
             await EnsureDuckDbModuleAsync();
-            if (_duckDbModule != null)
+            if (_duckDbInterop != null)
             {
                 await EnsureMonthDataAsync();
             }
@@ -305,15 +309,16 @@ else if (_hasSearched)
 
     private async Task EnsureDuckDbModuleAsync()
     {
-        if (_duckDbModule != null)
+        if (_duckDbInterop != null)
         {
             return;
         }
 
         try
         {
-            _duckDbModule = await JSRuntime.InvokeAsync<IJSObjectReference>("import", "./js/duckdbInterop.js");
-            await _duckDbModule.InvokeVoidAsync("initialize");
+            var modulePath = BuildModuleImportPath();
+            _duckDbInterop = await JSRuntime.InvokeAsync<IJSObjectReference>("import", modulePath);
+            await _duckDbInterop.InvokeVoidAsync("initialize", DuckDbOptions.Value);
         }
         catch (Exception ex)
         {
@@ -357,8 +362,9 @@ else if (_hasSearched)
         _availableDays.Clear();
         _calendarWeeks = Array.Empty<DateTime?[]>();
         _errorMessage = null;
+        _monthManifest = null;
 
-        if (_duckDbModule != null)
+        if (_duckDbInterop != null)
         {
             await EnsureMonthDataAsync();
         }
@@ -366,7 +372,7 @@ else if (_hasSearched)
 
     private async Task EnsureMonthDataAsync()
     {
-        if (_duckDbModule == null)
+        if (_duckDbInterop == null)
         {
             return;
         }
@@ -377,9 +383,24 @@ else if (_hasSearched)
 
         try
         {
-            var result = await _duckDbModule.InvokeAsync<MonthLoadResult>("ensureMonthPrepared", _currentYear, _currentMonth);
-            _downloadedDays = result.DownloadedDays?.ToHashSet() ?? new HashSet<int>();
-            _availableDays = result.Manifest.Days.Select(d => d.Day).ToHashSet();
+            var result = await _duckDbInterop.InvokeAsync<MonthLoadResult>("ensureMonthPrepared", _currentYear, _currentMonth);
+            if (result.Manifest is null)
+            {
+                _monthManifest = null;
+                _availableDays.Clear();
+                _downloadedDays.Clear();
+                _calendarWeeks = Array.Empty<DateTime?[]>();
+                _manifestLoaded = false;
+                _errorMessage = "月マニフェストを取得できませんでした。";
+                return;
+            }
+
+            _monthManifest = result.Manifest;
+            _downloadedDays = result.DownloadedDays?.Length > 0
+                ? new HashSet<int>(result.DownloadedDays)
+                : new HashSet<int>();
+            var dayManifests = _monthManifest.Days ?? Array.Empty<ParquetDayManifest>();
+            _availableDays = dayManifests.Select(d => d.Day).ToHashSet();
             RebuildCalendar();
         }
         catch (JSException jsEx)
@@ -450,7 +471,7 @@ else if (_hasSearched)
 
     private async Task OnDaySelectedAsync(int day)
     {
-        if (!_downloadedDays.Contains(day) || _isLoading)
+        if (!_availableDays.Contains(day) || _isLoading)
         {
             return;
         }
@@ -472,7 +493,7 @@ else if (_hasSearched)
 
     private async Task LoadEventsAsync()
     {
-        if (_duckDbModule == null || !_selectedDay.HasValue)
+        if (_duckDbInterop == null || !_selectedDay.HasValue)
         {
             return;
         }
@@ -484,6 +505,12 @@ else if (_hasSearched)
 
         try
         {
+            if (_monthManifest is null)
+            {
+                _errorMessage = "月データが未取得です。";
+                return;
+            }
+
             var request = new QueryRequest(
                 _currentYear,
                 _currentMonth,
@@ -491,11 +518,16 @@ else if (_hasSearched)
                 string.IsNullOrWhiteSpace(_selectedEmail) ? null : _selectedEmail,
                 string.IsNullOrWhiteSpace(_selectedEventType) ? null : _selectedEventType,
                 string.IsNullOrWhiteSpace(_selectedSgTemplateId) ? null : _selectedSgTemplateId,
-                1000);
+                1000,
+                SendGridEventParquet.SelectColumns);
 
-            var results = await _duckDbModule.InvokeAsync<SendGridEventParquet[]>("queryEvents", request);
+            var results = await _duckDbInterop.InvokeAsync<SendGridEventParquet[]>("queryEvents", request);
             _sendGridEvents = results ?? Array.Empty<SendGridEventParquet>();
             _hasSearched = true;
+            if (_selectedDay.HasValue)
+            {
+                _downloadedDays.Add(_selectedDay.Value);
+            }
         }
         catch (JSException jsEx)
         {
@@ -541,19 +573,54 @@ else if (_hasSearched)
 
     public async ValueTask DisposeAsync()
     {
-        if (_duckDbModule is not null)
+        if (_duckDbInterop is not null)
         {
             try
             {
-                await _duckDbModule.DisposeAsync();
+                await _duckDbInterop.InvokeVoidAsync("dispose");
             }
             catch (Exception ex)
             {
                 Logger.LogWarning(ex, "Failed to dispose duckdb module");
             }
+
+            try
+            {
+                await _duckDbInterop.DisposeAsync();
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Failed to release duckdb interop reference");
+            }
         }
     }
 
-    private sealed record MonthLoadResult(ParquetMonthManifest Manifest, int[] DownloadedDays);
-    private sealed record QueryRequest(int Year, int Month, int Day, string? Email, string? EventType, string? SgTemplateId, int Limit);
+    private string BuildModuleImportPath()
+    {
+        var options = DuckDbOptions.Value;
+        var moduleLoader = options.ModuleLoader?.Trim() ?? "duckdb-browser-bundle.js";
+        if (Uri.TryCreate(moduleLoader, UriKind.Absolute, out var absoluteLoader))
+        {
+            return absoluteLoader.ToString();
+        }
+
+        var basePath = options.BundleBasePath?.Trim() ?? "/lib/duckdb-wasm";
+        if (Uri.TryCreate(basePath, UriKind.Absolute, out var absoluteBase))
+        {
+            var combined = new Uri(absoluteBase, moduleLoader);
+            return combined.ToString();
+        }
+
+        basePath = basePath.TrimEnd('/');
+        if (!basePath.StartsWith('/'))
+        {
+            basePath = $"/{basePath}";
+        }
+
+        moduleLoader = moduleLoader.TrimStart('/');
+        return $"{basePath}/{moduleLoader}";
+    }
+
+    private sealed record MonthLoadResult(ParquetMonthManifest? Manifest, int[]? DownloadedDays);
+    private sealed record QueryRequest(int Year, int Month, int Day, string? Email, string? EventType, string? SgTemplateId, int Limit, string SelectColumns);
 }
