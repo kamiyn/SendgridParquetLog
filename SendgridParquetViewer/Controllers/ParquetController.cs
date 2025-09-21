@@ -1,9 +1,4 @@
-﻿using System;
-using System.IO;
-using System.Threading;
-using System.Threading.Tasks;
-
-using Microsoft.AspNetCore.Authorization;
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 using SendgridParquet.Shared;
@@ -20,13 +15,10 @@ public class ParquetController(
     ParquetCatalogService catalogService,
     S3StorageService s3StorageService) : ControllerBase
 {
-    private readonly ParquetCatalogService _catalogService = catalogService;
-    private readonly S3StorageService _s3StorageService = s3StorageService;
-
     [HttpGet("month/{year:int}/{month:int}")]
     public async Task<ActionResult<ParquetMonthManifest>> GetMonthAsync(int year, int month, CancellationToken ct)
     {
-        if (year is < 2000 or > 2100)
+        if (year is < 2000 or > 2999)
         {
             return BadRequest("Unsupported year");
         }
@@ -36,7 +28,7 @@ public class ParquetController(
             return BadRequest("Invalid month");
         }
 
-        var manifest = await _catalogService.GetCompactionMonthManifestAsync(year, month, ct);
+        var manifest = await catalogService.GetCompactionMonthManifestAsync(year, month, ct);
         return Ok(manifest);
     }
 
@@ -48,13 +40,13 @@ public class ParquetController(
             return BadRequest("Invalid object key");
         }
 
-        S3ObjectMetadata? metadata = await _s3StorageService.GetObjectMetadataAsync(key, ct);
+        S3ObjectMetadata? metadata = await s3StorageService.GetObjectMetadataAsync(key, ct);
         if (metadata is null)
         {
             return NotFound();
         }
 
-        byte[] content = await _s3StorageService.GetObjectAsByteArrayAsync(key, ct);
+        byte[] content = await s3StorageService.GetObjectAsByteArrayAsync(key, ct);
         if (content.Length == 0)
         {
             return NotFound();
@@ -70,7 +62,6 @@ public class ParquetController(
             Response.Headers.TryAdd("ETag", metadata.ETag);
         }
 
-        var fileName = Path.GetFileName(key);
-        return File(content, "application/octet-stream", fileName);
+        return File(content, "application/octet-stream", Path.GetFileName(key));
     }
 }
