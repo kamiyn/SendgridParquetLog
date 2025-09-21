@@ -34,7 +34,7 @@ public class WebhookHelper(
         catch (ArgumentException ex)
         {
             logger.ZLogInformation(ex, $"GetPayload");
-            return (HttpStatusCode.BadRequest, Array.Empty<SendGridEvent>());
+            return (HttpStatusCode.BadRequest, []);
         }
 
         var requestValidatorResult = requestValidator.VerifySignature(payloadBytes, requestHeaders);
@@ -44,7 +44,7 @@ public class WebhookHelper(
                 // case RequestValidator.RequestValidatorResult.NotConfigured: // 許容しない
                 try
                 {
-                    var events = JsonSerializer.Deserialize(payloadBytes, SendgridParquetLogger.Models.AppJsonSerializerContext.Default.SendGridEventArray) ?? [];
+                    var events = JsonSerializer.Deserialize(payloadBytes, Models.AppJsonSerializerContext.Default.SendGridEventArray) ?? [];
                     return (HttpStatusCode.OK, events);
                 }
                 catch (JsonException ex)
@@ -57,19 +57,16 @@ public class WebhookHelper(
                 logger.ZLogInformation($"ValidatorResult: {requestValidatorResult}");
                 break;
         }
-        return (HttpStatusCode.BadRequest, Array.Empty<SendGridEvent>());
+        return (HttpStatusCode.BadRequest, []);
     }
 
     private async Task<byte[]> GetPayload(PipeReader reader, IHeaderDictionary headers, CancellationToken ct)
     {
         int initialCapacity = 0;
-        if (headers.ContentLength is long contentLength && contentLength > 0)
+        if (headers.ContentLength is { } contentLength && contentLength > 0)
         {
             long capped = Math.Min(contentLength, _maxBodyBytes);
-            if (capped <= int.MaxValue)
-            {
-                initialCapacity = (int)capped;
-            }
+            initialCapacity = (int)capped;
         }
 
         using var ms = initialCapacity > 0 ? new MemoryStream(initialCapacity) : new MemoryStream();

@@ -1,11 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Globalization;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
-
-using Microsoft.Extensions.Logging;
+﻿using System.Globalization;
 
 using SendgridParquet.Shared;
 
@@ -19,23 +12,20 @@ public class ParquetCatalogService(
     ILogger<ParquetCatalogService> logger,
     S3StorageService s3StorageService)
 {
-    private readonly ILogger<ParquetCatalogService> _logger = logger;
-    private readonly S3StorageService _s3StorageService = s3StorageService;
-
     public async Task<ParquetMonthManifest> GetCompactionMonthManifestAsync(int year, int month, CancellationToken ct)
     {
         var prefix = SendGridPathUtility.GetS3CompactionPrefix(year, month, null, null);
-        var objectKeys = (await _s3StorageService.ListFilesAsync(prefix, ct)).ToArray();
+        var objectKeys = (await s3StorageService.ListFilesAsync(prefix, ct)).ToArray();
 
         var bufferLength = objectKeys.Length;
-        var entriesBuffer = bufferLength == 0 ? Array.Empty<ParquetFileManifest>() : new ParquetFileManifest[bufferLength];
+        var entriesBuffer = new ParquetFileManifest[bufferLength];
         var entryCount = 0;
 
         foreach (string key in objectKeys)
         {
             if (!TryParseCompactionKey(key, out var parts))
             {
-                _logger.ZLogWarning($"Skipping unexpected compaction key format: {key}");
+                logger.ZLogWarning($"Skipping unexpected compaction key format: {key}");
                 continue;
             }
 
@@ -45,10 +35,10 @@ public class ParquetCatalogService(
                 continue;
             }
 
-            S3ObjectMetadata? metadata = await _s3StorageService.GetObjectMetadataAsync(key, ct);
+            S3ObjectMetadata? metadata = await s3StorageService.GetObjectMetadataAsync(key, ct);
             if (metadata is null)
             {
-                _logger.ZLogWarning($"Metadata not found for compaction object: {key}");
+                logger.ZLogWarning($"Metadata not found for compaction object: {key}");
                 continue;
             }
 
@@ -70,7 +60,7 @@ public class ParquetCatalogService(
         }
 
         var entries = entryCount == 0
-            ? Array.Empty<ParquetFileManifest>()
+            ? []
             : entriesBuffer.AsSpan(0, entryCount).ToArray();
 
         var grouped = entries
@@ -98,7 +88,7 @@ public class ParquetCatalogService(
             return false;
         }
 
-        if (!string.Equals(segments[0], "v3compaction", System.StringComparison.Ordinal))
+        if (!string.Equals(segments[0], "v3compaction", StringComparison.Ordinal))
         {
             return false;
         }
@@ -133,12 +123,12 @@ public class ParquetCatalogService(
             return false;
         }
 
-        if (!key.StartsWith("v3compaction/", System.StringComparison.Ordinal))
+        if (!key.StartsWith("v3compaction/", StringComparison.Ordinal))
         {
             return false;
         }
 
-        if (key.Contains("../", System.StringComparison.Ordinal) || key.Contains("..\\", System.StringComparison.Ordinal))
+        if (key.Contains("../", StringComparison.Ordinal) || key.Contains("..\\", StringComparison.Ordinal))
         {
             return false;
         }

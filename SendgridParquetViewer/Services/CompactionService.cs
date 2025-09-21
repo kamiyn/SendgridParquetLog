@@ -73,6 +73,7 @@ public class CompactionService(
                 };
             }
         }
+        logger.ZLogDebug($"currentStatus {currentStatus}");
 
         var lockId = Guid.NewGuid().ToString();
 
@@ -426,7 +427,7 @@ public class CompactionService(
 
     private sealed class CompactionBatchResult
     {
-        internal IReadOnlyCollection<string> ProcessedFiles { get; init; } = Array.Empty<string>();
+        internal IReadOnlyCollection<string> ProcessedFiles { get; init; } = [];
         internal int OutputFiles { get; init; }
         internal int FailedFiles { get; init; }
     }

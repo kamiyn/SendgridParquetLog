@@ -2,15 +2,11 @@
 @rendermode InteractiveServer
 @attribute [Authorize]
 @implements IAsyncDisposable
-@using System
-@using System.Collections.Generic
 @using System.Linq
 @using Microsoft.Extensions.Options
-@using Microsoft.JSInterop
 @using SendgridParquetViewer.Models
 @using SendgridParquetViewer.Configuration
-@using SendgridParquet.Shared
-@inject IJSRuntime JSRuntime
+@inject IJSRuntime JsRuntime
 @inject TimeProvider TimeProvider
 @inject ILogger<Home> Logger
 @inject IOptionsSnapshot<DuckDbWasmOptions> DuckDbOptions
@@ -52,7 +48,7 @@
         </div>
 
         <div style="margin-top: 25px;">
-            <FluentButton Appearance="Appearance.Accent" Disabled="@_isDownloading" OnClick="@(async () => await EnsureMonthDataAsync())">月データ再取得</FluentButton>
+            <FluentButton Appearance="Appearance.Accent" Disabled="@_isDownloading" OnClick="@(async () => await GetMonthDataAsync())">月データ再取得</FluentButton>
         </div>
 
         <div style="margin-top: 25px;">
@@ -259,118 +255,121 @@ else if (_hasSearched)
 </FluentDialog>
 
 @code {
-    private IJSObjectReference? _duckDbInterop;
-    private bool _isDownloading;
-    private bool _isLoading;
-    private bool _manifestLoaded;
-    private string? _errorMessage;
+	private IJSObjectReference? _duckDbInterop;
+	private bool _isDownloading;
+	private bool _isLoading;
+	private bool _manifestLoaded;
+	private string? _errorMessage;
 
-    private int _currentYear;
-    private int _currentMonth;
-    private DateTime? CurrentMonthDate { get; set; }
-    private int? _selectedDay;
+	private int _currentYear;
+	private int _currentMonth;
+	private DateTime? CurrentMonthDate { get; set; }
+	private int? _selectedDay;
 
-    private HashSet<int> _downloadedDays = new();
-    private HashSet<int> _availableDays = new();
-    private DateTime?[][] _calendarWeeks = Array.Empty<DateTime?[]>();
-    private ParquetMonthManifest? _monthManifest;
+	private HashSet<int> _downloadedDays = new();
+	private HashSet<int> _availableDays = new();
+	private DateTime?[][] _calendarWeeks = [];
+	private ParquetMonthManifest? _monthManifest;
 
-    private SendGridEventParquet[] _sendGridEvents = Array.Empty<SendGridEventParquet>();
-    private bool _hasSearched;
+	private SendGridEventParquet[] _sendGridEvents = [];
+	private bool _hasSearched;
 
-    private string _selectedEmail = string.Empty;
-    private string _selectedEventType = SendGridEventTypes.Delivered;
-    private string _selectedSgTemplateId = string.Empty;
+	private string _selectedEmail = string.Empty;
+	private string _selectedEventType = SendGridEventTypes.Delivered;
+	private string _selectedSgTemplateId = string.Empty;
 
-    private SendGridEventParquet? _selectedEvent;
-    private bool ShowEventDetailsDialog => _selectedEvent != null;
+	private SendGridEventParquet? _selectedEvent;
+	private bool ShowEventDetailsDialog => _selectedEvent != null;
 
-    private readonly PaginationState _pagination = new() { ItemsPerPage = 50 };
+	private readonly PaginationState _pagination = new() { ItemsPerPage = 50 };
 
-    protected override void OnInitialized()
-    {
-        var today = TimeProvider.GetLocalNow().DateTime;
-        _currentYear = today.Year;
-        _currentMonth = today.Month;
-        CurrentMonthDate = new DateTime(today.Year, today.Month, 1);
-    }
+	protected override void OnInitialized()
+	{
+		var today = TimeProvider.GetLocalNow().DateTime;
+		_currentYear = today.Year;
+		_currentMonth = today.Month;
+		CurrentMonthDate = new DateTime(today.Year, today.Month, 1);
+	}
 
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (firstRender)
-        {
-            await EnsureDuckDbModuleAsync();
-            if (_duckDbInterop != null)
-            {
-                await EnsureMonthDataAsync();
-            }
-        }
-    }
+	protected override async Task OnAfterRenderAsync(bool firstRender)
+	{
+		if (firstRender)
+		{
+			await EnsureDuckDbModuleAsync();
+			if (_duckDbInterop != null)
+			{
+				await GetMonthDataAsync();
+			}
+		}
+	}
 
-    private async Task EnsureDuckDbModuleAsync()
-    {
-        if (_duckDbInterop != null)
-        {
-            return;
-        }
+	private async Task EnsureDuckDbModuleAsync()
+	{
+		if (_duckDbInterop != null)
+		{
+			return;
+		}
 
-        try
-        {
-            var modulePath = BuildModuleImportPath();
-            _duckDbInterop = await JSRuntime.InvokeAsync<IJSObjectReference>("import", modulePath);
-            await _duckDbInterop.InvokeVoidAsync("initialize", DuckDbOptions.Value);
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Failed to initialize duckdb interop module");
-            _errorMessage = $"DuckDB 初期化に失敗しました: {ex.Message}";
-        }
-    }
+		try
+		{
+			var modulePath = BuildModuleImportPath();
+			_duckDbInterop = await JsRuntime.InvokeAsync<IJSObjectReference>("import", modulePath);
+			await _duckDbInterop.InvokeVoidAsync("initialize", DuckDbOptions.Value);
+		}
+		catch (Exception ex)
+		{
+			Logger.LogError(ex, "Failed to initialize duckdb interop module");
+			_errorMessage = $"DuckDB 初期化に失敗しました: {ex.Message}";
+		}
+	}
 
-    private async Task ChangeMonthAsync(int delta)
-    {
-        var target = new DateTime(_currentYear, _currentMonth, 1).AddMonths(delta);
-        await SetMonthAsync(target.Year, target.Month);
-    }
+	private async Task ChangeMonthAsync(int delta)
+	{
+		var target = new DateTime(_currentYear, _currentMonth, 1).AddMonths(delta);
+		await SetMonthAsync(target.Year, target.Month);
+	}
 
-    private async Task OnMonthPickerAfterChanged()
-    {
-        if (!CurrentMonthDate.HasValue)
-        {
-            return;
-        }
+	private async Task OnMonthPickerAfterChanged()
+	{
+		if (!CurrentMonthDate.HasValue)
+		{
+			return;
+		}
 
-        var selected = CurrentMonthDate.Value;
-        var target = new DateTime(selected.Year, selected.Month, 1);
-        await SetMonthAsync(target.Year, target.Month);
-    }
+		var selected = CurrentMonthDate.Value;
+		var target = new DateTime(selected.Year, selected.Month, 1);
+		await SetMonthAsync(target.Year, target.Month);
+	}
 
-    private async Task SetMonthAsync(int year, int month)
-    {
-        if (year == _currentYear && month == _currentMonth)
-        {
-            return;
-        }
+	private async Task SetMonthAsync(int year, int month)
+	{
+		if (year == _currentYear && month == _currentMonth)
+		{
+			return;
+		}
 
-        _currentYear = year;
-        _currentMonth = month;
-        CurrentMonthDate = new DateTime(year, month, 1);
-        _selectedDay = null;
-        _sendGridEvents = Array.Empty<SendGridEventParquet>();
-        _hasSearched = false;
-        _downloadedDays.Clear();
-        _availableDays.Clear();
-        _calendarWeeks = Array.Empty<DateTime?[]>();
-        _errorMessage = null;
-        _monthManifest = null;
+		_currentYear = year;
+		_currentMonth = month;
+		CurrentMonthDate = new DateTime(year, month, 1);
+		_selectedDay = null;
+		_sendGridEvents = [];
+		_hasSearched = false;
+		_downloadedDays.Clear();
+		_availableDays.Clear();
+		_calendarWeeks = [];
+		_errorMessage = null;
+		_monthManifest = null;
 
-        if (_duckDbInterop != null)
-        {
-            await EnsureMonthDataAsync();
-        }
-    }
+		if (_duckDbInterop != null)
+		{
+			await GetMonthDataAsync();
+		}
+	}
 
-    private async Task EnsureMonthDataAsync()
+	/// <summary>
+	/// 指定した年月の月データをDuckDB経由で取得する
+	/// </summary>
+	private async Task GetMonthDataAsync()
     {
         if (_duckDbInterop == null)
         {
@@ -389,7 +388,7 @@ else if (_hasSearched)
                 _monthManifest = null;
                 _availableDays.Clear();
                 _downloadedDays.Clear();
-                _calendarWeeks = Array.Empty<DateTime?[]>();
+                _calendarWeeks = [];
                 _manifestLoaded = false;
                 _errorMessage = "月マニフェストを取得できませんでした。";
                 return;
@@ -399,7 +398,7 @@ else if (_hasSearched)
             _downloadedDays = result.DownloadedDays?.Length > 0
                 ? new HashSet<int>(result.DownloadedDays)
                 : new HashSet<int>();
-            var dayManifests = _monthManifest.Days ?? Array.Empty<ParquetDayManifest>();
+            var dayManifests = _monthManifest.Days;
             _availableDays = dayManifests.Select(d => d.Day).ToHashSet();
             RebuildCalendar();
         }
@@ -424,9 +423,9 @@ else if (_hasSearched)
     {
         var firstDay = new DateTime(_currentYear, _currentMonth, 1);
         int daysInMonth = DateTime.DaysInMonth(_currentYear, _currentMonth);
-        const int MaxWeeks = 6;
+		const int maxWeeks = 6; // 1か月には最大6週間
 
-        var weeks = new DateTime?[MaxWeeks][];
+        var weeks = new DateTime?[maxWeeks][];
         var currentWeek = new DateTime?[7];
         int weekCount = 0;
         int dayOfWeekIndex = 0;
@@ -458,7 +457,7 @@ else if (_hasSearched)
         }
 
         _calendarWeeks = weekCount == 0
-            ? Array.Empty<DateTime?[]>()
+            ? []
             : weeks[..weekCount].ToArray();
         _manifestLoaded = true;
     }
@@ -500,7 +499,7 @@ else if (_hasSearched)
 
         _isLoading = true;
         _errorMessage = null;
-        _sendGridEvents = Array.Empty<SendGridEventParquet>();
+        _sendGridEvents = [];
         StateHasChanged();
 
         try
@@ -511,7 +510,7 @@ else if (_hasSearched)
                 return;
             }
 
-            var request = new QueryRequest(
+            var request = new QueryEventsRequest(
                 _currentYear,
                 _currentMonth,
                 _selectedDay.Value,
@@ -522,7 +521,7 @@ else if (_hasSearched)
                 SendGridEventParquet.SelectColumns);
 
             var results = await _duckDbInterop.InvokeAsync<SendGridEventParquet[]>("queryEvents", request);
-            _sendGridEvents = results ?? Array.Empty<SendGridEventParquet>();
+            _sendGridEvents = results;
             _hasSearched = true;
             if (_selectedDay.HasValue)
             {
@@ -598,13 +597,13 @@ else if (_hasSearched)
     private string BuildModuleImportPath()
     {
         var options = DuckDbOptions.Value;
-        var moduleLoader = options.ModuleLoader?.Trim() ?? "duckdb-browser-bundle.js";
+        var moduleLoader = options.ModuleLoader.Trim();
         if (Uri.TryCreate(moduleLoader, UriKind.Absolute, out var absoluteLoader))
         {
             return absoluteLoader.ToString();
         }
 
-        var basePath = options.BundleBasePath?.Trim() ?? "/lib/duckdb-wasm";
+        var basePath = options.BundleBasePath.Trim();
         if (Uri.TryCreate(basePath, UriKind.Absolute, out var absoluteBase))
         {
             var combined = new Uri(absoluteBase, moduleLoader);
@@ -622,5 +621,7 @@ else if (_hasSearched)
     }
 
     private sealed record MonthLoadResult(ParquetMonthManifest? Manifest, int[]? DownloadedDays);
-    private sealed record QueryRequest(int Year, int Month, int Day, string? Email, string? EventType, string? SgTemplateId, int Limit, string SelectColumns);
+    // ReSharper disable NotAccessedPositionalProperty.Local
+    private sealed record QueryEventsRequest(int Year, int Month, int Day, string? Email, string? EventType, string? SgTemplateId, int Limit, string SelectColumns);
+    // ReSharper restore NotAccessedPositionalProperty.Local
 }
