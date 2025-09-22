@@ -1,5 +1,5 @@
 {
-  "name": "duckdb-bundle",
+  "name": "sendgrid-parquet-viewer-duckdb-bundle",
   "version": "0.1.0",
   "type": "module",
   "scripts": {
@@ -7,9 +7,11 @@
   },
   "dependencies": {
     "@duckdb/duckdb-wasm": "1.29.0",
-    "apache-arrow": "17.0.0"
+    "apache-arrow": "17.0.0",
+    "handlebars": "^4.7.8"
   },
   "devDependencies": {
+    "@types/handlebars": "^4.1.0",
     "vite": "^7.1.6"
   }
 }

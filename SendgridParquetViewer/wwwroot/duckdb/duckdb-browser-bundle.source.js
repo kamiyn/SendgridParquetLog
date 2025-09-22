@@ -1,9 +1,47 @@
-import { AsyncDuckDB, ConsoleLogger } from '@duckdb/duckdb-wasm';
+import Handlebars from 'handlebars';
+import * as duckdb from '@duckdb/duckdb-wasm';
+
+const { AsyncDuckDB, AsyncDuckDBConnection, ConsoleLogger } = duckdb;
+
+const queryResultsTemplateSource = `{{#if hasColumns}}
+    <table class="table table-striped table-hover table-sm align-middle">
+        <thead>
+            <tr>
+                <th scope="col" class="text-nowrap">詳細</th>
+                {{#each columns}}
+                    <th scope="col" class="text-nowrap">{{this}}</th>
+                {{/each}}
+            </tr>
+        </thead>
+        <tbody>
+            {{#if hasRows}}
+                {{#each rows}}
+                    <tr data-row-index="{{@index}}">
+                        <td>
+                            <button type="button" class="btn btn-link p-0" data-action="show-details" data-row-index="{{@index}}">表示</button>
+                        </td>
+                        {{#each values}}
+                            <td class="text-nowrap">{{this}}</td>
+                        {{/each}}
+                    </tr>
+                {{/each}}
+            {{else}}
+                <tr>
+                    <td class="text-muted" colspan="{{totalColumns}}">検索結果がありません。</td>
+                </tr>
+            {{/if}}
+        </tbody>
+    </table>
+{{else}}
+    <div class="alert alert-info" role="status">表示する列がありません。</div>
+{{/if}}`;
+
+const queryResultsTemplate = Handlebars.compile(queryResultsTemplateSource.trim());
 
 const state = {
     config: null,
-    duckDbPromise: null,
-    registeredFiles: new Set(),
+    duckDbPromise: undefined,
+    httpFsInitialized: false,
 };
 
 function normalizeBasePath(path) {
@@ -15,12 +53,12 @@ function normalizeBasePath(path) {
 }
 
 function ensureConfig(rawConfig) {
-    if (!rawConfig) {
-        throw new Error('DuckDB configuration is required.');
-    }
-
     if (state.config) {
         return state.config;
+    }
+
+    if (!rawConfig) {
+        throw new Error('DuckDB configuration is required.');
     }
 
     const bundleBasePath = normalizeBasePath(rawConfig.bundleBasePath ?? rawConfig.BundleBasePath ?? '/duckdb');
@@ -40,102 +78,84 @@ function ensureConfig(rawConfig) {
     return state.config;
 }
 
-function resolveAsset(path, fileName) {
-    return `${path}/${fileName}`;
-}
-
-async function loadDuckDb() {
-    if (!state.config) {
-        throw new Error('Call initialize before using DuckDB.');
+async function loadDuckDb(config) {
+    if (state.duckDbPromise) {
+        return state.duckDbPromise;
     }
 
-    if (!state.duckDbPromise) {
-        state.duckDbPromise = (async () => {
-            const workerUrl = resolveAsset(state.config.bundleBasePath, state.config.mainWorker);
-            const worker = new Worker(workerUrl, { type: 'module' });
-            const logger = new ConsoleLogger();
-            const db = new AsyncDuckDB(logger, worker);
-            const mainModuleUrl = resolveAsset(state.config.bundleBasePath, state.config.mainModule);
-            const pthreadWorkerUrl = state.config.pthreadWorker
-                ? resolveAsset(state.config.bundleBasePath, state.config.pthreadWorker)
-                : undefined;
+    state.duckDbPromise = (async () => {
+        const moduleLoaderPath = `${config.bundleBasePath}/${config.moduleLoader}`;
+        const loader = await import(/* @vite-ignore */ moduleLoaderPath);
+        const workerPath = `${config.bundleBasePath}/${config.mainWorker}`;
+        const worker = new Worker(workerPath, { type: 'module' });
+        const logger = new loader.ConsoleLogger();
+        const db = new loader.AsyncDuckDB(logger, worker);
+        const mainModuleUrl = `${config.bundleBasePath}/${config.mainModule}`;
+        const pthreadWorkerUrl = config.pthreadWorker ? `${config.bundleBasePath}/${config.pthreadWorker}` : null;
 
-            await db.instantiate(mainModuleUrl, pthreadWorkerUrl);
-            return { db, worker };
-        })();
-    }
+        await db.instantiate(mainModuleUrl, pthreadWorkerUrl ?? undefined);
+        return { loader, db, worker };
+    })();
 
     return state.duckDbPromise;
 }
 
-function toVirtualPath(identifier) {
-    const trimmed = identifier.startsWith('/') ? identifier.slice(1) : identifier;
-    return `parquet/${trimmed}`;
-}
-
-async function ensureFilesRegistered(db, fileUrls) {
-    if (!Array.isArray(fileUrls) || fileUrls.length === 0) {
-        return [];
+async function ensureHttpFs(connection) {
+    if (state.httpFsInitialized) {
+        return;
     }
 
-    const uniqueKeys = new Set();
-    const normalizedKeys = [];
-
-    for (const url of fileUrls) {
-        if (typeof url !== 'string') {
-            continue;
+    try {
+        await connection.query("INSTALL 'httpfs';");
+    } catch (error) {
+        const message = typeof error?.message === 'string' ? error.message : String(error ?? '');
+        if (!message.includes('already installed')) {
+            throw error;
         }
-
-        const key = url.trim();
-        if (typeof key !== 'string') {
-            continue;
-        }
-
-        if (key.length === 0 || uniqueKeys.has(key)) {
-            continue;
-        }
-
-        uniqueKeys.add(key);
-        normalizedKeys.push(key);
     }
 
-    if (normalizedKeys.length === 0) {
-        return [];
+    await connection.query("LOAD 'httpfs';");
+    state.httpFsInitialized = true;
+}
+
+function toDisplayValue(value) {
+    if (value === null || value === undefined) {
+        return '';
     }
 
-    const virtualPaths = [];
-
-    for (const url of normalizedKeys) {
-        const requestUrl = url.startsWith('/') ? url : `/${url}`;
-        const virtualPath = toVirtualPath(url);
-        if (!state.registeredFiles.has(virtualPath)) {
-            const response = await fetch(requestUrl);
-            if (!response.ok) {
-                throw new Error(`Failed to download parquet file (${response.status})`);
-            }
-
-            const buffer = new Uint8Array(await response.arrayBuffer());
-            await db.registerFileBuffer(virtualPath, buffer);
-            state.registeredFiles.add(virtualPath);
+    if (typeof value === 'object') {
+        try {
+            return JSON.stringify(value);
+        } catch (error) {
+            return String(value);
         }
-
-        virtualPaths.push(virtualPath);
     }
 
-    return virtualPaths;
+    return String(value);
 }
 
-function escapePathLiteral(path) {
-    return path.replace(/'/g, "''");
+function resolveParquetUrl(parquetUrl) {
+    if (!parquetUrl) {
+        return parquetUrl;
+    }
+
+    if (parquetUrl.startsWith('http://') || parquetUrl.startsWith('https://')) {
+        return parquetUrl;
+    }
+
+    const baseUrl = typeof window === 'object' && window.location
+        ? window.location.origin
+        : (globalThis.location?.origin ?? '');
+
+    return new URL(parquetUrl, baseUrl).toString();
 }
 
-function buildReadParquetArgument(paths) {
-    const entries = paths.map((path) => `'${escapePathLiteral(path)}'`).join(', ');
-    return `ARRAY[${entries}]`;
-}
+function ensureElement(element, name) {
+    if (!element) {
+        throw new Error(`${name} element is required.`);
+    }
 
-function escapeSqlLiteral(value) {
-    return value.replace(/\\/g, '\\\\').replace(/'/g, "''");
+    return element;
 }
 
 function normalizeLikePattern(raw) {
@@ -144,144 +164,193 @@ function normalizeLikePattern(raw) {
     return hasWildcard ? trimmed : `%${trimmed}%`;
 }
 
-function normalizeValue(value) {
-    if (value === undefined || value === null) {
-        return null;
-    }
-
-    if (typeof value === 'bigint') {
-        return Number(value);
-    }
-
-    if (Array.isArray(value) || (typeof value === 'object' && value !== null)) {
-        return JSON.stringify(value);
-    }
-
-    return value;
+function escapeSqlLiteral(value) {
+    return value.replace(/\\/g, '\\\\').replace(/'/g, "''");
 }
 
-function normalizeRow(row, columns) {
-    const result = {};
-    for (const column of columns) {
-        result[column] = normalizeValue(row[column]);
+function buildWhereClause(request) {
+    const clauses = [];
+
+    if (request.email && request.email.trim().length > 0) {
+        const pattern = normalizeLikePattern(request.email);
+        clauses.push(`email ILIKE '${escapeSqlLiteral(pattern)}' ESCAPE '\\'`);
     }
 
-    return result;
-}
-
-function extractString(source, primary, fallback) {
-    const value = source?.[primary] ?? source?.[fallback];
-    return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
-}
-
-function extractNumber(source, primary, fallback) {
-    const raw = source?.[primary] ?? source?.[fallback];
-    if (typeof raw === 'number' && Number.isFinite(raw)) {
-        return raw;
+    if (request.eventType && request.eventType.trim().length > 0) {
+        clauses.push(`event = '${escapeSqlLiteral(request.eventType)}'`);
     }
 
-    if (typeof raw === 'string' && raw.length > 0) {
-        const parsed = Number.parseInt(raw, 10);
-        return Number.isFinite(parsed) ? parsed : null;
+    if (request.sgTemplateId && request.sgTemplateId.trim().length > 0) {
+        clauses.push(`sg_template_id = '${escapeSqlLiteral(request.sgTemplateId)}'`);
     }
 
-    return null;
+    return clauses.length > 0 ? ` WHERE ${clauses.join(' AND ')}` : '';
 }
 
-function extractFileUrls(request) {
-    const urls = request?.FileUrls ?? request?.fileUrls;
-    if (!Array.isArray(urls)) {
+function buildLimitClause(limit) {
+    if (typeof limit !== 'number' || !Number.isFinite(limit)) {
+        return '';
+    }
+
+    const normalized = Math.max(1, Math.min(Math.trunc(limit), 5000));
+    return ` LIMIT ${normalized}`;
+}
+
+function renderQueryResultWithTemplate(targetElement, context, dotNetHelper) {
+    targetElement.innerHTML = queryResultsTemplate(context);
+
+    if (!dotNetHelper || typeof dotNetHelper.invokeMethodAsync !== 'function' || context.rowCount === 0) {
+        return;
+    }
+
+    const buttons = targetElement.querySelectorAll('[data-action="show-details"]');
+    buttons.forEach((button) => {
+        button.addEventListener('click', (event) => {
+            event.preventDefault();
+            const indexValue = button.dataset.rowIndex;
+            const parsedIndex = typeof indexValue === 'string' ? Number.parseInt(indexValue, 10) : Number.NaN;
+
+            if (Number.isNaN(parsedIndex)) {
+                return;
+            }
+
+            dotNetHelper.invokeMethodAsync('ShowEventDetailsFromJs', parsedIndex).catch((error) => {
+                console.warn('Failed to notify detail handler', error);
+            });
+        });
+    });
+}
+
+function toExecuteRows(result, columns) {
+    if (!Array.isArray(columns) || columns.length === 0) {
         return [];
     }
 
-    return urls;
+    const rows = result.toArray().map((row) => {
+        const values = columns.map((column) => toDisplayValue(row[column]));
+        return { values };
+    });
+
+    return rows;
 }
 
-export async function initialize(rawConfig) {
-    ensureConfig(rawConfig);
-    await loadDuckDb();
-}
-
-export async function queryEvents(request) {
+function ensureRequest(request) {
     if (!request) {
         throw new Error('A query request is required.');
     }
 
-    ensureConfig(state.config ?? {});
-    const duck = await loadDuckDb();
+    const fileUrls = Array.isArray(request.fileUrls) ? request.fileUrls : [];
+    const normalizedFileUrls = fileUrls
+        .map((url) => typeof url === 'string' ? url.trim() : '')
+        .filter((url) => url.length > 0);
 
-    const fileUrls = extractFileUrls(request);
-    if (fileUrls.length === 0) {
-        return [];
+    if (normalizedFileUrls.length === 0) {
+        throw new Error('At least one parquet file URL must be provided.');
     }
 
-    const paths = await ensureFilesRegistered(duck.db, fileUrls);
-    if (paths.length === 0) {
-        return [];
-    }
+    return {
+        fileUrls: normalizedFileUrls,
+        email: request.email ?? null,
+        eventType: request.eventType ?? null,
+        sgTemplateId: request.sgTemplateId ?? null,
+        limit: typeof request.limit === 'number' ? request.limit : null,
+        selectColumns: request.selectColumns ?? null,
+    };
+}
 
-    const selectColumns = request?.SelectColumns ?? request?.selectColumns ?? '*';
-    const clauses = [];
+export async function initialize(rawConfig) {
+    const config = ensureConfig(rawConfig);
+    await loadDuckDb(config);
+}
 
-    const email = extractString(request, 'Email', 'email');
-    if (email) {
-        const pattern = normalizeLikePattern(email);
-        clauses.push(`email ILIKE '${escapeSqlLiteral(pattern)}' ESCAPE '\\'`);
-    }
+export async function queryEvents(rawConfig, rawRequest, targetElement, options) {
+    const config = ensureConfig(rawConfig);
+    const request = ensureRequest(rawRequest);
+    const resolvedTarget = ensureElement(targetElement, 'Target container');
+    const dotNetHelper = options?.dotNetHelper ?? null;
 
-    const eventType = extractString(request, 'EventType', 'eventType');
-    if (eventType) {
-        clauses.push(`event = '${escapeSqlLiteral(eventType)}'`);
-    }
-
-    const templateId = extractString(request, 'SgTemplateId', 'sgTemplateId');
-    if (templateId) {
-        clauses.push(`sg_template_id = '${escapeSqlLiteral(templateId)}'`);
-    }
-
-    const limitValue = extractNumber(request, 'Limit', 'limit');
-    const limitClause = limitValue && limitValue > 0 ? ` LIMIT ${Math.min(limitValue, 5000)}` : '';
-
-    const whereClause = clauses.length > 0 ? ` WHERE ${clauses.join(' AND ')}` : '';
-    const readArgument = buildReadParquetArgument(paths);
-    const sql = `SELECT ${selectColumns} FROM read_parquet(${readArgument}, union_by_name=true)${whereClause} ORDER BY Timestamp DESC${limitClause}`;
-
-    const connection = await duck.db.connect();
+    const { db } = await loadDuckDb(config);
+    const connection = await db.connect();
 
     try {
-        const result = await connection.query(sql);
-        const columns = Array.isArray(result?.schema?.fields)
-            ? result.schema.fields.map((field) => field?.name).filter((name) => typeof name === 'string' && name.length > 0)
-            : [];
-        const rows = result.toArray().map((row) => normalizeRow(row, columns));
+        await ensureHttpFs(connection);
 
-        if (typeof result.close === 'function') {
-            result.close();
-        } else if (typeof result.release === 'function') {
-            result.release();
+        const resolvedUrls = request.fileUrls.map((url) => resolveParquetUrl(url));
+        const sourceLiteral = JSON.stringify(resolvedUrls);
+
+        try {
+            await connection.query(`CREATE OR REPLACE TEMP VIEW parquet_source AS SELECT * FROM read_parquet(${sourceLiteral}, union_by_name=true);`);
+
+            const selectColumns = request.selectColumns && request.selectColumns.trim().length > 0
+                ? request.selectColumns
+                : '*';
+            const whereClause = buildWhereClause(request);
+            const limitClause = buildLimitClause(request.limit);
+            const sql = `SELECT ${selectColumns} FROM parquet_source${whereClause} ORDER BY Timestamp DESC${limitClause}`;
+
+            const result = await connection.query(sql);
+            const schemaFields = Array.isArray(result?.schema?.fields) ? result.schema.fields : [];
+            const columns = schemaFields
+                .map((field) => field?.name ?? '')
+                .filter((name) => Boolean(name));
+
+            const rows = toExecuteRows(result, columns);
+
+            if (typeof result.close === 'function') {
+                result.close();
+            } else if (typeof result.release === 'function') {
+                result.release();
+            }
+
+            const response = {
+                columns,
+                rows,
+            };
+
+            const context = {
+                columns,
+                rows,
+                hasColumns: columns.length > 0,
+                hasRows: rows.length > 0,
+                columnCount: columns.length,
+                rowCount: rows.length,
+                totalColumns: columns.length + 1,
+            };
+
+            renderQueryResultWithTemplate(resolvedTarget, context, dotNetHelper);
+            return response;
+        } finally {
+            await connection.query('DROP VIEW IF EXISTS parquet_source;');
         }
-
-        return rows;
     } finally {
         await connection.close();
     }
 }
 
+export function clearResults(targetElement) {
+    if (!targetElement) {
+        return;
+    }
+
+    targetElement.innerHTML = '';
+}
+
 export async function dispose() {
-    if (!state.duckDbPromise) {
+    const promise = state.duckDbPromise;
+    if (!promise) {
         return;
     }
 
     try {
-        const instance = await state.duckDbPromise;
-        await instance.db.terminate();
-        instance.worker.terminate();
+        const { db, worker } = await promise;
+        await db.terminate();
+        worker.terminate();
     } finally {
-        state.duckDbPromise = null;
-        state.registeredFiles.clear();
+        state.duckDbPromise = undefined;
+        state.config = null;
+        state.httpFsInitialized = false;
     }
 }
 
-export function __getInternalState() {
-    return state;
-}
+export { AsyncDuckDB, AsyncDuckDBConnection, ConsoleLogger };
+export * from '@duckdb/duckdb-wasm';
