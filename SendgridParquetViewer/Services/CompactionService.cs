@@ -119,7 +119,7 @@ public class CompactionService(
         try
         {
             var targetCutoff = nowUTC.ToJst().Add(_compactionOptions.TargetBefore);
-            var olderThanOrEqual = new DateOnly(targetCutoff .Year, targetCutoff .Month, targetCutoff .Day);
+            var olderThanOrEqual = new DateOnly(targetCutoff.Year, targetCutoff.Month, targetCutoff.Day);
             var targetDays = await GetCompactionTargetAsync(olderThanOrEqual, ct);
 
             RunStatus runStatus = new RunStatus
