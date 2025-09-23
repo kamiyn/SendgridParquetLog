@@ -414,7 +414,6 @@ public class CompactionService(
             DateTimeOffset dt = DateTimeOffset.FromUnixTimeSeconds(firstItem.KeyUnixTimeSeconds);
             var dateOnly = new DateOnly(dt.Year, dt.Month, dt.Day);
             string outputFileName = string.Empty;
-            using var tempFile = new DisposableTempFile(nameof(CreateCompactedParquetAsync), logger);
             try
             {
                 logger.ZLogInformation($"Creating compacted file for hour {dt.Hour} with {hourGroup.Sum(x => x.Count)} events");
@@ -435,7 +434,7 @@ public class CompactionService(
                 }
                 logger.ZLogInformation($"Creating compacted file for hour {dt.Hour} with {hourEvents.Count()} events");
 
-                await using (FileStream outputStream = tempFile.Open())
+                await using (FileStream outputStream = DisposableTempFile.Open(nameof(CreateCompactedParquetAsync)))
                 {
                     bool convertToParquetResult = await parquetService.ConvertToParquetAsync(hourEvents, outputStream);
                     if (!convertToParquetResult)
@@ -469,7 +468,6 @@ public class CompactionService(
         CompactionBatchContext ctx,
         CancellationToken token)
     {
-        using var tempFile = new DisposableTempFile(nameof(VerifyOutputFilesAsync), logger);
         foreach (string outputFile in outputFiles)
         {
             try
@@ -483,7 +481,7 @@ public class CompactionService(
                 }
 
                 await using Stream responseStream = await response.Content.ReadAsStreamAsync(token);
-                await using FileStream tempFileStream = tempFile.Open();
+                await using FileStream tempFileStream = DisposableTempFile.Open(nameof(VerifyOutputFilesAsync));
                 await responseStream.CopyToAsync(tempFileStream, DisposableTempFile.BufferSize, token);
                 tempFileStream.Seek(0, SeekOrigin.Begin);
 
