@@ -17,7 +17,7 @@ public class CompactionService(
     ILogger<CompactionService> logger,
     TimeProvider timeProvider,
     S3StorageService s3StorageService,
-    S3LockService s3LockService,
+    IS3LockService s3LockService,
     IOptions<CompactionOptions> compactionOptions,
     ParquetService parquetService
 )

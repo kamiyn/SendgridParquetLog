@@ -8,10 +8,17 @@ using ZLogger;
 
 namespace SendgridParquetViewer.Services;
 
+public interface IS3LockService
+{
+    Task<bool> TryAcquireLockAsync(string lockId, CancellationToken cancellationToken);
+    Task ExtendLockExpirationAsync(string lockId, CancellationToken cancellationToken);
+    Task ReleaseLockAsync(string lockId, CancellationToken cancellationToken);
+}
+
 public class S3LockService(
     ILogger<S3LockService> logger,
     TimeProvider timeProvider,
-    S3StorageService s3StorageService)
+    S3StorageService s3StorageService) : IS3LockService
 {
     private static readonly TimeSpan LockDuration = TimeSpan.FromMinutes(30);
     private static readonly string InstanceId = $"{Environment.MachineName}_{Guid.NewGuid():N}";
@@ -29,7 +36,7 @@ public class S3LockService(
             var existingLock = JsonSerializer.Deserialize<LockInfo>(existingLockJson);
             if (existingLock != null && existingLock.ExpiresAt > now)
             {
-                logger.ZLogInformation($"Lock is held by {existingLock.OwnerId} until {existingLock.ExpiresAt}");
+                logger.ZLogInformation($"Lock is held by {existingLock.OwnerId} until {existingLock.ExpiresAt} lockPath:{lockPath}");
                 return false;
             }
         }
@@ -52,7 +59,7 @@ public class S3LockService(
 
         if (success)
         {
-            logger.ZLogInformation($"Lock acquired successfully. Lock ID: {lockId}, Expires at: {lockInfo.ExpiresAt}");
+            logger.ZLogInformation($"Lock acquired successfully. Lock ID: {lockId}, Expires at: {lockInfo.ExpiresAt} lockPath:{lockPath}");
         }
 
         return success;
@@ -80,7 +87,7 @@ public class S3LockService(
         }
         catch (Exception ex)
         {
-            logger.ZLogWarning($"Failed to deserialize existing lock info while extending lock expiration: {ex}");
+            logger.ZLogWarning(ex,$"Failed to deserialize existing lock info while extending lock expiration. lockPath:{lockPath}");
             return;
         }
 
@@ -106,11 +113,11 @@ public class S3LockService(
 
         if (updated)
         {
-            logger.ZLogDebug($"Extended compaction lock {lockId} until {existingLock.ExpiresAt:s}");
+            logger.ZLogDebug($"Extended compaction lock {lockId} until {existingLock.ExpiresAt:s} lockPath:{lockPath}");
         }
         else
         {
-            logger.ZLogWarning($"Failed to extend compaction lock {lockId} due to conditional write conflict");
+            logger.ZLogWarning($"Failed to extend compaction lock {lockId} due to conditional write conflict lockPath:{lockPath}");
         }
     }
 
@@ -125,7 +132,7 @@ public class S3LockService(
             if (existingLock?.LockId == lockId)
             {
                 await s3StorageService.DeleteObjectAsync(lockPath, cancellationToken);
-                logger.ZLogInformation($"Lock released successfully. Lock ID: {lockId}");
+                logger.ZLogInformation($"Lock released successfully. Lock ID: {lockId} lockPath:{lockPath}");
             }
         }
     }
