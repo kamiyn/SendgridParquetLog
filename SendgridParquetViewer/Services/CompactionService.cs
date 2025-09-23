@@ -340,12 +340,22 @@ public class CompactionService(
                     runStatus.LastUpdated = timeProvider.GetUtcNow();
                     await runStatusContext.SaveRunStatusAsync(token);
                 }
+                catch (OperationCanceledException)
+                {
+                    logger.ZLogInformation($"Compaction process was canceled");
+                    break; // foreach を抜けて finally へ
+                }
                 catch (Exception ex)
                 {
+                    runStatus.Errors.Add(ex);
                     logger.ZLogError(ex, $"Error during compaction for date {dateOnly} at path {pathPrefix}");
                     // Continue with other dates
                 }
             }
+        }
+        catch (OperationCanceledException)
+        {
+            logger.ZLogInformation($"Compaction process was canceled");
         }
         finally
         {

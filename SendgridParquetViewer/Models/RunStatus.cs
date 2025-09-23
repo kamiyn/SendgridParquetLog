@@ -44,4 +44,10 @@ public class RunStatus
 
     [JsonPropertyName("lastUpdated")]
     public DateTimeOffset LastUpdated { get; set; }
+
+    [JsonIgnore]
+    internal List<Exception> Errors { get; } = new List<Exception>();
+
+    [JsonPropertyName("errorCount")]
+    public int ErrorCount => Errors.Count;
 }

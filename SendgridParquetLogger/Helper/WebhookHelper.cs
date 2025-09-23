@@ -6,6 +6,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Options;
 
 using SendgridParquet.Shared;
+using SendgridParquetLogger.Models;
 
 using ZLogger;
 
@@ -44,7 +45,7 @@ public class WebhookHelper(
                 // case RequestValidator.RequestValidatorResult.NotConfigured: // 許容しない
                 try
                 {
-                    var events = JsonSerializer.Deserialize(payloadBytes, Models.AppJsonSerializerContext.Default.SendGridEventArray) ?? [];
+                    var events = JsonSerializer.Deserialize(payloadBytes, AppJsonSerializerContext.Default.SendGridEventArray) ?? [];
                     return (HttpStatusCode.OK, events);
                 }
                 catch (JsonException ex)
