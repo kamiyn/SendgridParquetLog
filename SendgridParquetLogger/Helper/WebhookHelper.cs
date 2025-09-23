@@ -135,8 +135,9 @@ public class WebhookHelper(
         CancellationToken ct)
     {
         var events = eventsEnumerable.ToArray();
-        await using var parquetData = await parquetService.ConvertToParquetAsync(events);
-        if (parquetData == null)
+        await using var parquetData = new MemoryStream();
+        bool convertResult = await parquetService.ConvertToParquetAsync(events, parquetData);
+        if (!convertResult)
         {
             logger.ZLogError($"Failed to convert events to Parquet format");
             return HttpStatusCode.InternalServerError;
