@@ -129,6 +129,8 @@ public class CompactionService(
                 await JsonSerializer.SerializeAsync(ms, status, JsonOptions, cancellationToken);
                 await s3StorageService.PutObjectAsync(ms, runJsonPath, cancellationToken);
 
+                await ExtendLockExpirationAsync(status.LockId, cancellationToken);
+
                 await setRunStatus(status); // 呼び出し元の RunStatus を変更する
             });
 
@@ -307,6 +309,62 @@ public class CompactionService(
         }
 
         return success;
+    }
+
+    private async Task ExtendLockExpirationAsync(string lockId, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrEmpty(lockId))
+        {
+            return;
+        }
+
+        var (_, lockPath) = SendGridPathUtility.GetS3CompactionRunFile();
+        byte[] existingLockJson = await s3StorageService.GetObjectAsByteArrayAsync(lockPath, cancellationToken);
+
+        if (!existingLockJson.Any())
+        {
+            return;
+        }
+
+        LockInfo? existingLock;
+        try
+        {
+            existingLock = JsonSerializer.Deserialize<LockInfo>(existingLockJson);
+        }
+        catch (Exception ex)
+        {
+            logger.ZLogWarning($"Failed to deserialize existing lock info while extending lock expiration: {ex}");
+            return;
+        }
+
+        if (existingLock == null)
+        {
+            return;
+        }
+
+        if (!string.Equals(existingLock.LockId, lockId, System.StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        if (!string.Equals(existingLock.OwnerId, InstanceId, System.StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var now = timeProvider.GetUtcNow();
+        existingLock.ExpiresAt = now.Add(LockDuration);
+        byte[] updatedLockJson = JsonSerializer.SerializeToUtf8Bytes(existingLock, JsonOptions);
+        bool updated = await s3StorageService.PutObjectWithConditionAsync(lockPath, updatedLockJson, existingLockJson, cancellationToken);
+
+        if (updated)
+        {
+            logger.ZLogDebug($"Extended compaction lock {lockId} until {existingLock.ExpiresAt:s}");
+        }
+        else
+        {
+            logger.ZLogWarning($"Failed to extend compaction lock {lockId} due to conditional write conflict");
+        }
     }
 
     private async Task ReleaseLockAsync(string lockId, CancellationToken cancellationToken)
