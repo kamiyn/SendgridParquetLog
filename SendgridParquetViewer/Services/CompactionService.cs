@@ -118,7 +118,7 @@ public class CompactionService(
 
         try
         {
-            var yesterday = nowUTC.AddDays(-1); // UTC基準で昨日以前のものが対象になる = 日本時間で午前9時以降に昨日分が対象になる
+            var yesterday = nowUTC.ToJst().Add(_compactionOptions.TargetBefore);
             var olderThanOrEqual = new DateOnly(yesterday.Year, yesterday.Month, yesterday.Day);
             var targetDays = await GetCompactionTargetAsync(olderThanOrEqual, ct);
 
