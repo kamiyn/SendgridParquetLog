@@ -11,8 +11,7 @@ on:
   workflow_dispatch:
 
 env:
-  # Generate version from date and commit SHA
-  VERSION: 1.0.${{ github.run_number }}-${{ github.sha }}
+  VERSION: 1.0.${{ github.run_number }}
 
 jobs:
   build-and-deploy:

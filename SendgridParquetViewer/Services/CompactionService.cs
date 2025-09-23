@@ -1,5 +1,8 @@
 ﻿using System.Collections.Concurrent;
 using System.Text.Json;
+using System.Threading.Channels;
+
+using MemoryPack;
 
 using Microsoft.Extensions.Options;
 
@@ -26,7 +29,6 @@ public class CompactionService(
     private CompactionStartResult? _compactionStartResult;
     private readonly SemaphoreSlim _startupTaskSemaphore = new(1);
     private readonly CompactionOptions _compactionOptions = compactionOptions.Value;
-    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
     private static readonly TimeSpan MaxInactivityDuration = TimeSpan.FromDays(1);
 
     internal R3.Subject<RunStatus> RunStatusSubject { get; } = new();
@@ -42,7 +44,7 @@ public class CompactionService(
                 return null;
             }
 
-            return JsonSerializer.Deserialize<RunStatus>(jsonContent);
+            return JsonSerializer.Deserialize<RunStatus>(jsonContent, AppJsonSerializerContext.Default.RunStatus);
         }
         catch (Exception ex)
         {
@@ -60,7 +62,7 @@ public class CompactionService(
                 var cancellationToken = CancellationToken.None;
                 var (runJsonPath, _) = SendGridPathUtility.GetS3CompactionRunFile();
                 await using var ms = new MemoryStream();
-                await JsonSerializer.SerializeAsync(ms, status, JsonOptions, cancellationToken);
+                await JsonSerializer.SerializeAsync(ms, status, AppJsonSerializerContext.Default.RunStatus, cancellationToken);
                 await s3StorageService.PutObjectAsync(ms, runJsonPath, cancellationToken);
 
                 await s3LockService.ExtendLockExpirationAsync(status.LockId, cancellationToken);
@@ -116,8 +118,8 @@ public class CompactionService(
 
         try
         {
-            var yesterday = nowUTC.AddDays(-1); // UTC基準で昨日以前のものが対象になる = 日本時間で午前9時以降に昨日分が対象になる
-            var olderThanOrEqual = new DateOnly(yesterday.Year, yesterday.Month, yesterday.Day);
+            var targetCutoff = nowUTC.ToJst().Add(_compactionOptions.TargetBefore);
+            var olderThanOrEqual = new DateOnly(targetCutoff.Year, targetCutoff.Month, targetCutoff.Day);
             var targetDays = await GetCompactionTargetAsync(olderThanOrEqual, ct);
 
             RunStatus runStatus = new RunStatus
@@ -209,7 +211,7 @@ public class CompactionService(
         {
             var (runJsonPath, _) = SendGridPathUtility.GetS3CompactionRunFile();
             await using var ms = new MemoryStream();
-            await JsonSerializer.SerializeAsync(ms, stalledStatus, JsonOptions, CancellationToken.None);
+            await JsonSerializer.SerializeAsync(ms, stalledStatus, AppJsonSerializerContext.Default.RunStatus, CancellationToken.None);
             ms.Seek(0, SeekOrigin.Begin);
             await s3StorageService.PutObjectAsync(ms, runJsonPath, CancellationToken.None);
         }
@@ -333,12 +335,14 @@ public class CompactionService(
         runStatusContext.StartADay(targetDate, totalFiles, timeProvider.GetUtcNow());
         await runStatusContext.SaveRunStatusAsync(token);
 
+        int batchCount = 0;
         var remainFiles = new LinkedList<string>(targetParquetFiles); // CompactionBatchAsync は先頭から順番に処理するので LinkedList で良い
         while (remainFiles.Any())
         {
+            Interlocked.Increment(ref batchCount);
             token.ThrowIfCancellationRequested();
             int previousCount = remainFiles.Count;
-            CompactionBatchContext compactionBatchContext = new(runStatusContext, targetDate, remainFiles);
+            using CompactionBatchContext compactionBatchContext = new(runStatusContext, targetDate, batchCount, remainFiles);
             CompactionBatchResult batchResult = await CompactionBatchAsync(compactionBatchContext, token);
             remainFiles = RemoveRange(remainFiles, batchResult.ProcessedFiles);
             await runStatusContext.SaveRunStatusAsync(token); // ストレージへの保存はバッチごと
@@ -372,7 +376,7 @@ public class CompactionService(
     private async Task<CompactionBatchResult> CompactionBatchAsync(CompactionBatchContext ctx, CancellationToken token)
     {
         var targetDate = ctx.TargetDate;
-        var sendGridEvents = await ReadParquetFilesAsync(ctx, token);
+        FetchReadParquetFilesResult sendGridEvents = await FetchParquetFilesAsync(ctx, token);
         logger.ZLogInformation($"Total events loaded: {sendGridEvents.Count}");
         var outputFiles = await CreateCompactedParquetAsync(sendGridEvents, token);
         if (await VerifyOutputFilesAsync(outputFiles, ctx, token))
@@ -399,38 +403,64 @@ public class CompactionService(
     /// <summary>
     /// Create compacted parquet file for each hour that has data
     /// </summary>
-    private async Task<IReadOnlyCollection<string>> CreateCompactedParquetAsync(IReadOnlyCollection<SendGridEvent> sendGridEvents, CancellationToken token)
+    private async Task<IReadOnlyCollection<string>> CreateCompactedParquetAsync(FetchReadParquetFilesResult fetchReadParquetFilesResult, CancellationToken token)
     {
-        List<string> outputFiles = new(24 /* 24時間 */);
-
-        foreach (var hourGroup in sendGridEvents.GroupBy(e => e.Timestamp / 3600 /* 1時間単位に分割 */))
+        var outputFiles = new List<string>(fetchReadParquetFilesResult.PackedByHours.Count);
+        foreach (var hourGroup in fetchReadParquetFilesResult.PackedByHours
+                     .GroupBy(item => item.KeyUnixTimeSeconds)
+                     .OrderBy(grp => grp.Key))
         {
-            DateTimeOffset timestampFirst = JstExtension.JstUnixTimeSeconds(hourGroup.Select(x => x.Timestamp).First());
-            var date = new DateOnly(timestampFirst.Year, timestampFirst.Month, timestampFirst.Day);
-            int hour = timestampFirst.Hour;
-            var hourEvents = hourGroup.ToArray(); // GroupBy の結果なので必ず1件以上ある
+            var firstItem = hourGroup.First();
+            DateTimeOffset dt = DateTimeOffset.FromUnixTimeSeconds(firstItem.KeyUnixTimeSeconds);
+            var dateOnly = new DateOnly(dt.Year, dt.Month, dt.Day);
             string outputFileName = string.Empty;
             try
             {
-                logger.ZLogInformation($"Creating compacted file for hour {hour} with {hourEvents.Count()} events");
+                logger.ZLogInformation($"Creating compacted file for hour {dt.Hour} with {hourGroup.Sum(x => x.Count)} events");
 
-                await using Stream? outputStream = await parquetService.ConvertToParquetAsync(hourEvents);
-                if (outputStream == null)
+                List<SendGridEvent> hourEvents = new();
+                foreach (var packedFile in hourGroup)
                 {
-                    logger.ZLogWarning($"Failed to create parquet data for hour {hour}");
-                    continue;
+                    string fullName = packedFile.FileInfo.FullName;
+                    await using var fs = new FileStream(fullName, FileMode.Open, FileAccess.Read, FileShare.Read, DisposableTempFile.BufferSize, useAsync: true);
+                    // 直前で作成したファイルの Deserialize であるので null を無視してよい
+                    SendGridEvent[] events = await MemoryPackSerializer.DeserializeAsync<SendGridEvent[]>(fs, cancellationToken: token) ?? [];
+                    hourEvents.AddRange(events);
                 }
 
-                outputFileName = SendGridPathUtility.GetParquetCompactionFileName(date, hour, outputStream);
-                outputStream.Seek(0, SeekOrigin.Begin);
-                await s3StorageService.PutObjectAsync(outputStream, outputFileName, token);
-                outputFiles.Add(outputFileName);
+                if (!hourEvents.Any())
+                {
+                    logger.ZLogWarning($"No events found for this hour group (hour {dt.Hour})");
+                    continue;
+                }
+                logger.ZLogInformation($"Creating compacted file for hour {dt.Hour} with {hourEvents.Count()} events");
 
-                logger.ZLogInformation($"Created compacted file: {outputFileName} for hour {hour}");
+                FileStream outputStream = DisposableTempFile.Open(nameof(CreateCompactedParquetAsync));
+                try
+                {
+                    bool convertToParquetResult = await parquetService.ConvertToParquetAsync(hourEvents, outputStream);
+                    if (!convertToParquetResult)
+                    {
+                        logger.ZLogWarning($"Failed to create parquet data for hour {dt.Hour}");
+                        continue;
+                    }
+
+                    outputFileName = SendGridPathUtility.GetParquetCompactionFileName(dateOnly, dt.Hour, outputStream);
+                    outputStream.Seek(0, SeekOrigin.Begin);
+                    await s3StorageService.PutObjectAsync(outputStream, outputFileName, token);
+                    outputFiles.Add(outputFileName);
+                }
+                finally
+                {
+                    // ensure s3StorageService.PutObjectAsync is completed before disposing the stream
+                    await outputStream.DisposeAsync();
+                }
+
+                logger.ZLogInformation($"Created compacted file: {outputFileName} for hour {dt.Hour}");
             }
             catch (Exception ex)
             {
-                logger.ZLogError(ex, $"Failed to create compacted file: {outputFileName} for hour {hour}");
+                logger.ZLogError(ex, $"Failed to create compacted file: {outputFileName} for hour {dt.Hour}");
                 throw;
             }
         }
@@ -449,9 +479,21 @@ public class CompactionService(
         {
             try
             {
-                byte[] verifyData = await s3StorageService.GetObjectAsByteArrayAsync(outputFile, token);
-                using var verifyMs = new MemoryStream(verifyData);
-                using ParquetReader verifyReader = await ParquetReader.CreateAsync(verifyMs, cancellationToken: token);
+                using HttpResponseMessage response = await s3StorageService.GetObjectAsync(outputFile, token);
+                if (!response.IsSuccessStatusCode)
+                {
+                    logger.ZLogError($"Failed to verify compacted file: {outputFile} HttpStatus:{response.StatusCode}");
+                    ctx.AddFailedOutputFile(outputFile, timeProvider.GetUtcNow());
+                    continue;
+                }
+
+                await using Stream responseStream = await response.Content.ReadAsStreamAsync(token);
+                // ParquetReader はシーク可能なストリームを要求する
+                await using FileStream tempFileStream = DisposableTempFile.Open(nameof(VerifyOutputFilesAsync));
+                await responseStream.CopyToAsync(tempFileStream, DisposableTempFile.BufferSize, token);
+                tempFileStream.Seek(0, SeekOrigin.Begin);
+
+                using ParquetReader verifyReader = await ParquetReader.CreateAsync(tempFileStream, cancellationToken: token);
                 logger.ZLogInformation($"Verified compacted file: {outputFile} (RowGroups: {verifyReader.RowGroupCount})");
                 ctx.AddVerifiedOutputFile(outputFile, timeProvider.GetUtcNow());
             }
@@ -466,21 +508,108 @@ public class CompactionService(
         return ctx.FailedOutputFileCount == 0;
     }
 
-    private async Task<IReadOnlyCollection<SendGridEvent>> ReadParquetFilesAsync(CompactionBatchContext ctx, CancellationToken token)
+    /// <summary>
+    /// 1ファイルを読み取った結果
+    /// </summary>
+    class SendGridEventsOneFile
     {
-        var queue = new ConcurrentQueue<SendGridEvent>();
+        internal IReadOnlyCollection<SendGridEvent> SendGridEvents { get; init; } = [];
+        internal string ParquetFile { get; init; } = string.Empty;
+    }
+
+    class FetchReadParquetFilesResult
+    {
+        internal record struct PackedItem(long KeyUnixTimeSeconds, int Count, FileInfo FileInfo);
+
+        /// <summary>
+        /// 1時間ごとの SendGridEvent 配列を格納した一時ファイルの一覧
+        /// </summary>
+        internal IReadOnlyCollection<PackedItem> PackedByHours { get; init; } = [];
+
+        internal int Count => PackedByHours.DefaultIfEmpty().Sum(x => x.Count);
+    }
+
+    /// <summary>
+    /// S3 storage からファイルを読み 一時ファイルとして書き込む
+    ///  - 1日ごとの処理開始前に 一時ファイル置き場 Path.Combine(Path.GetTempPath(), $"compaction{ctx.TargetDate:yyyyMMdd}") はクリアする
+    ///  - この時点で 3600秒(=1時間) ごとの GroupBy を実施
+    ///  - 元の Parquet ファイルが日をまたいでいる可能性がある。0時をまたぐ可能性は日常的に発生する。その他の理由でまたいだ時間帯が増えたとしても処理を試みられるようにしておく
+    ///  - 一時ファイルの形式は https://github.com/Cysharp/MemoryPack MemoryPack でシリアライズ
+    ///  - 書き込み先は Path.Combine(一時ファイル置き場, ${ targetDayAndHour: yyyyMMddHH}, 元の Parquet ファイル) 名
+    ///  - 対象となった3600秒(=1時間) ごとの(日時 と 日時に対応したフォルダ) のValueTupleリストを返り値とする
+    /// </summary>
+    private async Task<FetchReadParquetFilesResult> FetchParquetFilesAsync(CompactionBatchContext ctx, CancellationToken token)
+    {
+        // 最大2ファイルを先読みする
+        var channel = Channel.CreateBounded<SendGridEventsOneFile>(new BoundedChannelOptions(2)
+        {
+            SingleReader = true,
+            SingleWriter = true,
+            FullMode = BoundedChannelFullMode.Wait,
+        });
+        Task<FetchReadParquetFilesResult> consumer = FetchParquetFilesConsumerAsync(ctx, channel.Reader, token);
+        try
+        {
+            await FetchParquetFilesProducerAsync(ctx, channel.Writer, token);
+        }
+        finally
+        {
+            channel.Writer.TryComplete();
+        }
+        return await consumer;
+    }
+
+    private async Task<FetchReadParquetFilesResult> FetchParquetFilesConsumerAsync(CompactionBatchContext ctx,
+        ChannelReader<SendGridEventsOneFile> reader,
+        CancellationToken token)
+    {
+        DirectoryInfo dailyTargetFolder = ctx.CreateTempFolderForRawFiles(logger);
+        var createdHourlyFolders = new ConcurrentDictionary<string, DateTimeOffset>();
+        var results = new List<FetchReadParquetFilesResult.PackedItem>(25);
+        await foreach (SendGridEventsOneFile sendgridEventOneFile in reader.ReadAllAsync(token))
+        {
+            var sendGridEvents = sendgridEventOneFile.SendGridEvents;
+            foreach (var hourGroup in sendGridEvents.GroupBy(e => e.Timestamp / 3600 /* 1時間単位に分割 */))
+            {
+                SendGridEvent[] eventsByHour = hourGroup.ToArray(); // シリアライズする前に 配列にする
+
+                DateTimeOffset hourGroupKey = JstExtension.JstUnixTimeSeconds(hourGroup.Key * 3600);
+                string targetFolder = Path.Combine(dailyTargetFolder.FullName, $"{hourGroupKey:yyyyMMddHH}");
+                if (createdHourlyFolders.TryAdd(targetFolder, hourGroupKey))
+                {
+                    Directory.CreateDirectory(targetFolder);
+                }
+                string originalFileName = Path.GetFileName(sendgridEventOneFile.ParquetFile);
+                string targetFilePath = Path.Combine(targetFolder, originalFileName);
+                await using var fs = new FileStream(targetFilePath, FileMode.Create, FileAccess.Write, FileShare.None, DisposableTempFile.BufferSize, useAsync: true);
+                await MemoryPackSerializer.SerializeAsync(fs, eventsByHour, cancellationToken: token);
+
+                results.Add(new FetchReadParquetFilesResult.PackedItem(hourGroupKey.ToUnixTimeSeconds(), eventsByHour.Length, new FileInfo(targetFilePath)));
+            }
+        }
+
+        return new FetchReadParquetFilesResult { PackedByHours = results, };
+    }
+
+    private async Task FetchParquetFilesProducerAsync(CompactionBatchContext ctx,
+        ChannelWriter<SendGridEventsOneFile> writer,
+        CancellationToken token)
+    {
         foreach (string parquetFile in ctx.CandidateParquetFiles)
         {
             token.ThrowIfCancellationRequested();
             try
             {
+                var sendGridEvents = new ConcurrentQueue<SendGridEvent>();
                 logger.ZLogInformation($"Reading Parquet file: {parquetFile}");
                 byte[] parquetData = await s3StorageService.GetObjectAsByteArrayAsync(parquetFile, token);
                 if (ctx.ProcessedBytes + parquetData.Length > _compactionOptions.MaxBatchSizeBytes)
                 {
-                    logger.ZLogInformation($"Reached read limit {_compactionOptions.MaxBatchSizeBytes}, stopping further reads in this batch");
+                    logger.ZLogInformation(
+                        $"Reached read limit {_compactionOptions.MaxBatchSizeBytes}, stopping further reads in this batch");
                     break;
                 }
+
                 if (parquetData.Any())
                 {
                     await using var ms = new MemoryStream(parquetData);
@@ -488,18 +617,30 @@ public class CompactionService(
                     for (int rowGroupIndex = 0; rowGroupIndex < parquetReader.RowGroupCount; rowGroupIndex++)
                     {
                         using ParquetRowGroupReader rowGroupReader = parquetReader.OpenRowGroupReader(rowGroupIndex);
-                        await foreach (SendGridEvent e in parquetService.ReadRowGroupEventsAsync(rowGroupReader, parquetReader, token))
+                        await foreach (SendGridEvent sendGridEvent in parquetService.ReadRowGroupEventsAsync(
+                                           rowGroupReader, parquetReader, token))
                         {
-                            queue.Enqueue(e);
+                            sendGridEvents.Enqueue(sendGridEvent);
                         }
                     }
+
+                    await writer.WriteAsync(
+                        new SendGridEventsOneFile
+                        {
+                            ParquetFile = parquetFile,
+                            SendGridEvents = sendGridEvents.ToArray(),
+                        }, token);
                     ctx.AddProcessedFile(parquetFile, parquetData.Length, timeProvider.GetUtcNow());
-                    logger.ZLogInformation($"Successfully read {queue.Count} events from {parquetFile}");
+                    logger.ZLogInformation($"Successfully read {sendGridEvents.Count} events from {parquetFile}");
                 }
                 else
                 {
                     logger.ZLogWarning($"Empty parquet file: {parquetFile}");
                 }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -508,7 +649,5 @@ public class CompactionService(
                 // 読めなくても処理を続け 無効なファイルとして後で削除する
             }
         }
-
-        return queue.ToArray();
     }
 }

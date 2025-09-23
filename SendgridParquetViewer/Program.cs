@@ -78,7 +78,16 @@ builder.Services.AddOptions<CompactionOptions>()
     .ValidateDataAnnotations()
     .ValidateOnStart();
 
-builder.Services.AddSingleton(TimeProvider.System);
+//builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddOptions<TimeProviderOptions>()
+    .Configure(options =>
+    {
+        if (TimeSpan.TryParse(builder.Configuration["TimeProviderOffset"], null, out TimeSpan span))
+        {
+            options.Offset = span;
+        }
+    });
+builder.Services.AddSingleton<TimeProvider, ConfigurableTimeProvider>();
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
