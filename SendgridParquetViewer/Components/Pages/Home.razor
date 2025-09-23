@@ -267,7 +267,7 @@ else if (_hasSearched)
 
     protected override async Task OnInitializedAsync()
     {
-        _selectedDate = TimeProvider.GetLocalNow().AddDays(-3).DateTime;
+        _selectedDate = TimeProvider.GetUtcNow().ToJst().AddDays(-3).DateTime;
         await base.OnInitializedAsync();
     }
 
