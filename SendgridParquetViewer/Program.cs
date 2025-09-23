@@ -4,8 +4,6 @@ using Microsoft.FluentUI.AspNetCore.Components;
 using Microsoft.Identity.Web;
 using Microsoft.Identity.Web.UI;
 
-using R3;
-
 using SendgridParquet.Shared;
 
 using SendgridParquetViewer.Components;
@@ -99,6 +97,7 @@ builder.Services.AddTransient<DuckDbService>();
 
 // Add S3 storage service
 builder.Services.AddHttpClient<S3StorageService>();
+builder.Services.AddSingleton<IS3LockService, S3LockService>();
 
 // Add Parquet service
 builder.Services.AddSingleton<ParquetService>(); // 無状態のため AddSingleton
