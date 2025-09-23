@@ -30,7 +30,7 @@ public class S3StorageService(
 
     public async ValueTask<bool> PutObjectAsync(Stream content, string key, CancellationToken ct)
     {
-        var uri = new Uri($"{_options.SERVICEURL}/{_options.BUCKETNAME}/{key}");
+        var uri = BuildObjectUri(key);
         try
         {
             using var request = new HttpRequestMessage(HttpMethod.Put, uri);
@@ -127,13 +127,13 @@ public class S3StorageService(
     /// <returns></returns>
     public async ValueTask<HttpResponseMessage> GetObjectAsync(string key, CancellationToken ct)
     {
-        var uri = new Uri($"{_options.SERVICEURL}/{_options.BUCKETNAME}/{key}");
+        var uri = BuildObjectUri(key);
         try
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, uri);
             using var requestContent = new MemoryStream([]);
             AddAwsSignatureHeaders(request, requestContent);
-            return await httpClient.SendAsync(request, ct);
+            return await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
         }
         catch (Exception ex)
         {
@@ -179,7 +179,7 @@ public class S3StorageService(
 
     public async ValueTask<bool> DeleteObjectAsync(string key, CancellationToken ct)
     {
-        var uri = new Uri($"{_options.SERVICEURL}/{_options.BUCKETNAME}/{key}");
+        var uri = BuildObjectUri(key);
         try
         {
             using var request = new HttpRequestMessage(HttpMethod.Delete, uri);
@@ -208,7 +208,7 @@ public class S3StorageService(
 
     public async ValueTask<bool> PutObjectWithConditionAsync(string key, byte[] content, byte[] existingLockJson, CancellationToken ct)
     {
-        var uri = new Uri($"{_options.SERVICEURL}/{_options.BUCKETNAME}/{key}");
+        var uri = BuildObjectUri(key);
         try
         {
             // First, get the current ETag if object exists
@@ -410,6 +410,25 @@ public class S3StorageService(
             logger.ZLogError(ex, $"Error listing objects for prefix {req.Prefix}");
             return string.Empty;
         }
+    }
+
+    private Uri BuildObjectUri(string key)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(key);
+
+        string baseUrl = _options.SERVICEURL.TrimEnd('/');
+        string bucket = _options.BUCKETNAME.Trim('/');
+        string normalizedKey = key.TrimStart('/');
+
+        string encodedKey = string.Join('/',
+            normalizedKey.Split('/', StringSplitOptions.None)
+                .Select(segment => Uri.EscapeDataString(segment)));
+
+        string uriString = string.IsNullOrEmpty(encodedKey)
+            ? $"{baseUrl}/{bucket}"
+            : $"{baseUrl}/{bucket}/{encodedKey}";
+
+        return new Uri(uriString);
     }
 
     private S3SignatureSource CreateSignatureSource()

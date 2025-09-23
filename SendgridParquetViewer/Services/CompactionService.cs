@@ -484,28 +484,47 @@ public class CompactionService(
     {
         foreach (string outputFile in outputFiles)
         {
+            string tempVerifyFile = Path.Combine(Path.GetTempPath(), $"verify-{Guid.NewGuid():N}.parquet");
             try
             {
                 using HttpResponseMessage response = await s3StorageService.GetObjectAsync(outputFile, token);
-                if (response.IsSuccessStatusCode)
+                if (!response.IsSuccessStatusCode)
                 {
-                    await using Stream verifyMs = await response.Content.ReadAsStreamAsync(token);
-                    using ParquetReader verifyReader = await ParquetReader.CreateAsync(verifyMs, cancellationToken: token);
-                    logger.ZLogInformation($"Verified compacted file: {outputFile} (RowGroups: {verifyReader.RowGroupCount})");
-                    ctx.AddVerifiedOutputFile(outputFile, timeProvider.GetUtcNow());
-                }
-                else
-                {
-                    // ファイル取得自体が失敗した場合は Delete しない
                     logger.ZLogError($"Failed to verify compacted file: {outputFile} HttpStatus:{response.StatusCode}");
                     ctx.AddFailedOutputFile(outputFile, timeProvider.GetUtcNow());
+                    continue;
                 }
+
+                await using Stream responseStream = await response.Content.ReadAsStreamAsync(token);
+                await using var tempFileStream = new FileStream(tempVerifyFile,
+                    FileMode.Create,
+                    FileAccess.ReadWrite,
+                    FileShare.None,
+                    TmpFileBufferSize,
+                    useAsync: true);
+                await responseStream.CopyToAsync(tempFileStream, TmpFileBufferSize, token);
+                tempFileStream.Seek(0, SeekOrigin.Begin);
+
+                using ParquetReader verifyReader = await ParquetReader.CreateAsync(tempFileStream, cancellationToken: token);
+                logger.ZLogInformation($"Verified compacted file: {outputFile} (RowGroups: {verifyReader.RowGroupCount})");
+                ctx.AddVerifiedOutputFile(outputFile, timeProvider.GetUtcNow());
             }
             catch (Exception ex)
             {
                 logger.ZLogError(ex, $"Failed to verify compacted file: {outputFile}");
                 await s3StorageService.DeleteObjectAsync(outputFile, token);
                 ctx.AddFailedOutputFile(outputFile, timeProvider.GetUtcNow());
+            }
+            finally
+            {
+                try
+                {
+                    File.Delete(tempVerifyFile);
+                }
+                catch (Exception ex)
+                {
+                    logger.ZLogWarning(ex, $"Failed to delete temporary file: {tempVerifyFile}");
+                }
             }
         }
 
