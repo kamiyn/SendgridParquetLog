@@ -103,7 +103,8 @@ builder.Services.AddHttpClient<S3StorageService>();
 builder.Services.AddScoped<ParquetService>();
 
 // Add Compaction service
-builder.Services.AddScoped<CompactionService>();
+builder.Services.AddSingleton<CompactionService>(); // 1プロセスあたり同時実行は1つだけにする
+builder.Services.AddHostedService<CompactionStartupHostedService>(); // 起動時にコンパクションを開始するホストサービス
 
 // Add health checks
 builder.Services.AddHealthChecks();
@@ -141,11 +142,5 @@ app.MapHealthChecks("/health6QQl").AllowAnonymous();
 // Map Aspire default endpoints (health checks etc. in dev)
 app.MapDefaultEndpoints();
 #endif
-
-//{
-//    // Start the compaction process in the background
-//    var compactionService = app.Services.GetRequiredService<CompactionService>();
-//    _ = compactionService.StartCompactionAsync((_) => Task.CompletedTask, CancellationToken.None);
-//}
 
 app.Run();

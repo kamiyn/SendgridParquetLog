@@ -138,7 +138,7 @@
         try
         {
             var result = await CompactionService.StartCompactionAsync(SetRunStatus, _cts.Token);
-            if (result.CanStart)
+            if (result.StartTime != null)
             {
                 ShowMessage($"Compaction started successfully at {result.StartTime}", MessageIntent.Success);
                 await RefreshStatus();

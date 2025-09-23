@@ -20,8 +20,10 @@ public class CompactionService(
     ParquetService parquetService
 )
 {
+    private CancellationTokenSource? _startupCancellation;
+    private CompactionStartResult? _compactionStartResult;
+    private static readonly SemaphoreSlim _startupTaskSemaphore = new(1);
     private readonly CompactionOptions _compactionOptions = compactionOptions.Value;
-    private readonly ParquetService _parquetService = parquetService;
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
     private static readonly TimeSpan LockDuration = TimeSpan.FromMinutes(30);
     private static readonly TimeSpan MaxInactivityDuration = TimeSpan.FromDays(1);
@@ -52,8 +54,24 @@ public class CompactionService(
         internal async Task SaveRunStatusAsync(CancellationToken ct) => await SaveRunStatusAsyncFunc.Invoke(RunStatus, ct);
     }
 
-    public async Task<CompactionStartResult> StartCompactionAsync(Func<RunStatus?, Task> setRunStatus, CancellationToken ct = default)
+    public async Task<CompactionStartResult> StartCompactionAsync(Func<RunStatus?, Task> setRunStatus,
+        CancellationToken ct = default)
     {
+        await _startupTaskSemaphore.WaitAsync(ct);
+        try
+        {
+            return await StartCompactionAsyncInLock(setRunStatus, ct);
+        }
+        finally
+        {
+            _startupTaskSemaphore.Release();
+        }
+    }
+
+    async Task<CompactionStartResult> StartCompactionAsyncInLock(Func<RunStatus?, Task> setRunStatus, CancellationToken ct = default)
+    {
+        _startupCancellation = CancellationTokenSource.CreateLinkedTokenSource(ct);
+
         var nowUTC = timeProvider.GetUtcNow();
         RunStatus? currentStatus = await GetRunStatusAsync(ct);
         if (currentStatus is { EndTime: null })
@@ -62,13 +80,13 @@ public class CompactionService(
             if (nowUTC - lastActivity > MaxInactivityDuration)
             {
                 currentStatus = await FinalizeStalledRunAsync(currentStatus, nowUTC, setRunStatus);
+                logger.ZLogInformation($"FinalizeStalledRunAsync LastUpdated:{currentStatus.LastUpdated}");
             }
             else
             {
                 await setRunStatus(currentStatus);
                 return new CompactionStartResult
                 {
-                    CanStart = false,
                     Reason = $"Compaction is already running (started {currentStatus.StartTime:s}, last update {lastActivity:s})"
                 };
             }
@@ -81,7 +99,6 @@ public class CompactionService(
         {
             return new CompactionStartResult
             {
-                CanStart = false,
                 Reason = "Unable to acquire distributed lock for compaction process"
             };
         }
@@ -120,22 +137,44 @@ public class CompactionService(
             // Save initial status
             await runStatusContext.SaveRunStatusAsync(ct);
 
-            // Start background processing
-            var ctsForExecuteCompactionAsync = new CancellationTokenSource();
-            _ = Task.Run(() => ExecuteCompactionAsync(runStatusContext, ctsForExecuteCompactionAsync.Token), ctsForExecuteCompactionAsync.Token);
-
-            return new CompactionStartResult
+            _compactionStartResult = new CompactionStartResult
             {
-                CanStart = true,
+                StartTask = ExecuteCompactionAsync(runStatusContext, _startupCancellation.Token),
                 StartTime = nowUTC,
                 Reason = "Compaction started successfully"
             };
+
+            return _compactionStartResult;
         }
         catch (Exception ex)
         {
             logger.ZLogError(ex, $"Error during compaction start");
             await ReleaseLockAsync(lockId, ct);
             throw;
+        }
+    }
+
+    public async Task StopCompactionAsync(CancellationToken ct)
+    {
+        await _startupTaskSemaphore.WaitAsync(ct);
+        try
+        {
+            if (_startupCancellation != null)
+            {
+                await _startupCancellation.CancelAsync();
+                _startupCancellation.Dispose();
+            }
+
+            Task? task = _compactionStartResult?.StartTask;
+            if (task != null)
+            {
+                await task;
+            }
+        }
+        catch (OperationCanceledException) { }
+        finally
+        {
+            _startupTaskSemaphore.Release();
         }
     }
 
@@ -447,7 +486,7 @@ public class CompactionService(
             {
                 logger.ZLogInformation($"Creating compacted file for hour {hour} with {hourEvents.Count()} events");
 
-                await using Stream? outputStream = await _parquetService.ConvertToParquetAsync(hourEvents);
+                await using Stream? outputStream = await parquetService.ConvertToParquetAsync(hourEvents);
                 if (outputStream == null)
                 {
                     logger.ZLogWarning($"Failed to create parquet data for hour {hour}");
@@ -499,7 +538,6 @@ public class CompactionService(
     {
         foreach (string parquetFile in files)
         {
-            var now = timeProvider.GetUtcNow();
             try
             {
                 logger.ZLogInformation($"Reading Parquet file: {parquetFile}");
@@ -516,7 +554,7 @@ public class CompactionService(
                     for (int rowGroupIndex = 0; rowGroupIndex < parquetReader.RowGroupCount; rowGroupIndex++)
                     {
                         using ParquetRowGroupReader rowGroupReader = parquetReader.OpenRowGroupReader(rowGroupIndex);
-                        await foreach (SendGridEvent e in _parquetService.ReadRowGroupEventsAsync(rowGroupReader, parquetReader, token))
+                        await foreach (SendGridEvent e in parquetService.ReadRowGroupEventsAsync(rowGroupReader, parquetReader, token))
                         {
                             ctx.SendGridEvents.Add(e);
                         }

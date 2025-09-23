@@ -13,7 +13,6 @@ namespace SendgridParquetLogger.Helper;
 
 public class WebhookHelper(
     ILogger<WebhookHelper> logger,
-    TimeProvider timeProvider,
     ParquetService parquetService,
     RequestValidator requestValidator,
     S3StorageService s3StorageService,
@@ -45,7 +44,7 @@ public class WebhookHelper(
                 // case RequestValidator.RequestValidatorResult.NotConfigured: // 許容しない
                 try
                 {
-                    var events = JsonSerializer.Deserialize(payloadBytes, SendgridParquetLogger.Models.AppJsonSerializerContext.Default.SendGridEventArray) ?? [];
+                    var events = JsonSerializer.Deserialize(payloadBytes, Models.AppJsonSerializerContext.Default.SendGridEventArray) ?? [];
                     return (HttpStatusCode.OK, events);
                 }
                 catch (JsonException ex)
@@ -63,17 +62,14 @@ public class WebhookHelper(
 
     private async Task<byte[]> GetPayload(PipeReader reader, IHeaderDictionary headers, CancellationToken ct)
     {
-        int initialCapacity = 0;
-        if (headers.ContentLength is long contentLength && contentLength > 0)
-        {
-            long capped = Math.Min(contentLength, _maxBodyBytes);
-            if (capped <= int.MaxValue)
+        MemoryStream GetMemoryStream() =>
+            headers.ContentLength switch
             {
-                initialCapacity = (int)capped;
-            }
-        }
+                > 0 => new MemoryStream((int)Math.Min(headers.ContentLength.Value, _maxBodyBytes)),
+                _ => new MemoryStream()
+            };
 
-        using var ms = initialCapacity > 0 ? new MemoryStream(initialCapacity) : new MemoryStream();
+        using MemoryStream ms = GetMemoryStream();
         long total = 0;
         try
         {
@@ -111,7 +107,7 @@ public class WebhookHelper(
         }
         finally
         {
-            reader.Complete();
+            await reader.CompleteAsync();
         }
     }
 
