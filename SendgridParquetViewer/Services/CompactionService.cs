@@ -434,7 +434,8 @@ public class CompactionService(
                 }
                 logger.ZLogInformation($"Creating compacted file for hour {dt.Hour} with {hourEvents.Count()} events");
 
-                await using (FileStream outputStream = DisposableTempFile.Open(nameof(CreateCompactedParquetAsync)))
+                FileStream outputStream = DisposableTempFile.Open(nameof(CreateCompactedParquetAsync));
+                try
                 {
                     bool convertToParquetResult = await parquetService.ConvertToParquetAsync(hourEvents, outputStream);
                     if (!convertToParquetResult)
@@ -447,6 +448,11 @@ public class CompactionService(
                     outputStream.Seek(0, SeekOrigin.Begin);
                     await s3StorageService.PutObjectAsync(outputStream, outputFileName, token);
                     outputFiles.Add(outputFileName);
+                }
+                finally
+                {
+                    // ensure s3StorageService.PutObjectAsync is completed before disposing the stream
+                    await outputStream.DisposeAsync();
                 }
 
                 logger.ZLogInformation($"Created compacted file: {outputFileName} for hour {dt.Hour}");
