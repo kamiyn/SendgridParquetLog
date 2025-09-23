@@ -408,10 +408,10 @@ public class CompactionService(
     private async Task<IReadOnlyCollection<string>> CreateCompactedParquetAsync(FetchReadParquetFilesResult fetchReadParquetFilesResult, CancellationToken token)
     {
         var outputFiles = new List<string>(fetchReadParquetFilesResult.PackedByHours.Count);
-        foreach (var hourGroup in fetchReadParquetFilesResult.PackedByHours.GroupBy(item => item.HourGroupKey.ToUnixTimeSeconds()))
+        foreach (var hourGroup in fetchReadParquetFilesResult.PackedByHours.GroupBy(item => item.KeyUnixTimeSeconds))
         {
             var firstItem = hourGroup.First();
-            DateTimeOffset dt = firstItem.HourGroupKey;
+            DateTimeOffset dt = DateTimeOffset.FromUnixTimeSeconds(firstItem.KeyUnixTimeSeconds);
             var dateOnly = new DateOnly(dt.Year, dt.Month, dt.Day);
             string outputFileName = string.Empty;
             var tempFile = Path.GetTempFileName();
@@ -512,7 +512,7 @@ public class CompactionService(
 
     class FetchReadParquetFilesResult
     {
-        internal record struct PackedItem(DateTimeOffset HourGroupKey, int Count, FileInfo FileInfo);
+        internal record struct PackedItem(long KeyUnixTimeSeconds, int Count, FileInfo FileInfo);
 
         /// <summary>
         /// 1時間ごとの SendGridEvent 配列を格納した一時ファイルの一覧
@@ -541,7 +541,14 @@ public class CompactionService(
             FullMode = BoundedChannelFullMode.Wait,
         });
         Task<FetchReadParquetFilesResult> consumer = FetchParquetFilesConsumerAsync(ctx, channel.Reader, token);
-        await FetchParquetFilesProducerAsync(ctx, channel.Writer, token);
+        try
+        {
+            await FetchParquetFilesProducerAsync(ctx, channel.Writer, token);
+        }
+        finally
+        {
+            channel.Writer.TryComplete();
+        }
         return await consumer;
     }
 
@@ -552,7 +559,7 @@ public class CompactionService(
         DirectoryInfo dailyTargetFolder = ctx.CreateTempFolderForRawFiles(logger);
         var createdHourlyFolders = new ConcurrentDictionary<string, DateTimeOffset>();
         var results = new List<FetchReadParquetFilesResult.PackedItem>(25);
-        await foreach (var sendgridEventOneFile in reader.ReadAllAsync(token))
+        await foreach (SendGridEventsOneFile sendgridEventOneFile in reader.ReadAllAsync(token))
         {
             var sendGridEvents = sendgridEventOneFile.SendGridEvents;
             foreach (var hourGroup in sendGridEvents.GroupBy(e => e.Timestamp / 3600 /* 1時間単位に分割 */))
@@ -570,7 +577,7 @@ public class CompactionService(
                 await using var fs = new FileStream(targetFilePath, FileMode.Create, FileAccess.Write, FileShare.None, TmpFileBufferSize, useAsync: true);
                 await MemoryPackSerializer.SerializeAsync(fs, eventsByHour, cancellationToken: token);
 
-                results.Add(new FetchReadParquetFilesResult.PackedItem(hourGroupKey, eventsByHour.Length, new FileInfo(targetFilePath)));
+                results.Add(new FetchReadParquetFilesResult.PackedItem(hourGroupKey.ToUnixTimeSeconds(), eventsByHour.Length, new FileInfo(targetFilePath)));
             }
         }
 
@@ -583,10 +590,10 @@ public class CompactionService(
     {
         foreach (string parquetFile in ctx.CandidateParquetFiles)
         {
+            token.ThrowIfCancellationRequested();
             try
             {
                 var sendGridEvents = new ConcurrentQueue<SendGridEvent>();
-                token.ThrowIfCancellationRequested();
                 logger.ZLogInformation($"Reading Parquet file: {parquetFile}");
                 byte[] parquetData = await s3StorageService.GetObjectAsByteArrayAsync(parquetFile, token);
                 if (ctx.ProcessedBytes + parquetData.Length > _compactionOptions.MaxBatchSizeBytes)
@@ -613,8 +620,7 @@ public class CompactionService(
                     await writer.WriteAsync(
                         new SendGridEventsOneFile
                         {
-                            ParquetFile = parquetFile,
-                            SendGridEvents = sendGridEvents.ToArray(),
+                            ParquetFile = parquetFile, SendGridEvents = sendGridEvents.ToArray(),
                         }, token);
                     ctx.AddProcessedFile(parquetFile, parquetData.Length, timeProvider.GetUtcNow());
                     logger.ZLogInformation($"Successfully read {sendGridEvents.Count} events from {parquetFile}");
@@ -624,6 +630,10 @@ public class CompactionService(
                     logger.ZLogWarning($"Empty parquet file: {parquetFile}");
                 }
             }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
                 logger.ZLogError(ex, $"Failed to read parquet file: {parquetFile}");
@@ -631,6 +641,5 @@ public class CompactionService(
                 // 読めなくても処理を続け 無効なファイルとして後で削除する
             }
         }
-        writer.Complete();
     }
 }
