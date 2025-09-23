@@ -486,11 +486,20 @@ public class CompactionService(
         {
             try
             {
-                byte[] verifyData = await s3StorageService.GetObjectAsByteArrayAsync(outputFile, token);
-                using var verifyMs = new MemoryStream(verifyData);
-                using ParquetReader verifyReader = await ParquetReader.CreateAsync(verifyMs, cancellationToken: token);
-                logger.ZLogInformation($"Verified compacted file: {outputFile} (RowGroups: {verifyReader.RowGroupCount})");
-                ctx.AddVerifiedOutputFile(outputFile, timeProvider.GetUtcNow());
+                using HttpResponseMessage response = await s3StorageService.GetObjectAsync(outputFile, token);
+                if (response.IsSuccessStatusCode)
+                {
+                    await using Stream verifyMs = await response.Content.ReadAsStreamAsync(token);
+                    using ParquetReader verifyReader = await ParquetReader.CreateAsync(verifyMs, cancellationToken: token);
+                    logger.ZLogInformation($"Verified compacted file: {outputFile} (RowGroups: {verifyReader.RowGroupCount})");
+                    ctx.AddVerifiedOutputFile(outputFile, timeProvider.GetUtcNow());
+                }
+                else
+                {
+                    // ファイル取得自体が失敗した場合は Delete しない
+                    logger.ZLogError($"Failed to verify compacted file: {outputFile} HttpStatus:{response.StatusCode}");
+                    ctx.AddFailedOutputFile(outputFile, timeProvider.GetUtcNow());
+                }
             }
             catch (Exception ex)
             {
@@ -622,7 +631,8 @@ public class CompactionService(
                     await writer.WriteAsync(
                         new SendGridEventsOneFile
                         {
-                            ParquetFile = parquetFile, SendGridEvents = sendGridEvents.ToArray(),
+                            ParquetFile = parquetFile,
+                            SendGridEvents = sendGridEvents.ToArray(),
                         }, token);
                     ctx.AddProcessedFile(parquetFile, parquetData.Length, timeProvider.GetUtcNow());
                     logger.ZLogInformation($"Successfully read {sendGridEvents.Count} events from {parquetFile}");

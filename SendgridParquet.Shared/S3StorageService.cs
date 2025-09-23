@@ -123,10 +123,9 @@ public class S3StorageService(
     /// 見つからない場合は空の byte[] を返す
     /// </summary>
     /// <param name="key"></param>
-    /// <param name="now"></param>
     /// <param name="ct"></param>
     /// <returns></returns>
-    public async ValueTask<byte[]> GetObjectAsByteArrayAsync(string key, CancellationToken ct)
+    public async ValueTask<HttpResponseMessage> GetObjectAsync(string key, CancellationToken ct)
     {
         var uri = new Uri($"{_options.SERVICEURL}/{_options.BUCKETNAME}/{key}");
         try
@@ -134,28 +133,46 @@ public class S3StorageService(
             using var request = new HttpRequestMessage(HttpMethod.Get, uri);
             using var requestContent = new MemoryStream([]);
             AddAwsSignatureHeaders(request, requestContent);
-            using HttpResponseMessage response = await httpClient.SendAsync(request, ct);
+            return await httpClient.SendAsync(request, ct);
+        }
+        catch (Exception ex)
+        {
+            logger.ZLogError(ex, $"Error getting object {uri} from S3");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Object を取得する
+    /// 見つからない場合は空の byte[] を返す
+    /// </summary>
+    /// <param name="key"></param>
+    /// <param name="ct"></param>
+    /// <returns></returns>
+    public async ValueTask<byte[]> GetObjectAsByteArrayAsync(string key, CancellationToken ct)
+    {
+        using HttpResponseMessage response = await GetObjectAsync(key, ct);
+        try
+        {
             byte[] content = await response.Content.ReadAsByteArrayAsync(ct);
 
             if (response.IsSuccessStatusCode)
             {
                 return content;
             }
-            else
+
             if (response.StatusCode == HttpStatusCode.NotFound)
             {
                 return [];
             }
-            else
-            {
-                string responseContent = Encoding.UTF8.GetString(content);
-                logger.ZLogError($"Error getting object {uri} from S3. Status: {response.StatusCode}, Response: {responseContent}");
-                throw new InvalidOperationException($"Failed to get object: {response.StatusCode}");
-            }
+
+            string responseContent = Encoding.UTF8.GetString(content);
+            logger.ZLogError($"Error getting object {key} from S3. Status: {response.StatusCode}, Response: {responseContent}");
+            throw new InvalidOperationException($"Failed to get object: {response.StatusCode}");
         }
         catch (Exception ex)
         {
-            logger.ZLogError(ex, $"Error getting object {uri} from S3");
+            logger.ZLogError(ex, $"Error getting object {key} from S3");
             throw;
         }
     }
@@ -170,7 +187,7 @@ public class S3StorageService(
             AddAwsSignatureHeaders(request, requestContent);
             using HttpResponseMessage response = await httpClient.SendAsync(request, ct);
 
-            if (response.IsSuccessStatusCode || response.StatusCode == HttpStatusCode.NoContent)
+            if (response.IsSuccessStatusCode || response.StatusCode == HttpStatusCode.NoContent || response.StatusCode == HttpStatusCode.NotFound)
             {
                 logger.ZLogInformation($"Object {uri} deleted successfully from S3");
                 return true;
@@ -270,7 +287,6 @@ public class S3StorageService(
     /// 再帰的な列挙はしない
     /// </summary>
     /// <param name="prefix"></param>
-    /// <param name="now"></param>
     /// <param name="ct"></param>
     /// <returns></returns>
     public async ValueTask<IEnumerable<string>> ListDirectoriesAsync(string prefix, CancellationToken ct)
