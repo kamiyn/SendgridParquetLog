@@ -83,6 +83,7 @@ internal record RunStatusContext(RunStatus RunStatus, Action<RunStatus> NotifyRu
     public void CompletedAllDays(DateTimeOffset now)
     {
         RunStatus.EndTime = now;
+        RunStatus.LastUpdated = now;
 
         NotifyRunStatus(RunStatus);
     }
