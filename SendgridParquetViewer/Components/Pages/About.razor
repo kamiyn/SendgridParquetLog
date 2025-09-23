@@ -1,9 +1,10 @@
-@page "/about"
+﻿@page "/about"
 @rendermode InteractiveServer
 @using System.Collections
-@using System.Globalization
 @using System.Linq
 @using System.Reflection
+@using ZLogger
+@inject ILogger<About> Logger
 
 <PageTitle>About</PageTitle>
 
@@ -90,11 +91,13 @@
     </table>
 </section>
 
-<section class="about-section">
-    <h2>一時フォルダ情報</h2>
-    <p><strong>Path.GetTempPath():</strong> <span class="about-temp-path">@_tempFolderInfo.Path</span></p>
-    <table class="about-table">
-        <tbody>
+@if (_tempFolderInfo != null)
+{
+    <section class="about-section">
+        <h2>一時フォルダ情報</h2>
+        <p><strong>Path.GetTempPath():</strong> <span class="about-temp-path">@_tempFolderInfo.Path</span></p>
+        <table class="about-table">
+            <tbody>
             <tr>
                 <th>合計容量</th>
                 <td>@_tempFolderInfo.TotalSizeDisplay</td>
@@ -111,13 +114,14 @@
                 <th>ファイルシステム</th>
                 <td>@_tempFolderInfo.DriveFormat</td>
             </tr>
-        </tbody>
-    </table>
-    @if (!string.IsNullOrEmpty(_tempFolderInfo.Warning))
-    {
-        <p class="about-warning">@_tempFolderInfo.Warning</p>
-    }
-</section>
+            </tbody>
+        </table>
+        @if (!string.IsNullOrEmpty(_tempFolderInfo.Warning))
+        {
+            <p class="about-warning">@_tempFolderInfo.Warning</p>
+        }
+    </section>
+}
 
 <section class="about-section">
     <h2>環境変数</h2>
@@ -129,7 +133,7 @@
             </tr>
         </thead>
         <tbody>
-            @foreach (var variable in _environmentVariables)
+            @foreach (var variable in _environmentVariables ?? [])
             {
                 <tr>
                     <th>@variable.Name</th>
@@ -142,8 +146,17 @@
 
 @code {
     private readonly BuildInfo _buildInfo = BuildInfo.Create(typeof(Program).Assembly);
-    private readonly TempFolderInfo _tempFolderInfo = TempFolderInfo.Create();
-    private readonly List<EnvironmentVariableEntry> _environmentVariables = EnvironmentVariableEntry.Create();
+    private TempFolderInfo? _tempFolderInfo;
+    private IReadOnlyCollection<EnvironmentVariableEntry>? _environmentVariables;
+
+    protected override Task OnInitializedAsync()
+    {
+        _tempFolderInfo = TempFolderInfo.Create(Logger);
+		_environmentVariables = EnvironmentVariableEntry.GetMaskedEnvironmentVariables()
+                .OrderBy(v => v.Name, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        return Task.CompletedTask;
+    }
 
     private sealed record BuildInfo(
         string AssemblyName,
@@ -190,86 +203,52 @@
         string DriveFormat,
         string Warning)
     {
-        public static TempFolderInfo Create()
+        public static TempFolderInfo Create(ILogger logger)
         {
             var tempPath = System.IO.Path.GetTempPath();
-            string warning = string.Empty;
-            string totalSize = "(取得できませんでした)";
-            string freeSpace = "(取得できませんでした)";
-            string driveType = "(取得できませんでした)";
-            string driveFormat = "(取得できませんでした)";
+            string warning;
 
             try
             {
                 var driveRoot = System.IO.Path.GetPathRoot(tempPath);
                 var drivePath = !string.IsNullOrEmpty(driveRoot) ? driveRoot : tempPath;
-
-                var driveInfo = new System.IO.DriveInfo(drivePath);
+                var driveInfo = new DriveInfo(drivePath);
 
                 if (driveInfo.IsReady)
                 {
-                    totalSize = FormatBytes(driveInfo.TotalSize);
-                    freeSpace = FormatBytes(driveInfo.AvailableFreeSpace);
-                    driveType = driveInfo.DriveType.ToString();
-                    driveFormat = driveInfo.DriveFormat;
+                    return new TempFolderInfo(
+                        tempPath,
+                        FormatBytes(driveInfo.TotalSize),
+                        FormatBytes(driveInfo.AvailableFreeSpace),
+                        driveInfo.DriveType.ToString(),
+                        driveInfo.DriveFormat,
+                        Warning: string.Empty);
+
                 }
-                else
-                {
-                    warning = "ドライブ情報が利用できません。";
-                }
-            }
+
+                warning = "ドライブ情報が利用できません。";
+				logger.ZLogError($"ドライブ情報が利用できません。 {drivePath}");
+			}
             catch (Exception ex)
             {
-                warning = $"ドライブ情報の取得時にエラーが発生しました: {ex.Message}";
+                warning = $"ドライブ情報の取得時にエラーが発生しました";
+                logger.ZLogError(ex, $"ドライブ情報の取得時にエラーが発生しました");
             }
 
             return new TempFolderInfo(
                 tempPath,
-                totalSize,
-                freeSpace,
-                driveType,
-                driveFormat,
+                "(取得できませんでした)",
+                "(取得できませんでした)",
+                "(取得できませんでした)",
+                "(取得できませんでした)",
                 warning);
         }
-    }
-
-    private sealed record EnvironmentVariableEntry(string Name, string DisplayValue)
-    {
-        public static List<EnvironmentVariableEntry> Create()
-        {
-            var variables = new List<EnvironmentVariableEntry>();
-            var comparer = StringComparer.OrdinalIgnoreCase;
-
-            foreach (DictionaryEntry entry in Environment.GetEnvironmentVariables())
-            {
-                if (entry.Key is not string key)
-                {
-                    continue;
-                }
-
-                var value = entry.Value?.ToString() ?? string.Empty;
-                var displayValue = ShouldMask(key) ? MaskValue : value;
-                variables.Add(new EnvironmentVariableEntry(key, displayValue));
-            }
-
-            return variables
-                .OrderBy(v => v.Name, comparer)
-                .ToList();
-        }
-    }
-
-    private const string MaskValue = "****";
-
-    private static bool ShouldMask(string variableName)
-    {
-        return variableName.Contains("key", StringComparison.OrdinalIgnoreCase)
-               || variableName.Contains("secret", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string FormatBytes(long bytes)
     {
         const long scale = 1024;
-        string[] orders = new[] { "B", "KB", "MB", "GB", "TB", "PB" };
+        string[] orders = ["B", "KB", "MB", "GB", "TB", "PB"];
 
         double value = bytes;
         var orderIndex = 0;
@@ -281,5 +260,32 @@
         }
 
         return FormattableString.Invariant($"{value:0.##} {orders[orderIndex]} ({bytes:N0} バイト)");
+    }
+
+    private sealed record EnvironmentVariableEntry(string Name, string DisplayValue)
+    {
+        private const string MaskValue = "****";
+
+        internal static IEnumerable<EnvironmentVariableEntry> GetMaskedEnvironmentVariables()
+        {
+            foreach (DictionaryEntry entry in Environment.GetEnvironmentVariables())
+            {
+                if (entry.Key is not string key)
+                {
+                    continue;
+                }
+
+                var value = entry.Value?.ToString() ?? string.Empty;
+                var displayValue = ShouldMask(key) ? MaskValue : value;
+                yield return new EnvironmentVariableEntry(key, displayValue);
+            }
+        }
+
+        private static bool ShouldMask(string variableName) => variableName.ToLowerInvariant() switch
+        {
+            "key" => true,
+            "secret" => true,
+            _ => false,
+        };
     }
 }
