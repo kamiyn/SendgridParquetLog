@@ -68,4 +68,6 @@ public class RunStatus
 
     [JsonPropertyName("errorCount")]
     public int ErrorCount => Errors.Count;
+
+    public DateTimeOffset GetLastActivityTimestamp() => LastUpdated == default ? StartTime : LastUpdated;
 }

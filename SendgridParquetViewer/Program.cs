@@ -99,6 +99,7 @@ builder.Services.AddTransient<DuckDbService>();
 
 // Add S3 storage service
 builder.Services.AddHttpClient<S3StorageService>();
+builder.Services.AddSingleton<S3LockService>();
 
 // Add Parquet service
 builder.Services.AddSingleton<ParquetService>(); // 無状態のため AddSingleton
