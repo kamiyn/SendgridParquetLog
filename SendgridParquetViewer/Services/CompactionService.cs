@@ -481,6 +481,7 @@ public class CompactionService(
                 }
 
                 await using Stream responseStream = await response.Content.ReadAsStreamAsync(token);
+                // ParquetReader はシーク可能なストリームを要求する
                 await using FileStream tempFileStream = DisposableTempFile.Open(nameof(VerifyOutputFilesAsync));
                 await responseStream.CopyToAsync(tempFileStream, DisposableTempFile.BufferSize, token);
                 tempFileStream.Seek(0, SeekOrigin.Begin);
