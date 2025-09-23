@@ -1,4 +1,5 @@
-﻿using System.Text.Json;
+﻿using System.Collections.Concurrent;
+using System.Text.Json;
 
 using Microsoft.Extensions.Options;
 
@@ -20,12 +21,16 @@ public class CompactionService(
     ParquetService parquetService
 )
 {
+    private CancellationTokenSource? _startupCancellation;
+    private CompactionStartResult? _compactionStartResult;
+    private readonly SemaphoreSlim _startupTaskSemaphore = new(1);
     private readonly CompactionOptions _compactionOptions = compactionOptions.Value;
-    private readonly ParquetService _parquetService = parquetService;
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
     private static readonly TimeSpan LockDuration = TimeSpan.FromMinutes(30);
     private static readonly TimeSpan MaxInactivityDuration = TimeSpan.FromDays(1);
     private static readonly string InstanceId = $"{Environment.MachineName}_{Guid.NewGuid():N}";
+
+    internal R3.Subject<RunStatus> RunStatusSubject { get; } = new();
 
     public async Task<RunStatus?> GetRunStatusAsync(CancellationToken cancellationToken = default)
     {
@@ -47,12 +52,150 @@ public class CompactionService(
         }
     }
 
-    record RunStatusContext(RunStatus RunStatus, Func<RunStatus, CancellationToken, Task> SaveRunStatusAsyncFunc)
+    /// <summary>
+    /// RunStatus に対する操作をまとめたもの
+    /// </summary>
+    /// <param name="RunStatus"></param>
+    /// <param name="NotifyRunStatus">値が変更されるたびに呼び出す軽量なメソッド</param>
+    /// <param name="SaveRunStatusAsyncFunc">永続的に保存する重たいメソッド</param>
+    record RunStatusContext(RunStatus RunStatus, Action<RunStatus> NotifyRunStatus, Func<RunStatus, CancellationToken, Task> SaveRunStatusAsyncFunc)
     {
+        private readonly Lock _lock = new();
         internal async Task SaveRunStatusAsync(CancellationToken ct) => await SaveRunStatusAsyncFunc.Invoke(RunStatus, ct);
+
+        /// <summary>
+        /// 1日分のコンパクションを開始したことを記録する
+        /// </summary>
+        public void StartADay(DateOnly targetDate, int totalFiles, DateTimeOffset now)
+        {
+            RunStatus.CurrentDay = targetDate;
+            RunStatus.CurrentDayTotalFiles = totalFiles;
+            RunStatus.CurrentDayProcessedFiles = 0;
+            RunStatus.CurrentDayProcessedBytes = 0;
+            RunStatus.LastUpdated = now;
+
+            NotifyRunStatus(RunStatus);
+        }
+
+        /// <summary>
+        /// 1日分のコンパクションが完了したことを記録する
+        /// </summary>
+        internal void CompletedADay(DateTimeOffset now)
+        {
+            RunStatus.CompletedDays += 1;
+            RunStatus.CurrentDay = null;
+            RunStatus.CurrentDayTotalFiles = null;
+            RunStatus.CurrentDayProcessedFiles = null;
+            RunStatus.CurrentDayProcessedBytes = null;
+            RunStatus.LastUpdated = now;
+
+            NotifyRunStatus(RunStatus);
+        }
+
+        internal void IncrementCurrentDayProcessedFiles(string parquetFile, long byteLength, DateTimeOffset now)
+        {
+            lock (_lock)
+            {
+                RunStatus.LastProcessedFile = parquetFile;
+
+                int prevFiles = RunStatus.CurrentDayProcessedFiles ?? 0;
+                RunStatus.CurrentDayProcessedFiles = prevFiles + 1; // Increment
+
+                long prevBytes = RunStatus.CurrentDayProcessedBytes ?? 0;
+                RunStatus.CurrentDayProcessedBytes = prevBytes + byteLength;
+                RunStatus.LastUpdated = now;
+            }
+
+            NotifyRunStatus(RunStatus);
+        }
+
+        public void IncrementCurrentDayFailedFiles(string parquetFile, DateTimeOffset now)
+        {
+            lock (_lock)
+            {
+                RunStatus.FailedOriginalFiles.Add(parquetFile);
+                RunStatus.LastUpdated = now;
+            }
+
+            NotifyRunStatus(RunStatus);
+        }
+
+        public void IncrementDeletedOriginalFile(DateTimeOffset now)
+        {
+            lock (_lock)
+            {
+                int prevFiles = RunStatus.DeletedOriginalFile;
+                RunStatus.DeletedOriginalFile = prevFiles + 1; // Increment
+                RunStatus.LastUpdated = now;
+            }
+
+            NotifyRunStatus(RunStatus);
+        }
+
+        public void CompletedAllDays(DateTimeOffset now)
+        {
+            RunStatus.EndTime = now;
+
+            NotifyRunStatus(RunStatus);
+        }
+
+        public void AddVerifiedOutputFile(string outputFile, DateTimeOffset now)
+        {
+            lock (_lock)
+            {
+                RunStatus.LastOutputFile = outputFile;
+
+                int prevFiles = RunStatus.OutputFilesCreated;
+                RunStatus.OutputFilesCreated = prevFiles + 1; // Increment
+                RunStatus.LastUpdated = now;
+            }
+
+            NotifyRunStatus(RunStatus);
+        }
+
+        public void AddFailedOutputFile(string outputFile, DateTimeOffset now)
+        {
+            lock (_lock)
+            {
+                RunStatus.FailedOutputFiles.Add(outputFile);
+                RunStatus.LastUpdated = now;
+            }
+
+            NotifyRunStatus(RunStatus);
+        }
     }
 
-    public async Task<CompactionStartResult> StartCompactionAsync(Func<RunStatus?, Task> setRunStatus, CancellationToken ct = default)
+    private RunStatusContext CreateRunStatusContext(RunStatus runStatus) =>
+        new(runStatus,
+            NotifyRunStatus: status => RunStatusSubject.OnNext(status),
+            SaveRunStatusAsyncFunc: async Task (status, _) =>
+            {
+                // 呼び出し元のキャンセル操作にかかわらず ログを記録したい
+                var cancellationToken = CancellationToken.None;
+                var (runJsonPath, _) = SendGridPathUtility.GetS3CompactionRunFile();
+                await using var ms = new MemoryStream();
+                await JsonSerializer.SerializeAsync(ms, status, JsonOptions, cancellationToken);
+                await s3StorageService.PutObjectAsync(ms, runJsonPath, cancellationToken);
+
+                await ExtendLockExpirationAsync(status.LockId, cancellationToken);
+
+                RunStatusSubject.OnNext(status);
+            });
+
+    public async Task<CompactionStartResult> StartCompactionAsync(CancellationToken ct = default)
+    {
+        await _startupTaskSemaphore.WaitAsync(ct);
+        try
+        {
+            return await StartCompactionAsyncInLock(ct);
+        }
+        finally
+        {
+            _startupTaskSemaphore.Release();
+        }
+    }
+
+    async Task<CompactionStartResult> StartCompactionAsyncInLock(CancellationToken ct = default)
     {
         var nowUTC = timeProvider.GetUtcNow();
         RunStatus? currentStatus = await GetRunStatusAsync(ct);
@@ -61,14 +204,14 @@ public class CompactionService(
             var lastActivity = GetLastActivityTimestamp(currentStatus);
             if (nowUTC - lastActivity > MaxInactivityDuration)
             {
-                currentStatus = await FinalizeStalledRunAsync(currentStatus, nowUTC, setRunStatus);
+                currentStatus = await FinalizeStalledRunAsync(currentStatus, nowUTC);
+                logger.ZLogInformation($"FinalizeStalledRunAsync LastUpdated:{currentStatus.LastUpdated}");
             }
             else
             {
-                await setRunStatus(currentStatus);
+                RunStatusSubject.OnNext(currentStatus);
                 return new CompactionStartResult
                 {
-                    CanStart = false,
                     Reason = $"Compaction is already running (started {currentStatus.StartTime:s}, last update {lastActivity:s})"
                 };
             }
@@ -81,7 +224,6 @@ public class CompactionService(
         {
             return new CompactionStartResult
             {
-                CanStart = false,
                 Reason = "Unable to acquire distributed lock for compaction process"
             };
         }
@@ -92,7 +234,7 @@ public class CompactionService(
             var olderThanOrEqual = new DateOnly(yesterday.Year, yesterday.Month, yesterday.Day);
             var targetDays = await GetCompactionTargetAsync(olderThanOrEqual, ct);
 
-            var runStatusContext = new RunStatusContext(new RunStatus
+            RunStatus runStatus = new RunStatus
             {
                 LockId = lockId,
                 StartTime = nowUTC,
@@ -105,31 +247,22 @@ public class CompactionService(
                 CurrentDayProcessedFiles = null,
                 OutputFilesCreated = 0,
                 LastUpdated = nowUTC,
-            }, async Task (status, _) =>
-            {
-                // 呼び出し元のキャンセル操作にかかわらず ログを記録したい
-                var cancellationToken = CancellationToken.None;
-                var (runJsonPath, _) = SendGridPathUtility.GetS3CompactionRunFile();
-                await using var ms = new MemoryStream();
-                await JsonSerializer.SerializeAsync(ms, status, JsonOptions, cancellationToken);
-                await s3StorageService.PutObjectAsync(ms, runJsonPath, cancellationToken);
-
-                await setRunStatus(status); // 呼び出し元の RunStatus を変更する
-            });
+            };
+            RunStatusContext runStatusContext = CreateRunStatusContext(runStatus);
 
             // Save initial status
             await runStatusContext.SaveRunStatusAsync(ct);
 
-            // Start background processing
-            var ctsForExecuteCompactionAsync = new CancellationTokenSource();
-            _ = Task.Run(() => ExecuteCompactionAsync(runStatusContext, ctsForExecuteCompactionAsync.Token), ctsForExecuteCompactionAsync.Token);
-
-            return new CompactionStartResult
+            _startupCancellation = new CancellationTokenSource(); // StopCompactionAsync でキャンセルできるようにする
+            Task startTask = Task.Run(async () => await ExecuteCompactionAsync(runStatusContext, _startupCancellation.Token), CancellationToken.None /* 新しい 非同期実行 Task */);
+            _compactionStartResult = new CompactionStartResult
             {
-                CanStart = true,
+                StartTask = startTask,
                 StartTime = nowUTC,
                 Reason = "Compaction started successfully"
             };
+
+            return _compactionStartResult;
         }
         catch (Exception ex)
         {
@@ -139,12 +272,43 @@ public class CompactionService(
         }
     }
 
+    public async Task StopCompactionAsync(CancellationToken ct)
+    {
+        await _startupTaskSemaphore.WaitAsync(ct);
+        try
+        {
+            if (_startupCancellation != null)
+            {
+                await _startupCancellation.CancelAsync();
+                Task? task = _compactionStartResult?.StartTask;
+                if (task != null)
+                {
+                    await task;
+                }
+            }
+            _startupCancellation?.Dispose();
+            _startupCancellation = null;
+        }
+        catch (OperationCanceledException ex)
+        {
+            logger.ZLogInformation(ex, $"{nameof(StopCompactionAsync)}");
+        }
+        catch (Exception ex)
+        {
+            logger.ZLogError(ex, $"{nameof(StopCompactionAsync)}");
+        }
+        finally
+        {
+            _startupTaskSemaphore.Release();
+        }
+    }
+
     private static DateTimeOffset GetLastActivityTimestamp(RunStatus status)
     {
         return status.LastUpdated == default ? status.StartTime : status.LastUpdated;
     }
 
-    private async Task<RunStatus> FinalizeStalledRunAsync(RunStatus stalledStatus, DateTimeOffset nowUtc, Func<RunStatus?, Task> setRunStatus)
+    private async Task<RunStatus> FinalizeStalledRunAsync(RunStatus stalledStatus, DateTimeOffset nowUtc)
     {
         logger.ZLogWarning($"Detected stalled compaction run (started {stalledStatus.StartTime:s}, last update {GetLastActivityTimestamp(stalledStatus):s}). Forcing completion and releasing lock.");
 
@@ -173,7 +337,7 @@ public class CompactionService(
             logger.ZLogError(ex, $"Failed to persist forced completion status for stalled compaction run");
         }
 
-        await setRunStatus(stalledStatus);
+        RunStatusSubject.OnNext(stalledStatus);
         return stalledStatus;
     }
 
@@ -263,6 +427,62 @@ public class CompactionService(
         return success;
     }
 
+    private async Task ExtendLockExpirationAsync(string lockId, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrEmpty(lockId))
+        {
+            return;
+        }
+
+        var (_, lockPath) = SendGridPathUtility.GetS3CompactionRunFile();
+        byte[] existingLockJson = await s3StorageService.GetObjectAsByteArrayAsync(lockPath, cancellationToken);
+
+        if (!existingLockJson.Any())
+        {
+            return;
+        }
+
+        LockInfo? existingLock;
+        try
+        {
+            existingLock = JsonSerializer.Deserialize<LockInfo>(existingLockJson);
+        }
+        catch (Exception ex)
+        {
+            logger.ZLogWarning($"Failed to deserialize existing lock info while extending lock expiration: {ex}");
+            return;
+        }
+
+        if (existingLock == null)
+        {
+            return;
+        }
+
+        if (!string.Equals(existingLock.LockId, lockId, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        if (!string.Equals(existingLock.OwnerId, InstanceId, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var now = timeProvider.GetUtcNow();
+        existingLock.ExpiresAt = now.Add(LockDuration);
+        byte[] updatedLockJson = JsonSerializer.SerializeToUtf8Bytes(existingLock, JsonOptions);
+        bool updated = await s3StorageService.PutObjectWithConditionAsync(lockPath, updatedLockJson, existingLockJson, cancellationToken);
+
+        if (updated)
+        {
+            logger.ZLogDebug($"Extended compaction lock {lockId} until {existingLock.ExpiresAt:s}");
+        }
+        else
+        {
+            logger.ZLogWarning($"Failed to extend compaction lock {lockId} due to conditional write conflict");
+        }
+    }
+
     private async Task ReleaseLockAsync(string lockId, CancellationToken cancellationToken)
     {
         var (_, lockPath) = SendGridPathUtility.GetS3CompactionRunFile();
@@ -288,34 +508,39 @@ public class CompactionService(
         {
             foreach ((DateOnly dateOnly, string pathPrefix) in runStatus.TargetDays.Zip(runStatus.TargetPathPrefixes))
             {
+                token.ThrowIfCancellationRequested();
                 logger.ZLogInformation($"Starting compaction for date {dateOnly} at path {pathPrefix}");
                 try
                 {
                     await ExecuteCompactionOneDayAsync(runStatusContext, dateOnly, pathPrefix, token);
                     logger.ZLogInformation($"Completed compaction for date {dateOnly} at path {pathPrefix}");
-                    // Mark day completion
-                    runStatus.CompletedDays += 1;
-                    runStatus.CurrentDay = null;
-                    runStatus.CurrentDayTotalFiles = null;
-                    runStatus.CurrentDayProcessedFiles = null;
-                    runStatus.LastUpdated = timeProvider.GetUtcNow();
+                    runStatusContext.CompletedADay(timeProvider.GetUtcNow());
                     await runStatusContext.SaveRunStatusAsync(token);
+                }
+                catch (OperationCanceledException)
+                {
+                    logger.ZLogInformation($"Compaction process was canceled");
+                    break; // foreach を抜けて finally へ
                 }
                 catch (Exception ex)
                 {
+                    runStatus.Errors.Add(ex);
                     logger.ZLogError(ex, $"Error during compaction for date {dateOnly} at path {pathPrefix}");
                     // Continue with other dates
                 }
             }
         }
+        catch (OperationCanceledException)
+        {
+            logger.ZLogInformation($"Compaction process was canceled");
+        }
         finally
         {
             await ReleaseLockAsync(runStatus.LockId, CancellationToken.None);
+            runStatusContext.CompletedAllDays(timeProvider.GetUtcNow());
+            await runStatusContext.SaveRunStatusAsync(CancellationToken.None); // キャンセルされた場合でも保存するように CancellationToken.None
+            logger.ZLogInformation($"Compaction process completed at {runStatus.EndTime}");
         }
-
-        runStatus.EndTime = timeProvider.GetUtcNow();
-        await runStatusContext.SaveRunStatusAsync(token);
-        logger.ZLogInformation($"Compaction process completed at {runStatus.EndTime}");
     }
 
     private async Task ExecuteCompactionOneDayAsync(RunStatusContext runStatusContext, DateOnly targetDate, string pathPrefix, CancellationToken token)
@@ -337,25 +562,18 @@ public class CompactionService(
         logger.ZLogInformation($"Starting compaction {totalFiles} parquet files at {pathPrefix} to compact");
 
         // Initialize per-day progress
-        var runStatus = runStatusContext.RunStatus;
-        runStatus.CurrentDay = targetDate;
-        runStatus.CurrentDayTotalFiles = totalFiles;
-        runStatus.CurrentDayProcessedFiles = 0;
-        runStatus.LastUpdated = timeProvider.GetUtcNow();
+        runStatusContext.StartADay(targetDate, totalFiles, timeProvider.GetUtcNow());
         await runStatusContext.SaveRunStatusAsync(token);
 
         var remainFiles = new LinkedList<string>(targetParquetFiles); // CompactionBatchAsync は先頭から順番に処理するので LinkedList で良い
         while (remainFiles.Any())
         {
+            token.ThrowIfCancellationRequested();
             int previousCount = remainFiles.Count;
-            var batchResult = await CompactionBatchAsync(targetDate, remainFiles, token);
-            RemoveProcessedFiles(remainFiles, batchResult.ProcessedFiles);
-            // Update per-batch progress
-            runStatus.CurrentDayProcessedFiles = (runStatus.CurrentDayProcessedFiles ?? 0) + batchResult.ProcessedFiles.Count;
-            runStatus.OutputFilesCreated += batchResult.OutputFiles;
-            runStatus.FailedFilesCreated += batchResult.FailedFiles;
-            runStatus.LastUpdated = timeProvider.GetUtcNow();
-            await runStatusContext.SaveRunStatusAsync(token);
+            CompactionBatchContext compactionBatchContext = new(runStatusContext, targetDate, remainFiles);
+            CompactionBatchResult batchResult = await CompactionBatchAsync(compactionBatchContext, token);
+            remainFiles = RemoveRange(remainFiles, batchResult.ProcessedFiles);
+            await runStatusContext.SaveRunStatusAsync(token); // ストレージへの保存はバッチごと
             if (previousCount == remainFiles.Count)
             {
                 // 何も処理できなかった場合は無限ループ防止のため while を終了する
@@ -365,78 +583,133 @@ public class CompactionService(
         }
     }
 
-    private static void RemoveProcessedFiles(LinkedList<string> remainFiles, IEnumerable<string> processedFiles)
+    private static LinkedList<T> RemoveRange<T>(LinkedList<T> linkedList, IEnumerable<T> removing)
     {
-        foreach (string file in processedFiles)
+        foreach (T file in removing)
         {
-            LinkedListNode<string>? node = remainFiles.Find(file);
+            LinkedListNode<T>? node = linkedList.Find(file);
             if (node != null)
             {
-                remainFiles.Remove(node);
+                linkedList.Remove(node);
             }
         }
+
+        return linkedList;
     }
 
-    class CompactionBatchContext
+    /// <summary>
+    /// RunStatusContext に対する通知
+    /// </summary>
+    class CompactionBatchContext(RunStatusContext runStatusContext, DateOnly targetDate, IReadOnlyCollection<string> candidateParquetFiles)
     {
-        /// <summary>
-        /// 読み込み済みのファイル
-        /// </summary>
-        internal List<string> ProcessingFiles { get; } = new();
+        public DateOnly TargetDate { get; } = targetDate;
+        public IReadOnlyCollection<string> CandidateParquetFiles { get; } = candidateParquetFiles;
 
         /// <summary>
-        /// 読み込み済みのバイト数
+        /// 読み込み済みのファイル (バッチ単位)
         /// </summary>
-        internal long ProcessedBytes { get; set; }
+        private readonly ConcurrentQueue<string> _processingFiles = new();
+
+        private long _processedBytes;
+
+        internal IReadOnlyCollection<string> GetProcessedFiles() => _processingFiles.ToArray();
+
+        /// <summary>
+        /// 読み込み済みのバイト数 (バッチ単位)
+        /// </summary>
+        internal long ProcessedBytes => _processedBytes;
+
+        public void AddProcessedFile(string parquetFile, int parquetDataLength, DateTimeOffset now)
+        {
+            _processingFiles.Enqueue(parquetFile);
+            Interlocked.Add(ref _processedBytes, parquetDataLength);
+            runStatusContext.IncrementCurrentDayProcessedFiles(parquetFile, parquetDataLength, now);
+        }
+
         /// <summary>
         /// 読み込み失敗したファイル
         /// </summary>
-        internal List<string> FailedFiles { get; } = new();
-        internal List<string> OutputFiles { get; } = new(24 /* 24時間 */);
-        internal List<SendGridEvent> SendGridEvents { get; } = new();
+        private readonly ConcurrentQueue<string> _failedReadingParquetFiles = new();
+
+        internal int FailedReadingParquetFilesCount => _failedReadingParquetFiles.Count;
+        //internal IReadOnlyCollection<string> FailedReadingParquetFiles() => _failedReadingParquetFiles.ToArray();
+
+        public void AddFailedReadingParquetFiles(string parquetFile, DateTimeOffset now)
+        {
+            _failedReadingParquetFiles.Enqueue(parquetFile);
+            runStatusContext.IncrementCurrentDayFailedFiles(parquetFile, now);
+        }
+
+        /// <summary>
+        /// オリジナルのストレージから削除済みのファイル
+        /// </summary>
+        private readonly ConcurrentQueue<string> _deletedOriginalFiles = new();
+
+        public void AddDeletedOriginalFile(string originalFile, DateTimeOffset now)
+        {
+            _deletedOriginalFiles.Enqueue(originalFile);
+            runStatusContext.IncrementDeletedOriginalFile(now);
+        }
+
+        public IReadOnlyCollection<string> GetDeletedOriginalFiles() => _deletedOriginalFiles.ToArray();
+
+        public void AddVerifiedOutputFile(string outputFile, DateTimeOffset now)
+        {
+            // _verifiedOutputFile.Enqueue(outputFile) // バッチ単位での管理は不要
+            runStatusContext.AddVerifiedOutputFile(outputFile, now);
+        }
+
+        public void AddFailedOutputFile(string outputFile, DateTimeOffset now)
+        {
+            // _failedOutputFile.Enqueue(outputFile) // バッチ単位での管理は不要
+            runStatusContext.AddFailedOutputFile(outputFile, now);
+        }
     }
 
     /// <summary>
     /// 読み込みファイル量が 512MB 達しない範囲でまとめてコンパクションを実行する
     /// </summary>
     /// <returns>対処したファイル</returns>
-    private async Task<CompactionBatchResult> CompactionBatchAsync(DateOnly targetDate, IReadOnlyCollection<string> candidateParquetFiles, CancellationToken token)
+    private async Task<CompactionBatchResult> CompactionBatchAsync(CompactionBatchContext ctx, CancellationToken token)
     {
-        var ctx = new CompactionBatchContext();
-        await ReadParquetFilesAsync(candidateParquetFiles, ctx, token);
-        logger.ZLogInformation($"Total events loaded: {ctx.SendGridEvents.Count}");
-        await CreateCompactedParquetAsync(ctx, token);
-        if (await VerifyOutputFilesAsync(ctx, token))
+        var targetDate = ctx.TargetDate;
+        var sendGridEvents = await ReadParquetFilesAsync(ctx, token);
+        logger.ZLogInformation($"Total events loaded: {sendGridEvents.Count}");
+        var outputFiles = await CreateCompactedParquetAsync(sendGridEvents, token);
+        if (await VerifyOutputFilesAsync(outputFiles, ctx, token))
         {
             // Delete original files after successful verification
-            foreach (string originalFile in ctx.ProcessingFiles)
+            foreach (string originalFile in ctx.GetProcessedFiles())
             {
                 await s3StorageService.DeleteObjectAsync(originalFile, token);
+                ctx.AddDeletedOriginalFile(originalFile, timeProvider.GetUtcNow());
             }
         }
+        //else
+        //{
+        //    OutputFile が不正な場合はオリジナルを削除せず Outputfile 側を削除する処理は VerifyOutputFilesAsync 内で行われる
+        //}
 
-        logger.ZLogInformation($"Completed compaction for {targetDate}: failed {ctx.FailedFiles.Count} files, created {ctx.OutputFiles.Count} files, processed {ctx.SendGridEvents.Count} events");
+        logger.ZLogInformation($"Completed compaction for {targetDate}: failed {ctx.FailedReadingParquetFilesCount} files, created {outputFiles.Count} files, processed {sendGridEvents.Count} events");
         return new CompactionBatchResult
         {
-            ProcessedFiles = ctx.ProcessingFiles.ToArray(),
-            OutputFiles = ctx.OutputFiles.Count,
-            FailedFiles = ctx.FailedFiles.Count
+            ProcessedFiles = ctx.GetDeletedOriginalFiles(),
         };
     }
 
     private sealed class CompactionBatchResult
     {
-        internal IReadOnlyCollection<string> ProcessedFiles { get; init; } = Array.Empty<string>();
-        internal int OutputFiles { get; init; }
-        internal int FailedFiles { get; init; }
+        internal IReadOnlyCollection<string> ProcessedFiles { get; init; } = [];
     }
 
     /// <summary>
     /// Create compacted parquet file for each hour that has data
     /// </summary>
-    private async Task CreateCompactedParquetAsync(CompactionBatchContext ctx, CancellationToken token)
+    private async Task<IReadOnlyCollection<string>> CreateCompactedParquetAsync(IReadOnlyCollection<SendGridEvent> sendGridEvents, CancellationToken token)
     {
-        foreach (var hourGroup in ctx.SendGridEvents.GroupBy(e => e.Timestamp / 3600 /* 1時間単位に分割 */))
+        List<string> outputFiles = new(24 /* 24時間 */);
+
+        foreach (var hourGroup in sendGridEvents.GroupBy(e => e.Timestamp / 3600 /* 1時間単位に分割 */))
         {
             DateTimeOffset timestampFirst = JstExtension.JstUnixTimeSeconds(hourGroup.Select(x => x.Timestamp).First());
             var date = new DateOnly(timestampFirst.Year, timestampFirst.Month, timestampFirst.Day);
@@ -447,7 +720,7 @@ public class CompactionService(
             {
                 logger.ZLogInformation($"Creating compacted file for hour {hour} with {hourEvents.Count()} events");
 
-                await using Stream? outputStream = await _parquetService.ConvertToParquetAsync(hourEvents);
+                await using Stream? outputStream = await parquetService.ConvertToParquetAsync(hourEvents);
                 if (outputStream == null)
                 {
                     logger.ZLogWarning($"Failed to create parquet data for hour {hour}");
@@ -457,7 +730,7 @@ public class CompactionService(
                 outputFileName = SendGridPathUtility.GetParquetCompactionFileName(date, hour, outputStream);
                 outputStream.Seek(0, SeekOrigin.Begin);
                 await s3StorageService.PutObjectAsync(outputStream, outputFileName, token);
-                ctx.OutputFiles.Add(outputFileName);
+                outputFiles.Add(outputFileName);
 
                 logger.ZLogInformation($"Created compacted file: {outputFileName} for hour {hour}");
             }
@@ -467,15 +740,19 @@ public class CompactionService(
                 throw;
             }
         }
+        return outputFiles;
     }
 
     /// <summary>
     /// Verify all output files are readable as parquet
+    /// Verify に失敗した場合 OutputFile は削除される
     /// </summary>
-    private async Task<bool> VerifyOutputFilesAsync(CompactionBatchContext ctx, CancellationToken token)
+    private async Task<bool> VerifyOutputFilesAsync(IEnumerable<string> outputFiles,
+        CompactionBatchContext ctx,
+        CancellationToken token)
     {
         var failedFiles = new List<string>();
-        foreach (string outputFile in ctx.OutputFiles)
+        foreach (string outputFile in outputFiles)
         {
             try
             {
@@ -483,23 +760,26 @@ public class CompactionService(
                 using var verifyMs = new MemoryStream(verifyData);
                 using ParquetReader verifyReader = await ParquetReader.CreateAsync(verifyMs, cancellationToken: token);
                 logger.ZLogInformation($"Verified compacted file: {outputFile} (RowGroups: {verifyReader.RowGroupCount})");
+                ctx.AddVerifiedOutputFile(outputFile, timeProvider.GetUtcNow());
             }
             catch (Exception ex)
             {
                 failedFiles.Add(outputFile);
                 logger.ZLogError(ex, $"Failed to verify compacted file: {outputFile}");
                 await s3StorageService.DeleteObjectAsync(outputFile, token);
+                ctx.AddFailedOutputFile(outputFile, timeProvider.GetUtcNow());
             }
         }
 
         return !failedFiles.Any();
     }
 
-    private async Task ReadParquetFilesAsync(IReadOnlyCollection<string> files, CompactionBatchContext ctx, CancellationToken token)
+    private async Task<IReadOnlyCollection<SendGridEvent>> ReadParquetFilesAsync(CompactionBatchContext ctx, CancellationToken token)
     {
-        foreach (string parquetFile in files)
+        var queue = new ConcurrentQueue<SendGridEvent>();
+        foreach (string parquetFile in ctx.CandidateParquetFiles)
         {
-            var now = timeProvider.GetUtcNow();
+            token.ThrowIfCancellationRequested();
             try
             {
                 logger.ZLogInformation($"Reading Parquet file: {parquetFile}");
@@ -516,14 +796,13 @@ public class CompactionService(
                     for (int rowGroupIndex = 0; rowGroupIndex < parquetReader.RowGroupCount; rowGroupIndex++)
                     {
                         using ParquetRowGroupReader rowGroupReader = parquetReader.OpenRowGroupReader(rowGroupIndex);
-                        await foreach (SendGridEvent e in _parquetService.ReadRowGroupEventsAsync(rowGroupReader, parquetReader, token))
+                        await foreach (SendGridEvent e in parquetService.ReadRowGroupEventsAsync(rowGroupReader, parquetReader, token))
                         {
-                            ctx.SendGridEvents.Add(e);
+                            queue.Enqueue(e);
                         }
                     }
-                    ctx.ProcessingFiles.Add(parquetFile);
-                    ctx.ProcessedBytes += parquetData.Length;
-                    logger.ZLogInformation($"Successfully read {ctx.SendGridEvents.Count} events from {parquetFile}");
+                    ctx.AddProcessedFile(parquetFile, parquetData.Length, timeProvider.GetUtcNow());
+                    logger.ZLogInformation($"Successfully read {queue.Count} events from {parquetFile}");
                 }
                 else
                 {
@@ -533,9 +812,11 @@ public class CompactionService(
             catch (Exception ex)
             {
                 logger.ZLogError(ex, $"Failed to read parquet file: {parquetFile}");
-                ctx.FailedFiles.Add(parquetFile);
+                ctx.AddFailedReadingParquetFiles(parquetFile, timeProvider.GetUtcNow());
                 // 読めなくても処理を続け 無効なファイルとして後で削除する
             }
         }
+
+        return queue.ToArray();
     }
 }

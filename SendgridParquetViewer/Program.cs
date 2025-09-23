@@ -4,6 +4,8 @@ using Microsoft.FluentUI.AspNetCore.Components;
 using Microsoft.Identity.Web;
 using Microsoft.Identity.Web.UI;
 
+using R3;
+
 using SendgridParquet.Shared;
 
 using SendgridParquetViewer.Components;
@@ -95,15 +97,15 @@ builder.Services.AddFluentUIComponents();
 // Add DuckDB service
 builder.Services.AddTransient<DuckDbService>();
 
-
 // Add S3 storage service
 builder.Services.AddHttpClient<S3StorageService>();
 
 // Add Parquet service
-builder.Services.AddScoped<ParquetService>();
+builder.Services.AddSingleton<ParquetService>(); // 無状態のため AddSingleton
 
 // Add Compaction service
-builder.Services.AddScoped<CompactionService>();
+builder.Services.AddSingleton<CompactionService>(); // 1プロセスあたり同時実行は1つだけにする
+builder.Services.AddHostedService<CompactionStartupHostedService>(); // 起動時にコンパクションを開始するホストサービス
 
 // Add health checks
 builder.Services.AddHealthChecks();
@@ -141,11 +143,5 @@ app.MapHealthChecks("/health6QQl").AllowAnonymous();
 // Map Aspire default endpoints (health checks etc. in dev)
 app.MapDefaultEndpoints();
 #endif
-
-//{
-//    // Start the compaction process in the background
-//    var compactionService = app.Services.GetRequiredService<CompactionService>();
-//    _ = compactionService.StartCompactionAsync((_) => Task.CompletedTask, CancellationToken.None);
-//}
 
 app.Run();

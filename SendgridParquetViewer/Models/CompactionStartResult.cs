@@ -2,7 +2,7 @@
 
 public class CompactionStartResult
 {
-    public bool CanStart { get; set; }
-    public string Reason { get; set; } = string.Empty;
-    public DateTimeOffset? StartTime { get; set; }
+    public Task? StartTask { get; init; }
+    public DateTimeOffset? StartTime { get; init; }
+    public string Reason { get; init; } = string.Empty;
 }
