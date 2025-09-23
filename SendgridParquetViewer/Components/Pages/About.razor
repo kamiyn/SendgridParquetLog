@@ -4,6 +4,7 @@
 @using System.Linq
 @using System.Reflection
 @using ZLogger
+@attribute [Authorize]
 @inject ILogger<About> Logger
 
 <PageTitle>About</PageTitle>
@@ -145,147 +146,154 @@
 </section>
 
 @code {
-    private readonly BuildInfo _buildInfo = BuildInfo.Create(typeof(Program).Assembly);
-    private TempFolderInfo? _tempFolderInfo;
-    private IReadOnlyCollection<EnvironmentVariableEntry>? _environmentVariables;
+	private readonly BuildInfo _buildInfo = BuildInfo.Create(typeof(Program).Assembly);
+	private TempFolderInfo? _tempFolderInfo;
+	private IReadOnlyCollection<EnvironmentVariableEntry>? _environmentVariables;
 
-    protected override Task OnInitializedAsync()
-    {
-        _tempFolderInfo = TempFolderInfo.Create(Logger);
+	protected override Task OnInitializedAsync()
+	{
+		_tempFolderInfo = TempFolderInfo.Create(Logger);
 		_environmentVariables = EnvironmentVariableEntry.GetMaskedEnvironmentVariables()
-                .OrderBy(v => v.Name, StringComparer.OrdinalIgnoreCase)
-                .ToArray();
-        return Task.CompletedTask;
-    }
+				.OrderBy(v => v.Name, StringComparer.OrdinalIgnoreCase)
+				.ToArray();
+		return Task.CompletedTask;
+	}
 
-    private sealed record BuildInfo(
-        string AssemblyName,
-        string AssemblyVersion,
-        string InformationalVersion,
-        string GitHubRunNumber,
-        string GitHubCommitHash,
-        string BuildTimestampUtc)
-    {
-        public static BuildInfo Create(Assembly assembly)
-        {
-            var metadata = assembly.GetCustomAttributes<AssemblyMetadataAttribute>().ToList();
+	private sealed record BuildInfo(
+		string AssemblyName,
+		string AssemblyVersion,
+		string InformationalVersion,
+		string GitHubRunNumber,
+		string GitHubCommitHash,
+		string BuildTimestampUtc)
+	{
+		public static BuildInfo Create(Assembly assembly)
+		{
+			var metadata = assembly.GetCustomAttributes<AssemblyMetadataAttribute>().ToList();
 
-            string assemblyName = assembly.GetName().Name ?? "(不明)";
-            string assemblyVersion = assembly.GetName().Version?.ToString() ?? "(不明)";
-            string informationalVersion = assembly
-                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
-                .InformationalVersion ?? "(未設定)";
+			string assemblyName = assembly.GetName().Name ?? "(不明)";
+			string assemblyVersion = assembly.GetName().Version?.ToString() ?? "(不明)";
+			string informationalVersion = assembly
+				.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
+				.InformationalVersion ?? "(未設定)";
 
-            string gitHubRunNumber = ReadMetadata(metadata, "GitHubRunNumber", fallback: "(未設定)");
-            string gitHubCommitHash = ReadMetadata(metadata, "GitHubCommitHash", fallback: "(未設定)");
-            string buildTimestampUtc = ReadMetadata(metadata, "BuildTimestampUtc", fallback: "(未設定)");
+			string gitHubRunNumber = ReadMetadata(metadata, "GitHubRunNumber", fallback: "(未設定)");
+			string gitHubCommitHash = ReadMetadata(metadata, "GitHubCommitHash", fallback: "(未設定)");
+			string buildTimestampUtc = ReadMetadata(metadata, "BuildTimestampUtc", fallback: "(未設定)");
 
-            return new BuildInfo(
-                assemblyName,
-                assemblyVersion,
-                informationalVersion,
-                gitHubRunNumber,
-                gitHubCommitHash,
-                buildTimestampUtc);
-        }
+			return new BuildInfo(
+				assemblyName,
+				assemblyVersion,
+				informationalVersion,
+				gitHubRunNumber,
+				gitHubCommitHash,
+				buildTimestampUtc);
+		}
 
-        private static string ReadMetadata(IEnumerable<AssemblyMetadataAttribute> metadata, string key, string fallback)
-        {
-            return metadata.FirstOrDefault(m => string.Equals(m.Key, key, StringComparison.OrdinalIgnoreCase))?.Value ?? fallback;
-        }
-    }
+		private static string ReadMetadata(IEnumerable<AssemblyMetadataAttribute> metadata, string key, string fallback)
+		{
+			return metadata.FirstOrDefault(m => string.Equals(m.Key, key, StringComparison.OrdinalIgnoreCase))?.Value ?? fallback;
+		}
+	}
 
-    private sealed record TempFolderInfo(
-        string Path,
-        string TotalSizeDisplay,
-        string AvailableFreeSpaceDisplay,
-        string DriveType,
-        string DriveFormat,
-        string Warning)
-    {
-        public static TempFolderInfo Create(ILogger logger)
-        {
-            var tempPath = System.IO.Path.GetTempPath();
-            string warning;
+	private sealed record TempFolderInfo(
+		string Path,
+		string TotalSizeDisplay,
+		string AvailableFreeSpaceDisplay,
+		string DriveType,
+		string DriveFormat,
+		string Warning)
+	{
+		public static TempFolderInfo Create(ILogger logger)
+		{
+			var tempPath = System.IO.Path.GetTempPath();
+			string warning;
 
-            try
-            {
-                var driveRoot = System.IO.Path.GetPathRoot(tempPath);
-                var drivePath = !string.IsNullOrEmpty(driveRoot) ? driveRoot : tempPath;
-                var driveInfo = new DriveInfo(drivePath);
+			try
+			{
+				var driveRoot = System.IO.Path.GetPathRoot(tempPath);
+				var drivePath = !string.IsNullOrEmpty(driveRoot) ? driveRoot : tempPath;
+				var driveInfo = new DriveInfo(drivePath);
 
-                if (driveInfo.IsReady)
-                {
-                    return new TempFolderInfo(
-                        tempPath,
-                        FormatBytes(driveInfo.TotalSize),
-                        FormatBytes(driveInfo.AvailableFreeSpace),
-                        driveInfo.DriveType.ToString(),
-                        driveInfo.DriveFormat,
-                        Warning: string.Empty);
+				if (driveInfo.IsReady)
+				{
+					return new TempFolderInfo(
+						tempPath,
+						FormatBytes(driveInfo.TotalSize),
+						FormatBytes(driveInfo.AvailableFreeSpace),
+						driveInfo.DriveType.ToString(),
+						driveInfo.DriveFormat,
+						Warning: string.Empty);
 
-                }
+				}
 
-                warning = "ドライブ情報が利用できません。";
-				logger.ZLogError($"ドライブ情報が利用できません。 {drivePath}");
+				warning = "ドライブ情報が利用できません。";
+				logger.ZLogWarning($"ドライブ情報が利用できません。 {drivePath}");
 			}
-            catch (Exception ex)
-            {
-                warning = $"ドライブ情報の取得時にエラーが発生しました";
-                logger.ZLogError(ex, $"ドライブ情報の取得時にエラーが発生しました");
-            }
+			catch (Exception ex)
+			{
+				warning = $"ドライブ情報の取得時にエラーが発生しました";
+				logger.ZLogWarning(ex, $"ドライブ情報の取得時にエラーが発生しました");
+			}
 
-            return new TempFolderInfo(
-                tempPath,
-                "(取得できませんでした)",
-                "(取得できませんでした)",
-                "(取得できませんでした)",
-                "(取得できませんでした)",
-                warning);
-        }
-    }
+			return new TempFolderInfo(
+				tempPath,
+				"(取得できませんでした)",
+				"(取得できませんでした)",
+				"(取得できませんでした)",
+				"(取得できませんでした)",
+				warning);
+		}
+	}
 
-    private static string FormatBytes(long bytes)
-    {
-        const long scale = 1024;
-        string[] orders = ["B", "KB", "MB", "GB", "TB", "PB"];
+	private static string FormatBytes(long bytes)
+	{
+		const long scale = 1024;
+		string[] orders = ["B", "KB", "MB", "GB", "TB", "PB"];
 
-        double value = bytes;
-        var orderIndex = 0;
+		double value = bytes;
+		var orderIndex = 0;
 
-        while (value >= scale && orderIndex < orders.Length - 1)
+		while (value >= scale && orderIndex < orders.Length - 1)
+		{
+			value /= scale;
+			orderIndex++;
+		}
+
+		return FormattableString.Invariant($"{value:0.##} {orders[orderIndex]} ({bytes:N0} バイト)");
+	}
+
+	private sealed record EnvironmentVariableEntry(string Name, string DisplayValue)
+	{
+		private const string MaskValue = "****";
+
+		internal static IEnumerable<EnvironmentVariableEntry> GetMaskedEnvironmentVariables()
+		{
+			foreach (DictionaryEntry entry in Environment.GetEnvironmentVariables())
+			{
+				if (entry.Key is not string key)
+				{
+					continue;
+				}
+
+				var value = entry.Value?.ToString() ?? string.Empty;
+				var displayValue = ShouldMask(key) ? MaskValue : value;
+				yield return new EnvironmentVariableEntry(key, displayValue);
+			}
+		}
+
+		private static readonly string[] DenyEnvironmentNameList = [
+            "key",
+			"secret",
+			"password",
+			"token",
+			"connectionstring",
+		];
+
+        private static bool ShouldMask(string variableName)
         {
-            value /= scale;
-            orderIndex++;
+            var name = variableName.ToLowerInvariant();
+            return DenyEnvironmentNameList.Any(x => name.Contains(x));
         }
-
-        return FormattableString.Invariant($"{value:0.##} {orders[orderIndex]} ({bytes:N0} バイト)");
-    }
-
-    private sealed record EnvironmentVariableEntry(string Name, string DisplayValue)
-    {
-        private const string MaskValue = "****";
-
-        internal static IEnumerable<EnvironmentVariableEntry> GetMaskedEnvironmentVariables()
-        {
-            foreach (DictionaryEntry entry in Environment.GetEnvironmentVariables())
-            {
-                if (entry.Key is not string key)
-                {
-                    continue;
-                }
-
-                var value = entry.Value?.ToString() ?? string.Empty;
-                var displayValue = ShouldMask(key) ? MaskValue : value;
-                yield return new EnvironmentVariableEntry(key, displayValue);
-            }
-        }
-
-        private static bool ShouldMask(string variableName) => variableName.ToLowerInvariant() switch
-        {
-            "key" => true,
-            "secret" => true,
-            _ => false,
-        };
     }
 }

@@ -87,7 +87,7 @@ public class S3LockService(
         }
         catch (Exception ex)
         {
-            logger.ZLogWarning(ex,$"Failed to deserialize existing lock info while extending lock expiration. lockPath:{lockPath}");
+            logger.ZLogWarning(ex, $"Failed to deserialize existing lock info while extending lock expiration. lockPath:{lockPath}");
             return;
         }
 
