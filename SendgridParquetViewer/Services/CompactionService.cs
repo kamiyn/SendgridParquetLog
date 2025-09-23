@@ -26,7 +26,6 @@ public class CompactionService(
     private CompactionStartResult? _compactionStartResult;
     private readonly SemaphoreSlim _startupTaskSemaphore = new(1);
     private readonly CompactionOptions _compactionOptions = compactionOptions.Value;
-    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
     private static readonly TimeSpan MaxInactivityDuration = TimeSpan.FromDays(1);
 
     internal R3.Subject<RunStatus> RunStatusSubject { get; } = new();
@@ -42,7 +41,7 @@ public class CompactionService(
                 return null;
             }
 
-            return JsonSerializer.Deserialize<RunStatus>(jsonContent);
+            return JsonSerializer.Deserialize<RunStatus>(jsonContent, AppJsonSerializerContext.Default.RunStatus);
         }
         catch (Exception ex)
         {
@@ -60,7 +59,7 @@ public class CompactionService(
                 var cancellationToken = CancellationToken.None;
                 var (runJsonPath, _) = SendGridPathUtility.GetS3CompactionRunFile();
                 await using var ms = new MemoryStream();
-                await JsonSerializer.SerializeAsync(ms, status, JsonOptions, cancellationToken);
+                await JsonSerializer.SerializeAsync(ms, status, AppJsonSerializerContext.Default.RunStatus, cancellationToken);
                 await s3StorageService.PutObjectAsync(ms, runJsonPath, cancellationToken);
 
                 await s3LockService.ExtendLockExpirationAsync(status.LockId, cancellationToken);
@@ -209,7 +208,7 @@ public class CompactionService(
         {
             var (runJsonPath, _) = SendGridPathUtility.GetS3CompactionRunFile();
             await using var ms = new MemoryStream();
-            await JsonSerializer.SerializeAsync(ms, stalledStatus, JsonOptions, CancellationToken.None);
+            await JsonSerializer.SerializeAsync(ms, stalledStatus, AppJsonSerializerContext.Default.RunStatus, CancellationToken.None);
             ms.Seek(0, SeekOrigin.Begin);
             await s3StorageService.PutObjectAsync(ms, runJsonPath, CancellationToken.None);
         }

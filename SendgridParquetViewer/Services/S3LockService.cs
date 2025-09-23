@@ -22,7 +22,6 @@ public class S3LockService(
 {
     private static readonly TimeSpan LockDuration = TimeSpan.FromMinutes(30);
     private static readonly string InstanceId = $"{Environment.MachineName}_{Guid.NewGuid():N}";
-    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
     public async Task<bool> TryAcquireLockAsync(string lockId, CancellationToken cancellationToken)
     {
@@ -33,7 +32,7 @@ public class S3LockService(
         var existingLockJson = await s3StorageService.GetObjectAsByteArrayAsync(lockPath, cancellationToken);
         if (existingLockJson.Any())
         {
-            var existingLock = JsonSerializer.Deserialize<LockInfo>(existingLockJson);
+            var existingLock = JsonSerializer.Deserialize<LockInfo>(existingLockJson, AppJsonSerializerContext.Default.LockInfo);
             if (existingLock != null && existingLock.ExpiresAt > now)
             {
                 logger.ZLogInformation($"Lock is held by {existingLock.OwnerId} until {existingLock.ExpiresAt} lockPath:{lockPath}");
@@ -51,7 +50,7 @@ public class S3LockService(
             HostName = Environment.MachineName
         };
 
-        var lockJson = JsonSerializer.SerializeToUtf8Bytes(lockInfo, JsonOptions);
+        var lockJson = JsonSerializer.SerializeToUtf8Bytes(lockInfo, AppJsonSerializerContext.Default.LockInfo);
 
         // Use conditional put with ETag to ensure atomic operation
         var success = await s3StorageService.PutObjectWithConditionAsync(
@@ -83,7 +82,7 @@ public class S3LockService(
         LockInfo? existingLock;
         try
         {
-            existingLock = JsonSerializer.Deserialize<LockInfo>(existingLockJson);
+            existingLock = JsonSerializer.Deserialize<LockInfo>(existingLockJson, AppJsonSerializerContext.Default.LockInfo);
         }
         catch (Exception ex)
         {
@@ -108,7 +107,7 @@ public class S3LockService(
 
         var now = timeProvider.GetUtcNow();
         existingLock.ExpiresAt = now.Add(LockDuration);
-        byte[] updatedLockJson = JsonSerializer.SerializeToUtf8Bytes(existingLock, JsonOptions);
+        byte[] updatedLockJson = JsonSerializer.SerializeToUtf8Bytes(existingLock, AppJsonSerializerContext.Default.LockInfo);
         bool updated = await s3StorageService.PutObjectWithConditionAsync(lockPath, updatedLockJson, existingLockJson, cancellationToken);
 
         if (updated)
@@ -128,7 +127,7 @@ public class S3LockService(
 
         if (existingLockJson.Any())
         {
-            var existingLock = JsonSerializer.Deserialize<LockInfo>(existingLockJson);
+            var existingLock = JsonSerializer.Deserialize<LockInfo>(existingLockJson, AppJsonSerializerContext.Default.LockInfo);
             if (existingLock?.LockId == lockId)
             {
                 await s3StorageService.DeleteObjectAsync(lockPath, cancellationToken);
