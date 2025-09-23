@@ -779,6 +779,7 @@ public class CompactionService(
         var queue = new ConcurrentQueue<SendGridEvent>();
         foreach (string parquetFile in ctx.CandidateParquetFiles)
         {
+            token.ThrowIfCancellationRequested();
             try
             {
                 logger.ZLogInformation($"Reading Parquet file: {parquetFile}");
