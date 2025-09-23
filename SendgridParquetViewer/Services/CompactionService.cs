@@ -408,7 +408,9 @@ public class CompactionService(
     private async Task<IReadOnlyCollection<string>> CreateCompactedParquetAsync(FetchReadParquetFilesResult fetchReadParquetFilesResult, CancellationToken token)
     {
         var outputFiles = new List<string>(fetchReadParquetFilesResult.PackedByHours.Count);
-        foreach (var hourGroup in fetchReadParquetFilesResult.PackedByHours.GroupBy(item => item.KeyUnixTimeSeconds))
+        foreach (var hourGroup in fetchReadParquetFilesResult.PackedByHours
+                     .GroupBy(item => item.KeyUnixTimeSeconds)
+                     .OrderBy(grp => grp.Key))
         {
             var firstItem = hourGroup.First();
             DateTimeOffset dt = DateTimeOffset.FromUnixTimeSeconds(firstItem.KeyUnixTimeSeconds);
