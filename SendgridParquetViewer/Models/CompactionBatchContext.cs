@@ -1,11 +1,13 @@
 ﻿using System.Collections.Concurrent;
 
+using ZLogger;
+
 namespace SendgridParquetViewer.Models;
 
 /// <summary>
 /// RunStatusContext に対する通知
 /// </summary>
-internal class CompactionBatchContext(RunStatusContext runStatusContext, DateOnly targetDate, IReadOnlyCollection<string> candidateParquetFiles)
+internal class CompactionBatchContext(RunStatusContext runStatusContext, DateOnly targetDate, int batchCount, IReadOnlyCollection<string> candidateParquetFiles) : IDisposable
 {
     public DateOnly TargetDate { get; } = targetDate;
     public IReadOnlyCollection<string> CandidateParquetFiles { get; } = candidateParquetFiles;
@@ -71,5 +73,45 @@ internal class CompactionBatchContext(RunStatusContext runStatusContext, DateOnl
     {
         _failedOutputFile.Enqueue(outputFile);
         runStatusContext.AddFailedOutputFile(outputFile, now);
+    }
+
+    private string GetTempFolderForRawFiles() =>
+        Path.Combine(Path.GetTempPath(), $"raw{TargetDate:yyyyMMdd}_{batchCount}");
+
+    /// <summary>
+    /// 空になった対象状態の一時フォルダを作成する
+    /// </summary>
+    internal DirectoryInfo CreateTempFolderForRawFiles(ILogger logger)
+    {
+        CleanUpDailyTargetFolder(this, logger);
+        string dailyTargetFolder = GetTempFolderForRawFiles();
+        Directory.CreateDirectory(dailyTargetFolder);
+        logger.ZLogInformation($"Created temporary folder: {dailyTargetFolder}");
+        return new DirectoryInfo(dailyTargetFolder);
+    }
+
+    private static void CleanUpDailyTargetFolder(CompactionBatchContext ctx, ILogger? logger)
+    {
+        string dailyTargetFolder = ctx.GetTempFolderForRawFiles();
+        if (Directory.Exists(dailyTargetFolder))
+        {
+            try
+            {
+                // Move してから削除する
+                string tempFolder = Path.Combine(Path.GetTempPath(), $"compaction_temp_{Guid.NewGuid():N}");
+                Directory.Move(dailyTargetFolder, tempFolder);
+                Directory.Delete(tempFolder, recursive: true);
+                logger?.ZLogInformation($"Cleared temporary folder: {dailyTargetFolder}");
+            }
+            catch (Exception ex)
+            {
+                logger?.ZLogError(ex, $"Failed to clear temporary folder: {dailyTargetFolder}");
+            }
+        }
+    }
+
+    public void Dispose()
+    {
+        CleanUpDailyTargetFolder(this, null);
     }
 }
