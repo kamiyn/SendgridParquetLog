@@ -1,0 +1,285 @@
+@page "/about"
+@rendermode InteractiveServer
+@using System.Collections
+@using System.Globalization
+@using System.Linq
+@using System.Reflection
+
+<PageTitle>About</PageTitle>
+
+<h1>About</h1>
+
+<style>
+    .about-section + .about-section {
+        margin-top: 2rem;
+    }
+
+    .about-table {
+        border-collapse: collapse;
+        border: 1px solid #d0d7de;
+        min-width: 320px;
+        margin-top: 0.5rem;
+    }
+
+    .about-table th,
+    .about-table td {
+        border: 1px solid #d0d7de;
+        padding: 0.5rem 0.75rem;
+        text-align: left;
+        vertical-align: top;
+    }
+
+    .about-table th {
+        background-color: #f6f8fa;
+        font-weight: 600;
+        width: 240px;
+    }
+
+    .about-temp-path {
+        font-family: monospace;
+        word-break: break-all;
+    }
+
+    .about-env-table {
+        width: 100%;
+    }
+
+    .about-env-table th:nth-child(1) {
+        width: 32%;
+    }
+
+    .about-env-table th:nth-child(2) {
+        width: 68%;
+    }
+
+    .about-warning {
+        color: #b54708;
+        margin-top: 0.75rem;
+    }
+</style>
+
+<section class="about-section">
+    <h2>ビルド情報</h2>
+    <table class="about-table">
+        <tbody>
+            <tr>
+                <th>アセンブリ</th>
+                <td>@_buildInfo.AssemblyName</td>
+            </tr>
+            <tr>
+                <th>アセンブリ バージョン</th>
+                <td>@_buildInfo.AssemblyVersion</td>
+            </tr>
+            <tr>
+                <th>Informational バージョン</th>
+                <td>@_buildInfo.InformationalVersion</td>
+            </tr>
+            <tr>
+                <th>GitHub Actions ビルド番号</th>
+                <td>@_buildInfo.GitHubRunNumber</td>
+            </tr>
+            <tr>
+                <th>GitHub Commit Hash</th>
+                <td>@_buildInfo.GitHubCommitHash</td>
+            </tr>
+            <tr>
+                <th>ビルド時刻 (UTC)</th>
+                <td>@_buildInfo.BuildTimestampUtc</td>
+            </tr>
+        </tbody>
+    </table>
+</section>
+
+<section class="about-section">
+    <h2>一時フォルダ情報</h2>
+    <p><strong>Path.GetTempPath():</strong> <span class="about-temp-path">@_tempFolderInfo.Path</span></p>
+    <table class="about-table">
+        <tbody>
+            <tr>
+                <th>合計容量</th>
+                <td>@_tempFolderInfo.TotalSizeDisplay</td>
+            </tr>
+            <tr>
+                <th>利用可能な空き容量</th>
+                <td>@_tempFolderInfo.AvailableFreeSpaceDisplay</td>
+            </tr>
+            <tr>
+                <th>ドライブ種別</th>
+                <td>@_tempFolderInfo.DriveType</td>
+            </tr>
+            <tr>
+                <th>ファイルシステム</th>
+                <td>@_tempFolderInfo.DriveFormat</td>
+            </tr>
+        </tbody>
+    </table>
+    @if (!string.IsNullOrEmpty(_tempFolderInfo.Warning))
+    {
+        <p class="about-warning">@_tempFolderInfo.Warning</p>
+    }
+</section>
+
+<section class="about-section">
+    <h2>環境変数</h2>
+    <table class="about-table about-env-table">
+        <thead>
+            <tr>
+                <th>名前</th>
+                <th>値</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var variable in _environmentVariables)
+            {
+                <tr>
+                    <th>@variable.Name</th>
+                    <td>@variable.DisplayValue</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</section>
+
+@code {
+    private readonly BuildInfo _buildInfo = BuildInfo.Create(typeof(Program).Assembly);
+    private readonly TempFolderInfo _tempFolderInfo = TempFolderInfo.Create();
+    private readonly List<EnvironmentVariableEntry> _environmentVariables = EnvironmentVariableEntry.Create();
+
+    private sealed record BuildInfo(
+        string AssemblyName,
+        string AssemblyVersion,
+        string InformationalVersion,
+        string GitHubRunNumber,
+        string GitHubCommitHash,
+        string BuildTimestampUtc)
+    {
+        public static BuildInfo Create(Assembly assembly)
+        {
+            var metadata = assembly.GetCustomAttributes<AssemblyMetadataAttribute>().ToList();
+
+            string assemblyName = assembly.GetName().Name ?? "(不明)";
+            string assemblyVersion = assembly.GetName().Version?.ToString() ?? "(不明)";
+            string informationalVersion = assembly
+                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
+                .InformationalVersion ?? "(未設定)";
+
+            string gitHubRunNumber = ReadMetadata(metadata, "GitHubRunNumber", fallback: "(未設定)");
+            string gitHubCommitHash = ReadMetadata(metadata, "GitHubCommitHash", fallback: "(未設定)");
+            string buildTimestampUtc = ReadMetadata(metadata, "BuildTimestampUtc", fallback: "(未設定)");
+
+            return new BuildInfo(
+                assemblyName,
+                assemblyVersion,
+                informationalVersion,
+                gitHubRunNumber,
+                gitHubCommitHash,
+                buildTimestampUtc);
+        }
+
+        private static string ReadMetadata(IEnumerable<AssemblyMetadataAttribute> metadata, string key, string fallback)
+        {
+            return metadata.FirstOrDefault(m => string.Equals(m.Key, key, StringComparison.OrdinalIgnoreCase))?.Value ?? fallback;
+        }
+    }
+
+    private sealed record TempFolderInfo(
+        string Path,
+        string TotalSizeDisplay,
+        string AvailableFreeSpaceDisplay,
+        string DriveType,
+        string DriveFormat,
+        string Warning)
+    {
+        public static TempFolderInfo Create()
+        {
+            var tempPath = System.IO.Path.GetTempPath();
+            string warning = string.Empty;
+            string totalSize = "(取得できませんでした)";
+            string freeSpace = "(取得できませんでした)";
+            string driveType = "(取得できませんでした)";
+            string driveFormat = "(取得できませんでした)";
+
+            try
+            {
+                var driveRoot = System.IO.Path.GetPathRoot(tempPath);
+                var drivePath = !string.IsNullOrEmpty(driveRoot) ? driveRoot : tempPath;
+
+                var driveInfo = new System.IO.DriveInfo(drivePath);
+
+                if (driveInfo.IsReady)
+                {
+                    totalSize = FormatBytes(driveInfo.TotalSize);
+                    freeSpace = FormatBytes(driveInfo.AvailableFreeSpace);
+                    driveType = driveInfo.DriveType.ToString();
+                    driveFormat = driveInfo.DriveFormat;
+                }
+                else
+                {
+                    warning = "ドライブ情報が利用できません。";
+                }
+            }
+            catch (Exception ex)
+            {
+                warning = $"ドライブ情報の取得時にエラーが発生しました: {ex.Message}";
+            }
+
+            return new TempFolderInfo(
+                tempPath,
+                totalSize,
+                freeSpace,
+                driveType,
+                driveFormat,
+                warning);
+        }
+    }
+
+    private sealed record EnvironmentVariableEntry(string Name, string DisplayValue)
+    {
+        public static List<EnvironmentVariableEntry> Create()
+        {
+            var variables = new List<EnvironmentVariableEntry>();
+            var comparer = StringComparer.OrdinalIgnoreCase;
+
+            foreach (DictionaryEntry entry in Environment.GetEnvironmentVariables())
+            {
+                if (entry.Key is not string key)
+                {
+                    continue;
+                }
+
+                var value = entry.Value?.ToString() ?? string.Empty;
+                var displayValue = ShouldMask(key) ? MaskValue : value;
+                variables.Add(new EnvironmentVariableEntry(key, displayValue));
+            }
+
+            return variables
+                .OrderBy(v => v.Name, comparer)
+                .ToList();
+        }
+    }
+
+    private const string MaskValue = "****";
+
+    private static bool ShouldMask(string variableName)
+    {
+        return variableName.Contains("key", StringComparison.OrdinalIgnoreCase)
+               || variableName.Contains("secret", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        const long scale = 1024;
+        string[] orders = new[] { "B", "KB", "MB", "GB", "TB", "PB" };
+
+        double value = bytes;
+        var orderIndex = 0;
+
+        while (value >= scale && orderIndex < orders.Length - 1)
+        {
+            value /= scale;
+            orderIndex++;
+        }
+
+        return FormattableString.Invariant($"{value:0.##} {orders[orderIndex]} ({bytes:N0} バイト)");
+    }
+}
