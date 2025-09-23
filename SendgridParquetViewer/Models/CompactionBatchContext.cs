@@ -95,17 +95,17 @@ internal class CompactionBatchContext(RunStatusContext runStatusContext, DateOnl
         string dailyTargetFolder = ctx.GetTempFolderForRawFiles();
         if (Directory.Exists(dailyTargetFolder))
         {
+            string tempFolder = Path.Combine(Path.GetTempPath(), $"compaction_temp_{Guid.NewGuid():N}");
             try
             {
                 // Move してから削除する
-                string tempFolder = Path.Combine(Path.GetTempPath(), $"compaction_temp_{Guid.NewGuid():N}");
                 Directory.Move(dailyTargetFolder, tempFolder);
                 Directory.Delete(tempFolder, recursive: true);
                 logger?.ZLogInformation($"Cleared temporary folder: {dailyTargetFolder}");
             }
             catch (Exception ex)
             {
-                logger?.ZLogError(ex, $"Failed to clear temporary folder: {dailyTargetFolder}");
+                logger?.ZLogError(ex, $"Failed to clear temporary folder: {dailyTargetFolder}, {tempFolder}");
             }
         }
     }
