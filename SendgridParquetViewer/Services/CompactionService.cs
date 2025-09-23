@@ -400,8 +400,6 @@ public class CompactionService(
         };
     }
 
-    private const int TmpFileBufferSize = 65536;
-
     /// <summary>
     /// Create compacted parquet file for each hour that has data
     /// </summary>
@@ -416,7 +414,7 @@ public class CompactionService(
             DateTimeOffset dt = DateTimeOffset.FromUnixTimeSeconds(firstItem.KeyUnixTimeSeconds);
             var dateOnly = new DateOnly(dt.Year, dt.Month, dt.Day);
             string outputFileName = string.Empty;
-            var tempFile = Path.GetTempFileName();
+            using var tempFile = new DisposableTempFile(nameof(CreateCompactedParquetAsync), logger);
             try
             {
                 logger.ZLogInformation($"Creating compacted file for hour {dt.Hour} with {hourGroup.Sum(x => x.Count)} events");
@@ -425,7 +423,7 @@ public class CompactionService(
                 foreach (var packedFile in hourGroup)
                 {
                     string fullName = packedFile.FileInfo.FullName;
-                    await using var fs = new FileStream(fullName, FileMode.Open, FileAccess.Read, FileShare.Read, TmpFileBufferSize, useAsync: true);
+                    await using var fs = new FileStream(fullName, FileMode.Open, FileAccess.Read, FileShare.Read, DisposableTempFile.BufferSize, useAsync: true);
                     SendGridEvent[] events = await MemoryPackSerializer.DeserializeAsync<SendGridEvent[]>(fs, cancellationToken: token) ?? [];
                     hourEvents.AddRange(events);
                 }
@@ -437,7 +435,7 @@ public class CompactionService(
                 }
                 logger.ZLogInformation($"Creating compacted file for hour {dt.Hour} with {hourEvents.Count()} events");
 
-                await using (var outputStream = new FileStream(tempFile, FileMode.Create, FileAccess.ReadWrite, FileShare.None, TmpFileBufferSize, useAsync: true))
+                await using (FileStream outputStream = tempFile.Open())
                 {
                     bool convertToParquetResult = await parquetService.ConvertToParquetAsync(hourEvents, outputStream);
                     if (!convertToParquetResult)
@@ -459,17 +457,6 @@ public class CompactionService(
                 logger.ZLogError(ex, $"Failed to create compacted file: {outputFileName} for hour {dt.Hour}");
                 throw;
             }
-            finally
-            {
-                try
-                {
-                    File.Delete(tempFile);
-                }
-                catch (Exception ex)
-                {
-                    logger.ZLogWarning(ex, $"Failed to delete temporary file: {tempFile}");
-                }
-            }
         }
         return outputFiles;
     }
@@ -482,9 +469,9 @@ public class CompactionService(
         CompactionBatchContext ctx,
         CancellationToken token)
     {
+        using var tempFile = new DisposableTempFile(nameof(VerifyOutputFilesAsync), logger);
         foreach (string outputFile in outputFiles)
         {
-            string tempVerifyFile = Path.Combine(Path.GetTempPath(), $"verify-{Guid.NewGuid():N}.parquet");
             try
             {
                 using HttpResponseMessage response = await s3StorageService.GetObjectAsync(outputFile, token);
@@ -496,13 +483,8 @@ public class CompactionService(
                 }
 
                 await using Stream responseStream = await response.Content.ReadAsStreamAsync(token);
-                await using var tempFileStream = new FileStream(tempVerifyFile,
-                    FileMode.Create,
-                    FileAccess.ReadWrite,
-                    FileShare.None,
-                    TmpFileBufferSize,
-                    useAsync: true);
-                await responseStream.CopyToAsync(tempFileStream, TmpFileBufferSize, token);
+                await using FileStream tempFileStream = tempFile.Open();
+                await responseStream.CopyToAsync(tempFileStream, DisposableTempFile.BufferSize, token);
                 tempFileStream.Seek(0, SeekOrigin.Begin);
 
                 using ParquetReader verifyReader = await ParquetReader.CreateAsync(tempFileStream, cancellationToken: token);
@@ -514,17 +496,6 @@ public class CompactionService(
                 logger.ZLogError(ex, $"Failed to verify compacted file: {outputFile}");
                 await s3StorageService.DeleteObjectAsync(outputFile, token);
                 ctx.AddFailedOutputFile(outputFile, timeProvider.GetUtcNow());
-            }
-            finally
-            {
-                try
-                {
-                    File.Delete(tempVerifyFile);
-                }
-                catch (Exception ex)
-                {
-                    logger.ZLogWarning(ex, $"Failed to delete temporary file: {tempVerifyFile}");
-                }
             }
         }
 
@@ -604,7 +575,7 @@ public class CompactionService(
                 }
                 string originalFileName = Path.GetFileName(sendgridEventOneFile.ParquetFile);
                 string targetFilePath = Path.Combine(targetFolder, originalFileName);
-                await using var fs = new FileStream(targetFilePath, FileMode.Create, FileAccess.Write, FileShare.None, TmpFileBufferSize, useAsync: true);
+                await using var fs = new FileStream(targetFilePath, FileMode.Create, FileAccess.Write, FileShare.None, DisposableTempFile.BufferSize, useAsync: true);
                 await MemoryPackSerializer.SerializeAsync(fs, eventsByHour, cancellationToken: token);
 
                 results.Add(new FetchReadParquetFilesResult.PackedItem(hourGroupKey.ToUnixTimeSeconds(), eventsByHour.Length, new FileInfo(targetFilePath)));
