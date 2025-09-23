@@ -187,7 +187,11 @@ public class S3StorageService(
             AddAwsSignatureHeaders(request, requestContent);
             using HttpResponseMessage response = await httpClient.SendAsync(request, ct);
 
-            if (response.IsSuccessStatusCode || response.StatusCode == HttpStatusCode.NoContent || response.StatusCode == HttpStatusCode.NotFound)
+            // Treat NotFound as a success case for delete operations to ensure idempotency.
+            // This means deleting a non-existent object is considered successful.
+            if (response.IsSuccessStatusCode
+                || response.StatusCode == HttpStatusCode.NoContent
+                || response.StatusCode == HttpStatusCode.NotFound)
             {
                 logger.ZLogInformation($"Object {uri} deleted successfully from S3");
                 return true;
@@ -418,11 +422,8 @@ public class S3StorageService(
 
         string baseUrl = _options.SERVICEURL.TrimEnd('/');
         string bucket = _options.BUCKETNAME.Trim('/');
-        string normalizedKey = key.TrimStart('/');
-
-        string encodedKey = string.Join('/',
-            normalizedKey.Split('/', StringSplitOptions.None)
-                .Select(segment => Uri.EscapeDataString(segment)));
+        string[] normalizedKeys = key.TrimStart('/').Split('/');
+        string encodedKey = string.Join('/', normalizedKeys.Select(Uri.EscapeDataString));
 
         string uriString = string.IsNullOrEmpty(encodedKey)
             ? $"{baseUrl}/{bucket}"
