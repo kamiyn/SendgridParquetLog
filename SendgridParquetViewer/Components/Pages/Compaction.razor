@@ -1,4 +1,4 @@
-@page "/compaction"
+Ôªø@page "/compaction"
 @rendermode InteractiveServer
 @using SendgridParquetViewer.Models
 @using SendgridParquetViewer.Services
@@ -64,7 +64,15 @@
                             @GetRunStatusJson()
                         </pre>
                     </details>
-                }
+                    <details>
+						@foreach (var error in _runStatus.Errors)
+                        {
+                            <pre>
+			                     @(error.Message)
+	                        </pre>
+                        }
+                    </details>
+				}
                 else if (_isLoadingStatus)
                 {
                     <FluentProgressRing />
@@ -127,7 +135,7 @@
 			.ObserveOnCurrentSynchronizationContext()
             .Subscribe(runStatus =>
             {
-				// ObserveOnCurrentSynchronizationContext ÇégÇ¶ÇŒ InvokeAsync() Ç…ÇµÇ»Ç≠ÇƒÇÊÇ¢
+				// ObserveOnCurrentSynchronizationContext „Çí‰Ωø„Åà„Å∞ InvokeAsync() „Å´„Åó„Å™„Åè„Å¶„Çà„ÅÑ
                 _runStatus = runStatus;
                 StateHasChanged();
 			});

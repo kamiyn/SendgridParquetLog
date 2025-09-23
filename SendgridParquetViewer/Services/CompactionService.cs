@@ -138,6 +138,31 @@ public class CompactionService(
 
             NotifyRunStatus(RunStatus);
         }
+
+        public void AddVerifiedOutputFile(string outputFile, DateTimeOffset now)
+        {
+            lock (_lock)
+            {
+                RunStatus.LastOutputFile = outputFile;
+
+                int prevFiles = RunStatus.OutputFilesCreated;
+                RunStatus.OutputFilesCreated = prevFiles + 1; // Increment
+                RunStatus.LastUpdated = now;
+            }
+
+            NotifyRunStatus(RunStatus);
+        }
+
+        public void AddFailedOutputFile(string outputFile, DateTimeOffset now)
+        {
+            lock (_lock)
+            {
+                RunStatus.FailedOutputFiles.Add(outputFile);
+                RunStatus.LastUpdated = now;
+            }
+
+            NotifyRunStatus(RunStatus);
+        }
     }
 
     private RunStatusContext CreateRunStatusContext(RunStatus runStatus) =>
@@ -483,6 +508,7 @@ public class CompactionService(
         {
             foreach ((DateOnly dateOnly, string pathPrefix) in runStatus.TargetDays.Zip(runStatus.TargetPathPrefixes))
             {
+                token.ThrowIfCancellationRequested();
                 logger.ZLogInformation($"Starting compaction for date {dateOnly} at path {pathPrefix}");
                 try
                 {
@@ -542,6 +568,7 @@ public class CompactionService(
         var remainFiles = new LinkedList<string>(targetParquetFiles); // CompactionBatchAsync は先頭から順番に処理するので LinkedList で良い
         while (remainFiles.Any())
         {
+            token.ThrowIfCancellationRequested();
             int previousCount = remainFiles.Count;
             CompactionBatchContext compactionBatchContext = new(runStatusContext, targetDate, remainFiles);
             CompactionBatchResult batchResult = await CompactionBatchAsync(compactionBatchContext, token);
@@ -616,15 +643,27 @@ public class CompactionService(
         /// <summary>
         /// オリジナルのストレージから削除済みのファイル
         /// </summary>
-        private readonly List<string> _deletedOriginalFiles = new();
+        private readonly ConcurrentQueue<string> _deletedOriginalFiles = new();
 
         public void AddDeletedOriginalFile(string originalFile, DateTimeOffset now)
         {
-            _deletedOriginalFiles.Add(originalFile);
+            _deletedOriginalFiles.Enqueue(originalFile);
             runStatusContext.IncrementDeletedOriginalFile(now);
         }
 
-        public IReadOnlyCollection<string> GetDeletedOriginalFiles() => _deletedOriginalFiles.AsReadOnly();
+        public IReadOnlyCollection<string> GetDeletedOriginalFiles() => _deletedOriginalFiles.ToArray();
+
+        public void AddVerifiedOutputFile(string outputFile, DateTimeOffset now)
+        {
+            // _verifiedOutputFile.Enqueue(outputFile) // バッチ単位での管理は不要
+            runStatusContext.AddVerifiedOutputFile(outputFile, now);
+        }
+
+        public void AddFailedOutputFile(string outputFile, DateTimeOffset now)
+        {
+            // _failedOutputFile.Enqueue(outputFile) // バッチ単位での管理は不要
+            runStatusContext.AddFailedOutputFile(outputFile, now);
+        }
     }
 
     /// <summary>
@@ -637,7 +676,7 @@ public class CompactionService(
         var sendGridEvents = await ReadParquetFilesAsync(ctx, token);
         logger.ZLogInformation($"Total events loaded: {sendGridEvents.Count}");
         var outputFiles = await CreateCompactedParquetAsync(sendGridEvents, token);
-        if (await VerifyOutputFilesAsync(outputFiles, token))
+        if (await VerifyOutputFilesAsync(outputFiles, ctx, token))
         {
             // Delete original files after successful verification
             foreach (string originalFile in ctx.GetProcessedFiles())
@@ -646,6 +685,10 @@ public class CompactionService(
                 ctx.AddDeletedOriginalFile(originalFile, timeProvider.GetUtcNow());
             }
         }
+        //else
+        //{
+        //    OutputFile が不正な場合はオリジナルを削除せず Outputfile 側を削除する処理は VerifyOutputFilesAsync 内で行われる
+        //}
 
         logger.ZLogInformation($"Completed compaction for {targetDate}: failed {ctx.FailedReadingParquetFilesCount} files, created {outputFiles.Count} files, processed {sendGridEvents.Count} events");
         return new CompactionBatchResult
@@ -702,8 +745,11 @@ public class CompactionService(
 
     /// <summary>
     /// Verify all output files are readable as parquet
+    /// Verify に失敗した場合 OutputFile は削除される
     /// </summary>
-    private async Task<bool> VerifyOutputFilesAsync(IEnumerable<string> outputFiles, CancellationToken token)
+    private async Task<bool> VerifyOutputFilesAsync(IEnumerable<string> outputFiles,
+        CompactionBatchContext ctx,
+        CancellationToken token)
     {
         var failedFiles = new List<string>();
         foreach (string outputFile in outputFiles)
@@ -714,12 +760,14 @@ public class CompactionService(
                 using var verifyMs = new MemoryStream(verifyData);
                 using ParquetReader verifyReader = await ParquetReader.CreateAsync(verifyMs, cancellationToken: token);
                 logger.ZLogInformation($"Verified compacted file: {outputFile} (RowGroups: {verifyReader.RowGroupCount})");
+                ctx.AddVerifiedOutputFile(outputFile, timeProvider.GetUtcNow());
             }
             catch (Exception ex)
             {
                 failedFiles.Add(outputFile);
                 logger.ZLogError(ex, $"Failed to verify compacted file: {outputFile}");
                 await s3StorageService.DeleteObjectAsync(outputFile, token);
+                ctx.AddFailedOutputFile(outputFile, timeProvider.GetUtcNow());
             }
         }
 
