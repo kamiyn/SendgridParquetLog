@@ -6,6 +6,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="MemoryPack.Core" Version="1.21.4" />
+    <PackageReference Include="MemoryPack.Generator" Version="1.21.4">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.*" />
     <PackageReference Include="Microsoft.Extensions.Options" Version="9.0.*" />
     <PackageReference Include="Parquet.Net" Version="5.2.0" />
