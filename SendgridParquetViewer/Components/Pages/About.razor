@@ -228,12 +228,12 @@
 				}
 
 				warning = "ドライブ情報が利用できません。";
-				logger.ZLogError($"ドライブ情報が利用できません。 {drivePath}");
+				logger.ZLogWarning($"ドライブ情報が利用できません。 {drivePath}");
 			}
 			catch (Exception ex)
 			{
 				warning = $"ドライブ情報の取得時にエラーが発生しました";
-				logger.ZLogError(ex, $"ドライブ情報の取得時にエラーが発生しました");
+				logger.ZLogWarning(ex, $"ドライブ情報の取得時にエラーが発生しました");
 			}
 
 			return new TempFolderInfo(
