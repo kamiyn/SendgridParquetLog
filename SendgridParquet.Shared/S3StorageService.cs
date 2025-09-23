@@ -27,6 +27,11 @@ public class S3StorageService(
 {
     private readonly S3Options _options = options.Value;
 
+    const int MaxErrorContentLength = 1024;
+    private static string ErrorContent(string? s) => string.IsNullOrEmpty(s)
+        ? "<empty>"
+        : s.Length <= MaxErrorContentLength ? s : s[..MaxErrorContentLength] + "...(truncated)";
+
     public async ValueTask<bool> PutObjectAsync(Stream content, string key, CancellationToken ct)
     {
         var uri = new Uri($"{_options.SERVICEURL}/{_options.BUCKETNAME}/{key}");
@@ -52,7 +57,7 @@ public class S3StorageService(
             else
             {
                 string responseContent = await response.Content.ReadAsStringAsync(ct);
-                logger.ZLogError($"Error uploading file {uri} to S3. Status: {response.StatusCode}, Response: {responseContent}");
+                logger.ZLogError($"Error uploading file {uri} to S3. Status: {response.StatusCode}, Response: {ErrorContent(responseContent)}");
                 return false;
             }
         }
@@ -74,8 +79,8 @@ public class S3StorageService(
             using var requestContent = new MemoryStream([]);
             AddAwsSignatureHeaders(request, requestContent);
             using HttpResponseMessage response = await httpClient.SendAsync(request, ct);
-            string content = await response.Content.ReadAsStringAsync(ct);
-            logger.ZLogDebug($"Content {content}");
+            //string content = await response.Content.ReadAsStringAsync(ct);
+            //logger.ZLogDebug($"Content {content}");
             return response.StatusCode != HttpStatusCode.NotFound;
         }
         catch (Exception ex)
@@ -105,7 +110,7 @@ public class S3StorageService(
                 else
                 {
                     var error = await response.Content.ReadAsStringAsync(ct);
-                    logger.ZLogError($"Error creating bucket {uriString}. Status: {response.StatusCode}, Response: {error}");
+                    logger.ZLogError($"Error creating bucket {uriString}. Status: {response.StatusCode}, Response: {ErrorContent(error)}");
                     throw new InvalidOperationException($"Failed to create bucket: {response.StatusCode}");
                 }
             }
@@ -166,7 +171,7 @@ public class S3StorageService(
             }
 
             string responseContent = Encoding.UTF8.GetString(content);
-            logger.ZLogError($"Error getting object {key} from S3. Status: {response.StatusCode}, Response: {responseContent}");
+            logger.ZLogError($"Error getting object {key} from S3. Status: {response.StatusCode}, Response: {ErrorContent(responseContent)}");
             throw new InvalidOperationException($"Failed to get object: {response.StatusCode}");
         }
         catch (Exception ex)
@@ -198,7 +203,7 @@ public class S3StorageService(
             else
             {
                 string responseContent = await response.Content.ReadAsStringAsync(ct);
-                logger.ZLogError($"Error deleting object {uri} from S3. Status: {response.StatusCode}, Response: {responseContent}");
+                logger.ZLogError($"Error deleting object {uri} from S3. Status: {response.StatusCode}, Response: {ErrorContent(responseContent)}");
                 return false;
             }
         }
@@ -209,14 +214,14 @@ public class S3StorageService(
         }
     }
 
-    public async ValueTask<bool> PutObjectWithConditionAsync(string key, byte[] content, byte[] existingLockJson, CancellationToken ct)
+    public async ValueTask<bool> PutObjectWithConditionAsync(string key, byte[] content, byte[] expectExists, CancellationToken ct)
     {
         var uri = new Uri($"{_options.SERVICEURL}/{_options.BUCKETNAME}/{key}");
         try
         {
             // First, get the current ETag if object exists
             string? currentETag = null;
-            if (existingLockJson.Any())
+            if (expectExists.Any())
             {
                 currentETag = await GetCurrentEtagAsync(uri, ct);
                 // Expected content but no current object - should fail
@@ -262,7 +267,7 @@ public class S3StorageService(
             else
             {
                 string responseContent = await response.Content.ReadAsStringAsync(ct);
-                logger.ZLogError($"Error uploading object {uri} to S3. Status: {response.StatusCode}, Response: {responseContent}");
+                logger.ZLogError($"Error uploading object {uri} to S3. Status: {response.StatusCode}, Response: {ErrorContent(responseContent)}");
                 return false;
             }
         }
@@ -404,7 +409,7 @@ public class S3StorageService(
             }
             else
             {
-                logger.ZLogError($"Error listing objects for prefix {req.Prefix}. Status: {response.StatusCode}, Response: {content}");
+                logger.ZLogError($"Error listing objects for prefix {req.Prefix}. Status: {response.StatusCode}, Response: {ErrorContent(content)}");
                 return string.Empty;
             }
         }
@@ -436,7 +441,15 @@ public class S3StorageService(
         };
         foreach (var header in headers)
         {
-            request.Headers.Add(header.Key, header.Value);
+            switch (header.Key)
+            {
+                case "Host":
+                    // Host は計算に使うが、HttpClient が自動で設定するためここでは追加しない
+                    continue;
+                default:
+                    request.Headers.Add(header.Key, header.Value);
+                    break;
+            }
         }
 
         // Create canonical request
@@ -524,6 +537,10 @@ public class S3StorageService(
                         idx++;
                     }
                     break;
+                // TODO: クエリの正規化ロジック S3の正規化要件では'+'は空白ではありません。
+                // CanonicalizeQueryはURLデコードの際に'+'を空白に扱います（内部関数）
+                // 現状は自分で構築したクエリでUri.EscapeDataStringを使っているため問題になりにくいですが、将来'+'を含む値をそのまま渡す
+                // と署名不整合の恐れ。'+'は空白として解釈しない実装/テスト強化を検討（主に継続トークンの将来互換性）。
                 case '+':
                     // + はスペースに変換
                     bytes.Add((byte)' ');

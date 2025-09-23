@@ -12,7 +12,7 @@ public static class DisposableTempFile
             BufferSize,
             options: FileOptions.DeleteOnClose);
 
-    private static readonly char[] s_invalidChars = Path.GetInvalidFileNameChars();
+    private static readonly HashSet<char> s_invalidChars =  Path.GetInvalidFileNameChars().ToHashSet();
 
     private static string GetPath(string filename)
     {
