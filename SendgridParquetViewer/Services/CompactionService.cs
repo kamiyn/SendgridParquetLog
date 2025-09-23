@@ -417,7 +417,7 @@ public class CompactionService(
             var tempFile = Path.GetTempFileName();
             try
             {
-                logger.ZLogInformation($"Creating compacted file for hour {dt.Hour} with {hourGroup.Count()} files");
+                logger.ZLogInformation($"Creating compacted file for hour {dt.Hour} with {hourGroup.Sum(x => x.Count)} events");
 
                 List<SendGridEvent> hourEvents = new();
                 foreach (var packedFile in hourGroup)
