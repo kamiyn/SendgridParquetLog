@@ -16,7 +16,12 @@ public static class DisposableTempFile
 
     private static string GetPath(string filename)
     {
-        string sanitizedFileName = new string(filename.Select(c => s_invalidChars.Contains(c) ? '_' : c).ToArray());
+        var sb = new System.Text.StringBuilder(filename.Length);
+        foreach (char c in filename)
+        {
+            sb.Append(s_invalidChars.Contains(c) ? '_' : c);
+        }
+        string sanitizedFileName = sb.ToString();
         return Path.Combine(Path.GetTempPath(), $"{sanitizedFileName}-{Path.GetRandomFileName()}");
     }
 }
