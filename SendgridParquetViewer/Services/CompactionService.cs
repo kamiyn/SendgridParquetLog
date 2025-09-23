@@ -423,6 +423,7 @@ public class CompactionService(
                 {
                     string fullName = packedFile.FileInfo.FullName;
                     await using var fs = new FileStream(fullName, FileMode.Open, FileAccess.Read, FileShare.Read, DisposableTempFile.BufferSize, useAsync: true);
+                    // 直前で作成したファイルの Deserialize であるので null を無視してよい
                     SendGridEvent[] events = await MemoryPackSerializer.DeserializeAsync<SendGridEvent[]>(fs, cancellationToken: token) ?? [];
                     hourEvents.AddRange(events);
                 }
