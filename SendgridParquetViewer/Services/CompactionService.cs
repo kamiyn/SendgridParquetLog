@@ -435,7 +435,7 @@ public class CompactionService(
                 }
                 logger.ZLogInformation($"Creating compacted file for hour {dt.Hour} with {hourEvents.Count()} events");
 
-                await using (var outputStream = new FileStream(tempFile, FileMode.Create, FileAccess.ReadWrite, FileShare.None, 4096, useAsync: true))
+                await using (var outputStream = new FileStream(tempFile, FileMode.Create, FileAccess.ReadWrite, FileShare.None, TmpFileBufferSize, useAsync: true))
                 {
                     bool convertToParquetResult = await parquetService.ConvertToParquetAsync(hourEvents, outputStream);
                     if (!convertToParquetResult)
@@ -533,7 +533,13 @@ public class CompactionService(
     /// </summary>
     private async Task<FetchReadParquetFilesResult> FetchParquetFilesAsync(CompactionBatchContext ctx, CancellationToken token)
     {
-        var channel = Channel.CreateUnbounded<SendGridEventsOneFile>(); // new Pipe() は byte[] 向け
+        // 最大2ファイルを先読みする
+        var channel = Channel.CreateBounded<SendGridEventsOneFile>(new BoundedChannelOptions(2)
+        {
+            SingleReader = true,
+            SingleWriter = true,
+            FullMode = BoundedChannelFullMode.Wait,
+        });
         Task<FetchReadParquetFilesResult> consumer = FetchParquetFilesConsumerAsync(ctx, channel.Reader, token);
         await FetchParquetFilesProducerAsync(ctx, channel.Writer, token);
         return await consumer;
