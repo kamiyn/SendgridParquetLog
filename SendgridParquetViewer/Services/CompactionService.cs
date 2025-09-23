@@ -406,24 +406,32 @@ public class CompactionService(
     private async Task<IReadOnlyCollection<string>> CreateCompactedParquetAsync(FetchReadParquetFilesResult fetchReadParquetFilesResult, CancellationToken token)
     {
         var outputFiles = new List<string>(fetchReadParquetFilesResult.PackedByHours.Count);
-        foreach (var packedItem in fetchReadParquetFilesResult.PackedByHours)
+        foreach (var hourGroup in fetchReadParquetFilesResult.PackedByHours.GroupBy(item => item.HourGroupKey.ToUnixTimeSeconds()))
         {
-            string fullName = packedItem.FileInfo.FullName;
-            DateTimeOffset dt = packedItem.DateTimeOffset;
+            var firstItem = hourGroup.First();
+            DateTimeOffset dt = firstItem.HourGroupKey;
             var dateOnly = new DateOnly(dt.Year, dt.Month, dt.Day);
             string outputFileName = string.Empty;
             var tempFile = Path.GetTempFileName();
             try
             {
-                logger.ZLogInformation($"Creating compacted file for hour {dt.Hour} with {packedItem.Count} events");
+                logger.ZLogInformation($"Creating compacted file for hour {dt.Hour} with {hourGroup.Count()} files");
 
-                await using var fs = new FileStream(fullName, FileMode.Open, FileAccess.Read, FileShare.Read, TmpFileBufferSize, useAsync: true);
-                SendGridEvent[] hourEvents = await MemoryPackSerializer.DeserializeAsync<SendGridEvent[]>(fs, cancellationToken: token) ?? [];
+                List<SendGridEvent> hourEvents = new();
+                foreach (var packedFile in hourGroup)
+                {
+                    string fullName = packedFile.FileInfo.FullName;
+                    await using var fs = new FileStream(fullName, FileMode.Open, FileAccess.Read, FileShare.Read, TmpFileBufferSize, useAsync: true);
+                    SendGridEvent[] events = await MemoryPackSerializer.DeserializeAsync<SendGridEvent[]>(fs, cancellationToken: token) ?? [];
+                    hourEvents.AddRange(events);
+                }
+
                 if (!hourEvents.Any())
                 {
-                    logger.ZLogWarning($"Failed to MemoryPackSerializer.DeserializeAsync for hour {fullName}");
+                    logger.ZLogWarning($"Failed to MemoryPackSerializer.DeserializeAsync for hour");
                     continue;
                 }
+                logger.ZLogInformation($"Creating compacted file for hour {dt.Hour} with {hourEvents.Count()} events");
 
                 await using (var outputStream = new FileStream(tempFile, FileMode.Create, FileAccess.ReadWrite, FileShare.None, 4096, useAsync: true))
                 {
@@ -502,7 +510,7 @@ public class CompactionService(
 
     class FetchReadParquetFilesResult
     {
-        internal record struct PackedItem(DateTimeOffset DateTimeOffset, int Count, FileInfo FileInfo);
+        internal record struct PackedItem(DateTimeOffset HourGroupKey, int Count, FileInfo FileInfo);
 
         /// <summary>
         /// 1時間ごとの SendGridEvent 配列を格納した一時ファイルの一覧
@@ -543,9 +551,9 @@ public class CompactionService(
             {
                 SendGridEvent[] eventsByHour = hourGroup.ToArray(); // シリアライズする前に 配列にする
 
-                DateTimeOffset timestampFirst = JstExtension.JstUnixTimeSeconds(hourGroup.Select(x => x.Timestamp).First());
-                string targetFolder = Path.Combine(dailyTargetFolder.FullName, $"{timestampFirst:yyyyMMddHH}");
-                if (createdHourlyFolders.TryAdd(targetFolder, timestampFirst))
+                DateTimeOffset hourGroupKey = JstExtension.JstUnixTimeSeconds(hourGroup.Key * 3600);
+                string targetFolder = Path.Combine(dailyTargetFolder.FullName, $"{hourGroupKey:yyyyMMddHH}");
+                if (createdHourlyFolders.TryAdd(targetFolder, hourGroupKey))
                 {
                     Directory.CreateDirectory(targetFolder);
                 }
@@ -554,7 +562,7 @@ public class CompactionService(
                 await using var fs = new FileStream(targetFilePath, FileMode.Create, FileAccess.Write, FileShare.None, TmpFileBufferSize, useAsync: true);
                 await MemoryPackSerializer.SerializeAsync(fs, eventsByHour, cancellationToken: token);
 
-                results.Add(new FetchReadParquetFilesResult.PackedItem(timestampFirst, eventsByHour.Length, new FileInfo(targetFilePath)));
+                results.Add(new FetchReadParquetFilesResult.PackedItem(hourGroupKey, eventsByHour.Length, new FileInfo(targetFilePath)));
             }
         }
 
