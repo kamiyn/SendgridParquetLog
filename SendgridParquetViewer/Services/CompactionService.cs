@@ -429,7 +429,7 @@ public class CompactionService(
 
                 if (!hourEvents.Any())
                 {
-                    logger.ZLogWarning($"Failed to MemoryPackSerializer.DeserializeAsync for hour");
+                    logger.ZLogWarning($"No events found for this hour group (hour {dt.Hour})");
                     continue;
                 }
                 logger.ZLogInformation($"Creating compacted file for hour {dt.Hour} with {hourEvents.Count()} events");

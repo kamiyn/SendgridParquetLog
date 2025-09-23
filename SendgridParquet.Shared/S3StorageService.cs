@@ -78,7 +78,7 @@ public class S3StorageService(
             using HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Get, uri);
             using var requestContent = new MemoryStream([]);
             AddAwsSignatureHeaders(request, requestContent);
-            using HttpResponseMessage response = await httpClient.SendAsync(request, ct);
+            using HttpResponseMessage response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
             //string content = await response.Content.ReadAsStringAsync(ct);
             //logger.ZLogDebug($"Content {content}");
             return response.StatusCode != HttpStatusCode.NotFound;
@@ -286,7 +286,7 @@ public class S3StorageService(
         using var headRequest = new HttpRequestMessage(HttpMethod.Head, uri);
         using var headRequestContent = new MemoryStream([]);
         AddAwsSignatureHeaders(headRequest, headRequestContent);
-        using HttpResponseMessage headResponse = await httpClient.SendAsync(headRequest, ct);
+        using HttpResponseMessage headResponse = await httpClient.SendAsync(headRequest, HttpCompletionOption.ResponseHeadersRead, ct);
         return headResponse.IsSuccessStatusCode ? headResponse.Headers.ETag?.Tag : null;
     }
 
