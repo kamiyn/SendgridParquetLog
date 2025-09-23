@@ -100,7 +100,7 @@ builder.Services.AddTransient<DuckDbService>();
 builder.Services.AddHttpClient<S3StorageService>();
 
 // Add Parquet service
-builder.Services.AddScoped<ParquetService>();
+builder.Services.AddSingleton<ParquetService>(); // 無状態のため AddSingleton
 
 // Add Compaction service
 builder.Services.AddSingleton<CompactionService>(); // 1プロセスあたり同時実行は1つだけにする
