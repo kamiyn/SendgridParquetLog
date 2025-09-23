@@ -70,8 +70,6 @@ public class CompactionService(
 
     async Task<CompactionStartResult> StartCompactionAsyncInLock(Func<RunStatus?, Task> setRunStatus, CancellationToken ct = default)
     {
-        _startupCancellation = CancellationTokenSource.CreateLinkedTokenSource(ct);
-
         var nowUTC = timeProvider.GetUtcNow();
         RunStatus? currentStatus = await GetRunStatusAsync(ct);
         if (currentStatus is { EndTime: null })
@@ -137,9 +135,10 @@ public class CompactionService(
             // Save initial status
             await runStatusContext.SaveRunStatusAsync(ct);
 
+            Task startTask = Task.Run(async () => await ExecuteCompactionAsync(runStatusContext), ct);
             _compactionStartResult = new CompactionStartResult
             {
-                StartTask = ExecuteCompactionAsync(runStatusContext, _startupCancellation.Token),
+                StartTask = startTask,
                 StartTime = nowUTC,
                 Reason = "Compaction started successfully"
             };
@@ -171,7 +170,13 @@ public class CompactionService(
                 await task;
             }
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            logger.ZLogError(ex, $"{nameof(StopCompactionAsync)}");
+        }
         finally
         {
             _startupTaskSemaphore.Release();
@@ -318,8 +323,10 @@ public class CompactionService(
         }
     }
 
-    private async Task ExecuteCompactionAsync(RunStatusContext runStatusContext, CancellationToken token)
+    private async Task ExecuteCompactionAsync(RunStatusContext runStatusContext)
     {
+        _startupCancellation = new CancellationTokenSource(); // StopCompactionAsync でキャンセルできるようにする
+        var token = _startupCancellation.Token;
         var runStatus = runStatusContext.RunStatus;
         logger.ZLogInformation($"Compaction process started at {runStatus.StartTime} with {runStatus.TargetDays.Count} target dates");
 

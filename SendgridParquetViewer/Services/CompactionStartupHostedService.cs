@@ -1,6 +1,4 @@
-﻿using System.Threading;
-
-namespace SendgridParquetViewer.Services;
+﻿namespace SendgridParquetViewer.Services;
 
 public sealed class CompactionStartupHostedService(
     CompactionService compactionService
