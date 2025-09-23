@@ -6,7 +6,7 @@ public sealed class CompactionStartupHostedService(
 {
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        await compactionService.StartCompactionAsync((_) => Task.CompletedTask, cancellationToken);
+        await compactionService.StartCompactionAsync(cancellationToken);
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)

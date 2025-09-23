@@ -34,13 +34,25 @@ public class RunStatus
     [JsonPropertyName("currentDayProcessedFiles")]
     public int? CurrentDayProcessedFiles { get; set; }
 
+    [JsonPropertyName("currentDayProcessedBytes")]
+    public long? CurrentDayProcessedBytes { get; set; }
+
+    [JsonPropertyName("lastProcessedFile")]
+    public string? LastProcessedFile { get; set; }
+
+    /// <summary>
+    /// 読み込み失敗したファイルはすべて記録する
+    /// </summary>
+    [JsonPropertyName("failedOriginalFile")]
+    public List<string> FailedOriginalFiles { get; set; } = new List<string>();
+
     public string CurrentDayProgress() => $"{CurrentDayProcessedFiles} / {CurrentDayTotalFiles}";
+
+    [JsonPropertyName("deletedOriginalFiles")]
+    public int DeletedOriginalFile { get; set; }
 
     [JsonPropertyName("outputFilesCreated")]
     public int OutputFilesCreated { get; set; }
-
-    [JsonPropertyName("failedFilesCreated")]
-    public int FailedFilesCreated { get; set; }
 
     [JsonPropertyName("lastUpdated")]
     public DateTimeOffset LastUpdated { get; set; }

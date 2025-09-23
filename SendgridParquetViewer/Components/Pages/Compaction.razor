@@ -2,6 +2,8 @@
 @rendermode InteractiveServer
 @using SendgridParquetViewer.Models
 @using SendgridParquetViewer.Services
+@using R3
+@implements IDisposable
 @inject ILogger<Compaction> Logger
 @inject CompactionService CompactionService
 
@@ -57,6 +59,11 @@
                             <text> and @(_runStatus.TargetPathPrefixes.Count - 3) more...</text>
                         }
                     </p>
+                    <details>
+                        <pre>
+                            @GetRunStatusJson()
+                        </pre>
+                    </details>
                 }
                 else if (_isLoadingStatus)
                 {
@@ -101,25 +108,37 @@
 </FluentCard>
 
 @code {
-    private RunStatus? _runStatus;
-    private bool _isLoadingStatus;
-    private bool _isStarting;
-    private string _message = string.Empty;
-    private MessageIntent _messageIntent = MessageIntent.Info;
-    readonly CancellationTokenSource _cts = new CancellationTokenSource();
+	private RunStatus? _runStatus;
+	private bool _isLoadingStatus;
+	private bool _isStarting;
+	private string _message = string.Empty;
+	private IDisposable? _runStatusSubjectSubscription;
+	private MessageIntent _messageIntent = MessageIntent.Info;
+	readonly CancellationTokenSource _cts = new CancellationTokenSource();
 
-    protected override async Task OnInitializedAsync()
-    {
-        await RefreshStatus();
-    }
+	string GetRunStatusJson() => _runStatus != null
+        ? JsonSerializer.Serialize(_runStatus, new JsonSerializerOptions { WriteIndented = true })
+        : "{}";
 
-    private async Task RefreshStatus()
-    {
-        _isLoadingStatus = true;
-        try
-        {
-            var runStatus = await CompactionService.GetRunStatusAsync();
-            await SetRunStatus(runStatus);
+	protected override async Task OnInitializedAsync()
+	{
+		await RefreshStatus();
+		_runStatusSubjectSubscription = CompactionService.RunStatusSubject
+			.ObserveOnCurrentSynchronizationContext()
+            .Subscribe(runStatus =>
+            {
+				// ObserveOnCurrentSynchronizationContext ‚ðŽg‚¦‚Î InvokeAsync() ‚É‚µ‚È‚­‚Ä‚æ‚¢
+                _runStatus = runStatus;
+                StateHasChanged();
+			});
+	}
+
+	private async Task RefreshStatus()
+	{
+		_isLoadingStatus = true;
+		try
+		{
+            _runStatus = await CompactionService.GetRunStatusAsync();
         }
         catch (Exception ex)
         {
@@ -130,14 +149,15 @@
         {
             _isLoadingStatus = false;
         }
-    }
+		StateHasChanged();
+	}
 
     private async Task StartCompaction()
     {
         _isStarting = true;
         try
         {
-            var result = await CompactionService.StartCompactionAsync(SetRunStatus, _cts.Token);
+            var result = await CompactionService.StartCompactionAsync(_cts.Token);
             if (result.StartTime != null)
             {
                 ShowMessage($"Compaction started successfully at {result.StartTime}", MessageIntent.Success);
@@ -166,12 +186,9 @@
         StateHasChanged();
     }
 
-    private async Task SetRunStatus(RunStatus? runStatus)
+    public void Dispose()
     {
-        await InvokeAsync(() =>
-        {
-            _runStatus = runStatus;
-            StateHasChanged();
-        });
+        _cts.Dispose();
+		_runStatusSubjectSubscription?.Dispose();
     }
 }
