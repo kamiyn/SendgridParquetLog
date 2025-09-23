@@ -50,6 +50,17 @@
                             }
                             <br />
                             <div><strong>Output Files Created:</strong> @_runStatus.OutputFilesCreated</div>
+                            @if (!string.IsNullOrEmpty(_runStatus.LastOutputFile))
+                            {
+                                <div><strong>Last Output File:</strong> @_runStatus.LastOutputFile</div>
+                            }
+                            @if (!string.IsNullOrEmpty(_runStatus.LastProcessedFile))
+                            {
+                                <div><strong>Last Processed File:</strong> @_runStatus.LastProcessedFile</div>
+                            }
+                            <div><strong>Deleted Original Files:</strong> @_runStatus.DeletedOriginalFile</div>
+                            <div><strong>Failed Original Files:</strong> @_runStatus.FailedOriginalFiles.Count</div>
+                            <div><strong>Failed Output Files:</strong> @_runStatus.FailedOutputFiles.Count</div>
                             <div><small>Last Updated: @_runStatus.LastUpdated.ToString("s")</small></div>
                         }
                         <strong>Target Days:</strong> @_runStatus.TargetDays.Count<br />
@@ -60,19 +71,41 @@
                         }
                     </p>
                     <details>
-                        <pre>
+						<summary>詳細 を表示</summary>
+						<pre>
                             @GetRunStatusJson()
                         </pre>
                     </details>
-                    <details>
-						@foreach (var error in _runStatus.Errors)
-                        {
-                            <pre>
-			                     @(error.Message)
-	                        </pre>
-                        }
-                    </details>
-				}
+                    @if (_runStatus.FailedOutputFiles.Count > 0 || _runStatus.FailedOriginalFiles.Count > 0)
+                    {
+                        <details>
+							<summary>Failed Files を表示</summary>
+							<summary>Failed files detail</summary>
+                            @if (_runStatus.FailedOutputFiles.Count > 0)
+                            {
+                                <div><strong>Failed Output Files (@_runStatus.FailedOutputFiles.Count):</strong></div>
+                                <pre>@string.Join(Environment.NewLine, _runStatus.FailedOutputFiles)</pre>
+                            }
+                            @if (_runStatus.FailedOriginalFiles.Count > 0)
+                            {
+                                <div><strong>Failed Original Files (@_runStatus.FailedOriginalFiles.Count):</strong></div>
+                                <pre>@string.Join(Environment.NewLine, _runStatus.FailedOriginalFiles)</pre>
+                            }
+                        </details>
+                    }
+					@if (_runStatus.Errors.Any())
+                    {
+                        <details>
+                            <summary>例外 を表示</summary>
+                            @foreach (var error in _runStatus.Errors)
+                            {
+                                <pre>
+                                 @(error.Message)
+                            </pre>
+                            }
+                        </details>
+                    }
+                }
                 else if (_isLoadingStatus)
                 {
                     <FluentProgressRing />
@@ -200,3 +233,4 @@
 		_runStatusSubjectSubscription?.Dispose();
     }
 }
+
