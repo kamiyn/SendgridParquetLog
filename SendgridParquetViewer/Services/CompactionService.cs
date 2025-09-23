@@ -135,7 +135,8 @@ public class CompactionService(
             // Save initial status
             await runStatusContext.SaveRunStatusAsync(ct);
 
-            Task startTask = Task.Run(async () => await ExecuteCompactionAsync(runStatusContext), ct);
+            _startupCancellation = new CancellationTokenSource(); // StopCompactionAsync でキャンセルできるようにする
+            Task startTask = Task.Run(async () => await ExecuteCompactionAsync(runStatusContext, _startupCancellation.Token), CancellationToken.None /* 新しい 非同期実行 Task */);
             _compactionStartResult = new CompactionStartResult
             {
                 StartTask = startTask,
@@ -161,17 +162,18 @@ public class CompactionService(
             if (_startupCancellation != null)
             {
                 await _startupCancellation.CancelAsync();
-                _startupCancellation.Dispose();
+                Task? task = _compactionStartResult?.StartTask;
+                if (task != null)
+                {
+                    await task;
+                }
             }
-
-            Task? task = _compactionStartResult?.StartTask;
-            if (task != null)
-            {
-                await task;
-            }
+            _startupCancellation?.Dispose();
+            _startupCancellation = null;
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException ex)
         {
+            logger.ZLogInformation(ex, $"{nameof(StopCompactionAsync)}");
         }
         catch (Exception ex)
         {
@@ -323,10 +325,8 @@ public class CompactionService(
         }
     }
 
-    private async Task ExecuteCompactionAsync(RunStatusContext runStatusContext)
+    private async Task ExecuteCompactionAsync(RunStatusContext runStatusContext, CancellationToken token)
     {
-        _startupCancellation = new CancellationTokenSource(); // StopCompactionAsync でキャンセルできるようにする
-        var token = _startupCancellation.Token;
         var runStatus = runStatusContext.RunStatus;
         logger.ZLogInformation($"Compaction process started at {runStatus.StartTime} with {runStatus.TargetDays.Count} target dates");
 
@@ -367,11 +367,11 @@ public class CompactionService(
         finally
         {
             await ReleaseLockAsync(runStatus.LockId, CancellationToken.None);
-        }
 
-        runStatus.EndTime = timeProvider.GetUtcNow();
-        await runStatusContext.SaveRunStatusAsync(token);
-        logger.ZLogInformation($"Compaction process completed at {runStatus.EndTime}");
+            runStatus.EndTime = timeProvider.GetUtcNow();
+            await runStatusContext.SaveRunStatusAsync(CancellationToken.None); // キャンセルされた場合でも保存するように CancellationToken.None
+            logger.ZLogInformation($"Compaction process completed at {runStatus.EndTime}");
+        }
     }
 
     private async Task ExecuteCompactionOneDayAsync(RunStatusContext runStatusContext, DateOnly targetDate, string pathPrefix, CancellationToken token)
