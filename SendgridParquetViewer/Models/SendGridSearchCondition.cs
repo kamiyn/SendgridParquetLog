@@ -6,7 +6,7 @@
 public class SendGridSearchCondition
 {
     /// <summary>
-    /// Email address filter (LIKE clause)
+    /// Email address filter (LIKE clause case-insensitive)
     /// </summary>
     public string? Email { get; init; }
 
@@ -34,7 +34,7 @@ public class SendGridSearchCondition
         {
             // Escape single quotes to prevent SQL injection
             string emailEscaped = Email.Replace("'", "''");
-            conditions.Add($"email LIKE '{emailEscaped}'");
+            conditions.Add($"email ILIKE '{emailEscaped}'"); // DuckDB uses ILIKE for case-insensitive LIKE
         }
 
         if (!string.IsNullOrWhiteSpace(Event))
