@@ -25,6 +25,11 @@ public class CompactionService(
     ParquetService parquetService
 )
 {
+    /// <summary>
+    /// 実測だと 10000 行で約 1.2 MiB 程度になる Compaction においてはメモリに余裕のあるインスタンスで実行する
+    /// </summary>
+    private const int RowGroupSize = 200_000;
+
     private CancellationTokenSource? _startupCancellation;
     private CompactionStartResult? _compactionStartResult;
     private readonly SemaphoreSlim _startupTaskSemaphore = new(1);
@@ -33,12 +38,12 @@ public class CompactionService(
 
     internal R3.Subject<RunStatus> RunStatusSubject { get; } = new();
 
-    public async Task<RunStatus?> GetRunStatusAsync(CancellationToken cancellationToken = default)
+    public async Task<RunStatus?> GetRunStatusAsync(CancellationToken ct = default)
     {
         var (runJsonPath, _) = SendGridPathUtility.GetS3CompactionRunFile();
         try
         {
-            var jsonContent = await s3StorageService.GetObjectAsByteArrayAsync(runJsonPath, cancellationToken);
+            var jsonContent = await s3StorageService.GetObjectAsByteArrayAsync(runJsonPath, ct);
             if (!jsonContent.Any())
             {
                 return null;
@@ -431,6 +436,7 @@ public class CompactionService(
                     bool convertToParquetResult = await parquetService.ConvertToParquetStreamingAsync(
                         EnumeratePackedEventsAsync(hourGroup, token),
                         outputStream,
+                        rowGroupSize: RowGroupSize,
                         token: token);
                     if (!convertToParquetResult)
                     {

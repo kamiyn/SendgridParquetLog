@@ -4,14 +4,14 @@ public sealed class CompactionStartupHostedService(
     CompactionService compactionService
 ) : IHostedService, IAsyncDisposable
 {
-    public async Task StartAsync(CancellationToken cancellationToken)
+    public async Task StartAsync(CancellationToken ct)
     {
-        await compactionService.StartCompactionAsync(cancellationToken);
+        await compactionService.StartCompactionAsync(ct);
     }
 
-    public async Task StopAsync(CancellationToken cancellationToken)
+    public async Task StopAsync(CancellationToken ct)
     {
-        await compactionService.StopCompactionAsync(cancellationToken);
+        await compactionService.StopCompactionAsync(ct);
     }
 
     public async ValueTask DisposeAsync()

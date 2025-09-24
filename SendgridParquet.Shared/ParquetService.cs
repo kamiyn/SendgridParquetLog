@@ -13,6 +13,9 @@ namespace SendgridParquet.Shared;
 
 public class ParquetService
 {
+    /// <summary>
+    /// 実測だと 10000 行で約 1.2 MiB 程度になるため AWS Lambda のペイロード制限 6 MiB を考慮して余裕を持たせた値にする
+    /// </summary>
     private const int DefaultRowGroupSize = 10_000;
 
     // Paired field definition and processing function
@@ -121,49 +124,28 @@ public class ParquetService
         ];
     }
 
-    public async Task<bool> ConvertToParquetAsync(IReadOnlyCollection<SendGridEvent> events, Stream stream)
-    {
-        if (!events.Any())
-        {
-            return false;
-        }
-        // Extract fields from FieldProcessors
-        Field[] fields = FieldProcessors.Select(fp => fp.Field).ToArray<Field>();
-        await using var writer = await ParquetWriter.CreateAsync(new ParquetSchema(fields), stream);
-        using var groupWriter = writer.CreateRowGroup();
-        foreach (var processor in FieldProcessors)
-        {
-            var dataColumn = processor.ProcessorFunc(events);
-            await groupWriter.WriteColumnAsync(dataColumn);
-        }
-        return true;
-    }
-
     public async Task<bool> ConvertToParquetStreamingAsync(
         IAsyncEnumerable<SendGridEvent> events,
         Stream stream,
         int rowGroupSize = DefaultRowGroupSize,
         CancellationToken token = default)
     {
-        ArgumentNullException.ThrowIfNull(events);
-        ArgumentNullException.ThrowIfNull(stream);
-
         if (rowGroupSize <= 0)
         {
             throw new ArgumentOutOfRangeException(nameof(rowGroupSize));
         }
 
         Field[] fields = FieldProcessors.Select(fp => fp.Field).ToArray<Field>();
-        await using var writer = await ParquetWriter.CreateAsync(new ParquetSchema(fields), stream, cancellationToken: token);
+        await using ParquetWriter writer = await ParquetWriter.CreateAsync(new ParquetSchema(fields), stream, cancellationToken: token);
         IColumnBuffer[] buffers = FieldProcessors
             .Select(fp => fp.BufferFactory(rowGroupSize))
             .ToArray();
 
         bool hasData = false;
-        await foreach (var sendGridEvent in events.WithCancellation(token))
+        await foreach (SendGridEvent sendGridEvent in events.WithCancellation(token))
         {
             hasData = true;
-            foreach (var buffer in buffers)
+            foreach (IColumnBuffer buffer in buffers)
             {
                 buffer.Append(sendGridEvent);
             }
@@ -187,28 +169,38 @@ public class ParquetService
         return true;
     }
 
+    public async Task<bool> ConvertToParquetAsync(IReadOnlyCollection<SendGridEvent> events, Stream stream)
+    {
+        if (!events.Any())
+        {
+            return false;
+        }
+        // Extract fields from FieldProcessors
+        Field[] fields = FieldProcessors.Select(fp => fp.Field).ToArray<Field>();
+        await using var writer = await ParquetWriter.CreateAsync(new ParquetSchema(fields), stream);
+        using var groupWriter = writer.CreateRowGroup();
+        foreach (var processor in FieldProcessors)
+        {
+            var dataColumn = processor.ProcessorFunc(events);
+            await groupWriter.WriteColumnAsync(dataColumn);
+        }
+        return true;
+    }
+
     private static async Task WriteRowGroupAsync(ParquetWriter writer, IColumnBuffer[] buffers)
     {
-        if (buffers.Length == 0)
+        if (buffers.Any(columnBuffer => columnBuffer.Count > 0))
         {
-            return;
-        }
-
-        int rowCount = buffers[0].Count;
-        if (rowCount == 0)
-        {
-            return;
-        }
-
-        // CreateRowGroup() メソッドに行数を指定する引数はありません。
-        // 行グループの行数 (rowCount) は、WriteColumn() で書き込む配列の要素数で決まります
-        // 複数の行グループを作成したい場合は、CreateRowGroup() の呼び出しとデータ書き込みの処理をループで繰り返します。
-        using ParquetRowGroupWriter groupWriter = writer.CreateRowGroup();
-        foreach (var buffer in buffers)
-        {
-            var column = buffer.BuildDataColumn();
-            await groupWriter.WriteColumnAsync(column);
-            buffer.Clear();
+            // CreateRowGroup() メソッドに行数を指定する引数はありません。
+            // 行グループの行数 (rowCount) は、WriteColumn() で書き込む配列の要素数で決まります
+            // 複数の行グループを作成したい場合は、CreateRowGroup() の呼び出しとデータ書き込みの処理をループで繰り返します。
+            using ParquetRowGroupWriter groupWriter = writer.CreateRowGroup();
+            foreach (IColumnBuffer buffer in buffers)
+            {
+                DataColumn column = buffer.BuildDataColumn();
+                await groupWriter.WriteColumnAsync(column);
+                buffer.Clear();
+            }
         }
     }
 
