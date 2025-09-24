@@ -119,7 +119,7 @@ public class WebhookHelper(
     {
         var results = new List<HttpStatusCode>(2);
         foreach (var grp in events
-                     .Select(sendgridEvent => (sendgridEvent, timestamp: JstExtension.JstUnixTimeSeconds(sendgridEvent.Timestamp)))
+                     .Select(sendgridEvent => (sendgridEvent, timestamp: JstExtension.FromUnixTimeSecondsJst(sendgridEvent.Timestamp)))
                      .GroupBy(pair => new DateOnly(pair.timestamp.Year, pair.timestamp.Month, pair.timestamp.Day), pair => pair.sendgridEvent))
         {
             DateOnly targetDay = grp.Key;

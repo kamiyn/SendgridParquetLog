@@ -14,8 +14,10 @@ public sealed class CompactionStartupHostedService(
         await compactionService.StopCompactionAsync(ct);
     }
 
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
     {
-        await compactionService.StopCompactionAsync(CancellationToken.None);
+        // Dispose is called after StopAsync, so no need to call StopCompactionAsync here.
+        // await compactionService.StopCompactionAsync(CancellationToken.None);
+        return ValueTask.CompletedTask;
     }
 }
