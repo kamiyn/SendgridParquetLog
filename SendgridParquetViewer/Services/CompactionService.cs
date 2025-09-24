@@ -26,7 +26,7 @@ public class CompactionService(
 )
 {
     /// <summary>
-    /// 実測だと 10000 行で約 1.2 MiB 程度になる Compaction においてはメモリに余裕のあるインスタンスで実行する
+    /// 200,000 行で約 24 MiB 程度になる（10000 行で約 1.2 MiB）。Compaction においてはメモリに余裕のあるインスタンスで実行する
     /// </summary>
     private const int RowGroupSize = 200_000;
 
