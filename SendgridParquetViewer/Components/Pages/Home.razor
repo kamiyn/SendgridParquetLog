@@ -142,7 +142,7 @@ else if (_hasSearched)
                     <div><strong>Event:</strong> @_selectedEvent.Event</div>
                     @if (_selectedEvent.SendAt.HasValue)
                     {
-                        <div><strong>Send At:</strong> @FromUnixTimeSecondsJst(_selectedEvent.SendAt.Value).ToString("yyyy-MM-dd HH:mm:ss"))</div>
+                        <div><strong>Send At:</strong> @FromUnixTimeSecondsJst(_selectedEvent.SendAt.Value).ToString("yyyy-MM-dd HH:mm:ss")</div>
                     }
                     @if (!string.IsNullOrEmpty(_selectedEvent.Category))
                     {
