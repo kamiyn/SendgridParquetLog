@@ -416,7 +416,7 @@ public class CompactionService(
                      .OrderBy(grp => grp.Key))
         {
             var firstItem = hourGroup.First();
-            DateTimeOffset dt = DateTimeOffset.FromUnixTimeSeconds(firstItem.KeyUnixTimeSeconds);
+            DateTimeOffset dt = JstExtension.FromUnixTimeSecondsJst(firstItem.KeyUnixTimeSeconds);
             var dateOnly = new DateOnly(dt.Year, dt.Month, dt.Day);
             string outputFileName = string.Empty;
             try
@@ -590,7 +590,7 @@ public class CompactionService(
             {
                 SendGridEvent[] eventsByHour = hourGroup.ToArray(); // シリアライズする前に 配列にする
 
-                DateTimeOffset hourGroupKey = JstExtension.JstUnixTimeSeconds(hourGroup.Key * 3600);
+                DateTimeOffset hourGroupKey = JstExtension.FromUnixTimeSecondsJst(hourGroup.Key * 3600);
                 string targetFolder = Path.Combine(dailyTargetFolder.FullName, $"{hourGroupKey:yyyyMMddHH}");
                 if (createdHourlyFolders.TryAdd(targetFolder, hourGroupKey))
                 {

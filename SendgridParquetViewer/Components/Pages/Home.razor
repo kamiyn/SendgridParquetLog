@@ -106,7 +106,7 @@ else if (_sendGridEvents.Any())
             <TemplateColumn Title="詳細" Style="width: 40px;">
                 <FluentButton Appearance="Appearance.Lightweight" @onclick="() => ShowEventDetails(context)">表示</FluentButton>
             </TemplateColumn>
-            <PropertyColumn Property="@(e => ToJst(e.Timestamp))" Title="タイムスタンプ" Format="yyyy-MM-dd HH:mm:ss JST" Sortable="true" Style="width: 200px;" />
+            <PropertyColumn Property="@(e => FromUnixTimeSecondsJst(e.Timestamp))" Title="タイムスタンプ" Format="yyyy-MM-dd HH:mm:ss JST" Sortable="true" Style="width: 200px;" />
             <PropertyColumn Property="@(e => e.Email)" Title="メールアドレス" Sortable="true" Style="width: 250px;" />
             <PropertyColumn Property="@(e => e.Event)" Title="イベント" Sortable="true" />
             <PropertyColumn Property="@(e => e.Category)" Title="カテゴリ" Sortable="true" />
@@ -138,11 +138,11 @@ else if (_hasSearched)
             <div style="max-height: 500px; overflow-y: auto;">
                 <FluentStack Orientation="Orientation.Vertical" Style="gap: 10px;">
                     <div><strong>Email:</strong> @_selectedEvent.Email</div>
-                    <div><strong>Timestamp:</strong> @ToJst(_selectedEvent.Timestamp).ToString("yyyy-MM-dd HH:mm:ss")</div>
+                    <div><strong>Timestamp:</strong> @FromUnixTimeSecondsJst(_selectedEvent.Timestamp).ToString("yyyy-MM-dd HH:mm:ss")</div>
                     <div><strong>Event:</strong> @_selectedEvent.Event</div>
                     @if (_selectedEvent.SendAt.HasValue)
                     {
-                        <div><strong>Send At:</strong> @ToJst(_selectedEvent.SendAt.Value).ToString("yyyy-MM-dd HH:mm:ss"))</div>
+                        <div><strong>Send At:</strong> @FromUnixTimeSecondsJst(_selectedEvent.SendAt.Value).ToString("yyyy-MM-dd HH:mm:ss"))</div>
                     }
                     @if (!string.IsNullOrEmpty(_selectedEvent.Category))
                     {
@@ -400,5 +400,5 @@ else if (_hasSearched)
         StateHasChanged();
     }
 
-    DateTimeOffset ToJst(long u) => JstExtension.JstUnixTimeSeconds(u);
+    DateTimeOffset FromUnixTimeSecondsJst(long u) => JstExtension.FromUnixTimeSecondsJst(u);
 }
