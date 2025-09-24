@@ -25,6 +25,11 @@ public class CompactionService(
     ParquetService parquetService
 )
 {
+    /// <summary>
+    /// 200,000 行で約 24 MiB 程度になる（10000 行で約 1.2 MiB）。Compaction においてはメモリに余裕のあるインスタンスで実行する
+    /// </summary>
+    private const int RowGroupSize = 200_000;
+
     private CancellationTokenSource? _startupCancellation;
     private CompactionStartResult? _compactionStartResult;
     private readonly SemaphoreSlim _startupTaskSemaphore = new(1);
@@ -33,12 +38,12 @@ public class CompactionService(
 
     internal R3.Subject<RunStatus> RunStatusSubject { get; } = new();
 
-    public async Task<RunStatus?> GetRunStatusAsync(CancellationToken cancellationToken = default)
+    public async Task<RunStatus?> GetRunStatusAsync(CancellationToken ct = default)
     {
         var (runJsonPath, _) = SendGridPathUtility.GetS3CompactionRunFile();
         try
         {
-            var jsonContent = await s3StorageService.GetObjectAsByteArrayAsync(runJsonPath, cancellationToken);
+            var jsonContent = await s3StorageService.GetObjectAsByteArrayAsync(runJsonPath, ct);
             if (!jsonContent.Any())
             {
                 return null;
@@ -416,29 +421,23 @@ public class CompactionService(
             string outputFileName = string.Empty;
             try
             {
-                logger.ZLogInformation($"Creating compacted file for hour {dt.Hour} with {hourGroup.Sum(x => x.Count)} events");
-
-                List<SendGridEvent> hourEvents = new();
-                foreach (var packedFile in hourGroup)
-                {
-                    string fullName = packedFile.FileInfo.FullName;
-                    await using var fs = new FileStream(fullName, FileMode.Open, FileAccess.Read, FileShare.Read, DisposableTempFile.BufferSize, useAsync: true);
-                    // 直前で作成したファイルの Deserialize であるので null を無視してよい
-                    SendGridEvent[] events = await MemoryPackSerializer.DeserializeAsync<SendGridEvent[]>(fs, cancellationToken: token) ?? [];
-                    hourEvents.AddRange(events);
-                }
-
-                if (!hourEvents.Any())
+                int hourEventCount = hourGroup.Sum(x => x.Count);
+                if (hourEventCount == 0)
                 {
                     logger.ZLogWarning($"No events found for this hour group (hour {dt.Hour})");
                     continue;
                 }
-                logger.ZLogInformation($"Creating compacted file for hour {dt.Hour} with {hourEvents.Count()} events");
+
+                logger.ZLogInformation($"Creating compacted file for hour {dt.Hour} with {hourEventCount} events");
 
                 FileStream outputStream = DisposableTempFile.Open(nameof(CreateCompactedParquetAsync));
                 try
                 {
-                    bool convertToParquetResult = await parquetService.ConvertToParquetAsync(hourEvents, outputStream);
+                    bool convertToParquetResult = await parquetService.ConvertToParquetStreamingAsync(
+                        EnumeratePackedEventsAsync(hourGroup, token),
+                        outputStream,
+                        rowGroupSize: RowGroupSize,
+                        token: token);
                     if (!convertToParquetResult)
                     {
                         logger.ZLogWarning($"Failed to create parquet data for hour {dt.Hour}");
@@ -465,6 +464,24 @@ public class CompactionService(
             }
         }
         return outputFiles;
+    }
+
+    private static async IAsyncEnumerable<SendGridEvent> EnumeratePackedEventsAsync(
+        IEnumerable<FetchReadParquetFilesResult.PackedItem> packedItems,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken token)
+    {
+        foreach (var packedFile in packedItems)
+        {
+            token.ThrowIfCancellationRequested();
+            string fullName = packedFile.FileInfo.FullName;
+            await using var fs = new FileStream(fullName, FileMode.Open, FileAccess.Read, FileShare.Read, DisposableTempFile.BufferSize, useAsync: true);
+            SendGridEvent[] events = await MemoryPackSerializer.DeserializeAsync<SendGridEvent[]>(fs, cancellationToken: token) ?? [];
+            foreach (var sendGridEvent in events)
+            {
+                token.ThrowIfCancellationRequested();
+                yield return sendGridEvent;
+            }
+        }
     }
 
     /// <summary>

@@ -13,10 +13,56 @@ namespace SendgridParquet.Shared;
 
 public class ParquetService
 {
+    /// <summary>
+    /// 実測だと 10000 行で約 1.2 MiB 程度になるため AWS Lambda のペイロード制限 6 MiB を考慮して余裕を持たせた値にする
+    /// </summary>
+    private const int DefaultRowGroupSize = 10_000;
+
     // Paired field definition and processing function
-    private record FieldProcessor(DataField Field, Func<IEnumerable<SendGridEvent>, DataColumn> ProcessorFunc);
+    private record FieldProcessor(
+        DataField Field,
+        Func<IEnumerable<SendGridEvent>, DataColumn> ProcessorFunc,
+        Func<int, IColumnBuffer> BufferFactory);
+
+    private interface IColumnBuffer
+    {
+        int Count { get; }
+
+        void Append(SendGridEvent item);
+
+        DataColumn BuildDataColumn();
+
+        void Clear();
+    }
+
+    private sealed class ColumnBuffer<T> : IColumnBuffer
+    {
+        private readonly DataField _field;
+        private readonly Func<SendGridEvent, T> _selector;
+        private readonly List<T> _values;
+
+        internal ColumnBuffer(DataField field, int capacity, Func<SendGridEvent, T> selector)
+        {
+            _field = field;
+            _selector = selector;
+            _values = new List<T>(capacity);
+        }
+
+        public int Count => _values.Count;
+
+        public void Append(SendGridEvent item) => _values.Add(_selector(item));
+
+        public DataColumn BuildDataColumn() => new(_field, _values.ToArray());
+
+        public void Clear() => _values.Clear();
+    }
 
     private static readonly FieldProcessor[] FieldProcessors = CreateFieldProcessors();
+
+    private static FieldProcessor CreateFieldProcessor<T>(DataField field, Func<SendGridEvent, T> selector)
+        => new(field,
+            events => new DataColumn(field, events.Select(selector).ToArray()),
+            capacity => new ColumnBuffer<T>(field, capacity, selector));
 
     private static FieldProcessor[] CreateFieldProcessors()
     {
@@ -49,106 +95,78 @@ public class ParquetService
 
         return
         [
-            new FieldProcessor(emailField,
-                events => new DataColumn(emailField,
-                    events.Select(e => e.Email ?? string.Empty).ToArray())),
-
-            new FieldProcessor(timestampField,
-                events => new DataColumn(timestampField,
-                    events.Select(e => e.Timestamp).ToArray())),
-
-            new FieldProcessor(eventField,
-                events => new DataColumn(eventField,
-                    events.Select(e => e.Event ?? string.Empty).ToArray())),
-
-            new FieldProcessor(categoryField,
-                events => new DataColumn(categoryField,
-                    events.Select(e => e.Category ?? string.Empty).ToArray())),
-
-            new FieldProcessor(sgEventIdField,
-                events => new DataColumn(sgEventIdField,
-                    events.Select(e => e.SgEventId ?? string.Empty).ToArray())),
-
-            new FieldProcessor(sgMessageIdField,
-                events => new DataColumn(sgMessageIdField,
-                    events.Select(e => e.SgMessageId ?? string.Empty).ToArray())),
-
-            new FieldProcessor(sgTemplateIdField,
-                events => new DataColumn(sgTemplateIdField,
-                    events.Select(e => e.SgTemplateId ?? string.Empty).ToArray())),
-
-            new FieldProcessor(smtpIdField,
-                events => new DataColumn(smtpIdField,
-                    events.Select(e => e.SmtpId ?? string.Empty).ToArray())),
-
-            new FieldProcessor(userAgentField,
-                events => new DataColumn(userAgentField,
-                    events.Select(e => e.UserAgent ?? string.Empty).ToArray())),
-
-            new FieldProcessor(ipField,
-                events => new DataColumn(ipField,
-                    events.Select(e => e.Ip ?? string.Empty).ToArray())),
-
-            new FieldProcessor(urlField,
-                events => new DataColumn(urlField,
-                    events.Select(e => e.Url ?? string.Empty).ToArray())),
-
-            new FieldProcessor(reasonField,
-                events => new DataColumn(reasonField,
-                    events.Select(e => e.Reason ?? string.Empty).ToArray())),
-
-            new FieldProcessor(statusField,
-                events => new DataColumn(statusField,
-                    events.Select(e => e.Status ?? string.Empty).ToArray())),
-
-            new FieldProcessor(responseField,
-                events => new DataColumn(responseField,
-                    events.Select(e => e.Response ?? string.Empty).ToArray())),
-
-            new FieldProcessor(tlsField,
-                events => new DataColumn(tlsField,
-                    events.Select(e => e.Tls).ToArray())),
-
-            new FieldProcessor(attemptField,
-                events => new DataColumn(attemptField,
-                    events.Select(e => e.Attempt ?? string.Empty).ToArray())),
-
-            new FieldProcessor(typeField,
-                events => new DataColumn(typeField,
-                    events.Select(e => e.Type ?? string.Empty).ToArray())),
-
-            new FieldProcessor(bounceClassificationField,
-                events => new DataColumn(bounceClassificationField,
-                    events.Select(e => e.BounceClassification ?? string.Empty).ToArray())),
-
-            new FieldProcessor(asmGroupIdField,
-                events => new DataColumn(asmGroupIdField,
-                    events.Select(e => e.AsmGroupId).ToArray())),
-
-            //new FieldProcessor(uniqueArgsField,
-            //    events => new DataColumn(uniqueArgsField,
-            //        events.Select(e => e.UniqueArgs.HasValue ? e.UniqueArgs.Value.GetRawText() : string.Empty).ToArray())),
-
-            new FieldProcessor(marketingCampaignIdField,
-                events => new DataColumn(marketingCampaignIdField,
-                    events.Select(e => e.MarketingCampaignId).ToArray())),
-
-            new FieldProcessor(marketingCampaignNameField,
-                events => new DataColumn(marketingCampaignNameField,
-                    events.Select(e => e.MarketingCampaignName ?? string.Empty).ToArray())),
-
-            new FieldProcessor(poolNameField,
-                events => new DataColumn(poolNameField,
-                    events.Select(e => e.Pool?.Name ?? string.Empty).ToArray())),
-
-            new FieldProcessor(poolIdField,
-                events => new DataColumn(poolIdField,
-                    events.Select(e => e.Pool?.Id).ToArray())),
-
-            new FieldProcessor(sendAtField,
-                events => new DataColumn(sendAtField,
-                    events.Select(e => e.SendAt).ToArray()))
+            CreateFieldProcessor(emailField, e => e.Email ?? string.Empty),
+            CreateFieldProcessor(timestampField, e => e.Timestamp),
+            CreateFieldProcessor(eventField, e => e.Event ?? string.Empty),
+            CreateFieldProcessor(categoryField, e => e.Category ?? string.Empty),
+            CreateFieldProcessor(sgEventIdField, e => e.SgEventId ?? string.Empty),
+            CreateFieldProcessor(sgMessageIdField, e => e.SgMessageId ?? string.Empty),
+            CreateFieldProcessor(sgTemplateIdField, e => e.SgTemplateId ?? string.Empty),
+            CreateFieldProcessor(smtpIdField, e => e.SmtpId ?? string.Empty),
+            CreateFieldProcessor(userAgentField, e => e.UserAgent ?? string.Empty),
+            CreateFieldProcessor(ipField, e => e.Ip ?? string.Empty),
+            CreateFieldProcessor(urlField, e => e.Url ?? string.Empty),
+            CreateFieldProcessor(reasonField, e => e.Reason ?? string.Empty),
+            CreateFieldProcessor(statusField, e => e.Status ?? string.Empty),
+            CreateFieldProcessor(responseField, e => e.Response ?? string.Empty),
+            CreateFieldProcessor(tlsField, e => e.Tls),
+            CreateFieldProcessor(attemptField, e => e.Attempt ?? string.Empty),
+            CreateFieldProcessor(typeField, e => e.Type ?? string.Empty),
+            CreateFieldProcessor(bounceClassificationField, e => e.BounceClassification ?? string.Empty),
+            CreateFieldProcessor(asmGroupIdField, e => e.AsmGroupId),
+            //CreateFieldProcessor(uniqueArgsField,
+            //    e => e.UniqueArgs.HasValue ? e.UniqueArgs.Value.GetRawText() : string.Empty),
+            CreateFieldProcessor(marketingCampaignIdField, e => e.MarketingCampaignId),
+            CreateFieldProcessor(marketingCampaignNameField, e => e.MarketingCampaignName ?? string.Empty),
+            CreateFieldProcessor(poolNameField, e => e.Pool?.Name ?? string.Empty),
+            CreateFieldProcessor(poolIdField, e => e.Pool?.Id),
+            CreateFieldProcessor(sendAtField, e => e.SendAt)
         ];
+    }
+
+    public async Task<bool> ConvertToParquetStreamingAsync(
+        IAsyncEnumerable<SendGridEvent> events,
+        Stream stream,
+        int rowGroupSize = DefaultRowGroupSize,
+        CancellationToken token = default)
+    {
+        if (rowGroupSize <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(rowGroupSize));
+        }
+
+        Field[] fields = FieldProcessors.Select(fp => fp.Field).ToArray<Field>();
+        await using ParquetWriter writer = await ParquetWriter.CreateAsync(new ParquetSchema(fields), stream, cancellationToken: token);
+        IColumnBuffer[] buffers = FieldProcessors
+            .Select(fp => fp.BufferFactory(rowGroupSize))
+            .ToArray();
+
+        bool hasData = false;
+        await foreach (SendGridEvent sendGridEvent in events.WithCancellation(token))
+        {
+            hasData = true;
+            foreach (IColumnBuffer buffer in buffers)
+            {
+                buffer.Append(sendGridEvent);
+            }
+
+            if (buffers[0].Count >= rowGroupSize)
+            {
+                await WriteRowGroupAsync(writer, buffers);
+            }
+        }
+
+        if (!hasData)
+        {
+            return false;
+        }
+
+        if (buffers[0].Count > 0)
+        {
+            await WriteRowGroupAsync(writer, buffers);
+        }
+
+        return true;
     }
 
     public async Task<bool> ConvertToParquetAsync(IReadOnlyCollection<SendGridEvent> events, Stream stream)
@@ -167,6 +185,23 @@ public class ParquetService
             await groupWriter.WriteColumnAsync(dataColumn);
         }
         return true;
+    }
+
+    private static async Task WriteRowGroupAsync(ParquetWriter writer, IColumnBuffer[] buffers)
+    {
+        if (buffers.Any(columnBuffer => columnBuffer.Count > 0))
+        {
+            // CreateRowGroup() メソッドに行数を指定する引数はありません。
+            // 行グループの行数 (rowCount) は、WriteColumn() で書き込む配列の要素数で決まります
+            // 複数の行グループを作成したい場合は、CreateRowGroup() の呼び出しとデータ書き込みの処理をループで繰り返します。
+            using ParquetRowGroupWriter groupWriter = writer.CreateRowGroup();
+            foreach (IColumnBuffer buffer in buffers)
+            {
+                DataColumn column = buffer.BuildDataColumn();
+                await groupWriter.WriteColumnAsync(column);
+                buffer.Clear();
+            }
+        }
     }
 
     public async IAsyncEnumerable<SendGridEvent> ReadRowGroupEventsAsync(

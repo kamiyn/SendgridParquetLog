@@ -10,9 +10,9 @@ namespace SendgridParquetViewer.Services;
 
 public interface IS3LockService
 {
-    Task<bool> TryAcquireLockAsync(string lockId, CancellationToken cancellationToken);
-    Task ExtendLockExpirationAsync(string lockId, CancellationToken cancellationToken);
-    Task ReleaseLockAsync(string lockId, CancellationToken cancellationToken);
+    Task<bool> TryAcquireLockAsync(string lockId, CancellationToken ct);
+    Task ExtendLockExpirationAsync(string lockId, CancellationToken ct);
+    Task ReleaseLockAsync(string lockId, CancellationToken ct);
 }
 
 public class S3LockService(
@@ -23,13 +23,13 @@ public class S3LockService(
     private static readonly TimeSpan LockDuration = TimeSpan.FromMinutes(30);
     private static readonly string InstanceId = $"{Environment.MachineName}_{Guid.NewGuid():N}";
 
-    public async Task<bool> TryAcquireLockAsync(string lockId, CancellationToken cancellationToken)
+    public async Task<bool> TryAcquireLockAsync(string lockId, CancellationToken ct)
     {
         var (_, lockPath) = SendGridPathUtility.GetS3CompactionRunFile();
         var now = timeProvider.GetUtcNow();
 
         // Try to get existing lock
-        var existingLockJson = await s3StorageService.GetObjectAsByteArrayAsync(lockPath, cancellationToken);
+        var existingLockJson = await s3StorageService.GetObjectAsByteArrayAsync(lockPath, ct);
         if (existingLockJson.Any())
         {
             var existingLock = JsonSerializer.Deserialize<LockInfo>(existingLockJson, AppJsonSerializerContext.Default.LockInfo);
@@ -54,7 +54,7 @@ public class S3LockService(
 
         // Use conditional put with ETag to ensure atomic operation
         var success = await s3StorageService.PutObjectWithConditionAsync(
-            lockPath, lockJson, existingLockJson, cancellationToken);
+            lockPath, lockJson, existingLockJson, ct);
 
         if (success)
         {
@@ -64,7 +64,7 @@ public class S3LockService(
         return success;
     }
 
-    public async Task ExtendLockExpirationAsync(string lockId, CancellationToken cancellationToken)
+    public async Task ExtendLockExpirationAsync(string lockId, CancellationToken ct)
     {
         if (string.IsNullOrEmpty(lockId))
         {
@@ -72,7 +72,7 @@ public class S3LockService(
         }
 
         var (_, lockPath) = SendGridPathUtility.GetS3CompactionRunFile();
-        byte[] existingLockJson = await s3StorageService.GetObjectAsByteArrayAsync(lockPath, cancellationToken);
+        byte[] existingLockJson = await s3StorageService.GetObjectAsByteArrayAsync(lockPath, ct);
 
         if (!existingLockJson.Any())
         {
@@ -108,7 +108,7 @@ public class S3LockService(
         var now = timeProvider.GetUtcNow();
         existingLock.ExpiresAt = now.Add(LockDuration);
         byte[] updatedLockJson = JsonSerializer.SerializeToUtf8Bytes(existingLock, AppJsonSerializerContext.Default.LockInfo);
-        bool updated = await s3StorageService.PutObjectWithConditionAsync(lockPath, updatedLockJson, existingLockJson, cancellationToken);
+        bool updated = await s3StorageService.PutObjectWithConditionAsync(lockPath, updatedLockJson, existingLockJson, ct);
 
         if (updated)
         {
@@ -120,17 +120,17 @@ public class S3LockService(
         }
     }
 
-    public async Task ReleaseLockAsync(string lockId, CancellationToken cancellationToken)
+    public async Task ReleaseLockAsync(string lockId, CancellationToken ct)
     {
         var (_, lockPath) = SendGridPathUtility.GetS3CompactionRunFile();
-        var existingLockJson = await s3StorageService.GetObjectAsByteArrayAsync(lockPath, cancellationToken);
+        var existingLockJson = await s3StorageService.GetObjectAsByteArrayAsync(lockPath, ct);
 
         if (existingLockJson.Any())
         {
             var existingLock = JsonSerializer.Deserialize<LockInfo>(existingLockJson, AppJsonSerializerContext.Default.LockInfo);
             if (existingLock?.LockId == lockId)
             {
-                await s3StorageService.DeleteObjectAsync(lockPath, cancellationToken);
+                await s3StorageService.DeleteObjectAsync(lockPath, ct);
                 logger.ZLogInformation($"Lock released successfully. Lock ID: {lockId} lockPath:{lockPath}");
             }
         }

@@ -135,7 +135,7 @@ public class WebhookHelper(
         CancellationToken ct)
     {
         var events = eventsEnumerable.ToArray();
-        await using var parquetData = new MemoryStream();
+        await using var parquetData = new MemoryStream(); // WebHook は 最大 768KB でしか来ないのでメモリ上に展開する
         bool convertResult = await parquetService.ConvertToParquetAsync(events, parquetData);
         if (!convertResult)
         {
