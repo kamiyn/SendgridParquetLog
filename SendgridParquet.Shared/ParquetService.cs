@@ -200,7 +200,10 @@ public class ParquetService
             return;
         }
 
-        using ParquetRowGroupWriter groupWriter = writer.CreateRowGroup(rowCount);
+        // CreateRowGroup() メソッドに行数を指定する引数はありません。
+        // 行グループの行数 (rowCount) は、WriteColumn() で書き込む配列の要素数で決まります
+        // 複数の行グループを作成したい場合は、CreateRowGroup() の呼び出しとデータ書き込みの処理をループで繰り返します。
+        using ParquetRowGroupWriter groupWriter = writer.CreateRowGroup();
         foreach (var buffer in buffers)
         {
             var column = buffer.BuildDataColumn();
