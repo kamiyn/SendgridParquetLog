@@ -18,9 +18,9 @@ public sealed class CompactionStartupHostedService(
             {
                 await Run(stoppingToken);
             }
-        }, stoppingToken).ContinueWith(async _ =>
+        }, stoppingToken).ContinueWith(_ =>
         {
-            await compactionService.StopCompactionAsync(CancellationToken.None);
+            return compactionService.StopCompactionAsync(CancellationToken.None);
         }, CancellationToken.None);
 
     private async Task Run(CancellationToken ct)
