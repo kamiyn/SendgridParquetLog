@@ -144,7 +144,7 @@ jobs:
           APPRUN_MIN_SCALE: "1"
           APPRUN_MAX_SCALE: "1"
           APPRUN_MAX_CPU: "0.2"
-          APPRUN_MAX_MEMORY: "2Gi" # 256Mi/512Mi/1Gi/2Gi Compaction で内部に保持する最大容量に合わせる
+          APPRUN_MAX_MEMORY: "1Gi" # 256Mi/512Mi/1Gi/2Gi Compaction で内部に保持する最大容量に合わせる
         run: |
           echo "Deploying image: ${DOCKER_FULL_IMAGE_URL_VIEWER}"
           bash ./Deploy/SakuraCloud.sh \
