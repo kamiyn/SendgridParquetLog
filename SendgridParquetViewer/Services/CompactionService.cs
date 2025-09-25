@@ -80,6 +80,12 @@ public class CompactionService(
         await _startupTaskSemaphore.WaitAsync(ct);
         try
         {
+            var isCompleted = _compactionStartResult?.StartTask?.IsCompleted;
+            if (_compactionStartResult != null && isCompleted != true)
+            {
+                return _compactionStartResult;
+            }
+            // 開始の指示に対しては Faulted, Cancelled でも再開する
             return await StartCompactionAsyncInLock(ct);
         }
         finally
@@ -178,6 +184,7 @@ public class CompactionService(
                 {
                     await task;
                 }
+                _compactionStartResult = null; // 前回開始時間を UI でフィードバックする場合は Start 時点の返り値を受け取った側が管理する
             }
             _startupCancellation?.Dispose();
             _startupCancellation = null;

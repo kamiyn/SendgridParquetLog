@@ -1,38 +1,45 @@
-﻿using System.Diagnostics;
-
-using SendgridParquetViewer.Models;
+﻿using ZLogger;
 
 namespace SendgridParquetViewer.Services;
 
 public sealed class CompactionStartupHostedService(
+    ILogger<CompactionStartupHostedService> logger,
     CompactionService compactionService
 ) : IHostedService, IAsyncDisposable
 {
     private readonly TimeSpan _periodicSpan = TimeSpan.FromDays(1);
     private CancellationTokenSource? _cts;
-    private CompactionStartResult? _compactionStartResult;
+    private Task? _loopTask;
+
+    private async Task Run(CancellationToken ct)
+    {
+        logger.ZLogInformation($"CompactionStartupHostedService Run");
+        try
+        {
+            var compactionStartResult = await compactionService.StartCompactionAsync(ct);
+            if (compactionStartResult?.StartTask != null)
+            {
+                await compactionStartResult.StartTask;
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            logger.ZLogError(ex, $"CompactionStartupHostedService");
+        }
+    }
 
     public Task StartAsync(CancellationToken ct)
     {
         _cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        _ = Task.Run(async () =>
+        _ = Run(_cts.Token);
+        _loopTask = Task.Run(async () =>
         {
-            Stopwatch stopwatch = new();
-            do
+            using var timer = new PeriodicTimer(_periodicSpan);
+            while (await timer.WaitForNextTickAsync(_cts.Token))
             {
-                stopwatch.Restart();
-                _compactionStartResult = await compactionService.StartCompactionAsync(ct);
-                if (_compactionStartResult?.StartTask != null)
-                {
-                    await _compactionStartResult.StartTask;
-                }
-
-                TimeSpan elapsed = stopwatch.Elapsed;
-                if (elapsed < _periodicSpan)
-                {
-                    await Task.Delay(elapsed - _periodicSpan, _cts.Token);
-                }
-            } while (!_cts.IsCancellationRequested);
+                await Run(_cts.Token);
+            }
         }, _cts.Token);
         return Task.CompletedTask;
     }
@@ -44,12 +51,29 @@ public sealed class CompactionStartupHostedService(
             await _cts.CancelAsync();
         }
         await compactionService.StopCompactionAsync(ct);
+        if (_loopTask != null)
+        {
+            try
+            {
+                await _loopTask;
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                logger.ZLogError(ex, $"StopAsync");
+            }
+        }
     }
 
-    public ValueTask DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
+        if (_cts != null)
+        {
+            await _cts.CancelAsync();
+            _cts.Dispose();
+            _cts = null;
+        }
         // Dispose is called after StopAsync, so no need to call StopCompactionAsync here.
         // await compactionService.StopCompactionAsync(CancellationToken.None);
-        return ValueTask.CompletedTask;
     }
 }
