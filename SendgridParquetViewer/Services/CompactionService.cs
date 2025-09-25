@@ -80,8 +80,8 @@ public class CompactionService(
         await _startupTaskSemaphore.WaitAsync(ct);
         try
         {
-            var isCompleted = _compactionStartResult?.StartTask?.IsCompleted;
-            if (_compactionStartResult != null && isCompleted != true)
+            var isTaskRunning = _compactionStartResult?.StartTask != null && !_compactionStartResult.StartTask.IsCompleted;
+            if (isTaskRunning)
             {
                 return _compactionStartResult;
             }
