@@ -13,7 +13,7 @@ public sealed class CompactionStartupHostedService(
 
     private async Task Run(CancellationToken ct)
     {
-        logger.ZLogInformation($"CompactionStartupHostedService Run");
+        logger.ZLogInformation($"Starting compaction process in CompactionStartupHostedService.");
         try
         {
             var compactionStartResult = await compactionService.StartCompactionAsync(ct);
@@ -66,7 +66,7 @@ public sealed class CompactionStartupHostedService(
             catch (OperationCanceledException) { }
             catch (Exception ex)
             {
-                logger.ZLogError(ex, $"StopAsync");
+                logger.ZLogError(ex, $"Error occurred during hosted service shutdown in StopAsync");
             }
         }
     }
