@@ -32,7 +32,13 @@ public sealed class CompactionStartupHostedService(
     public Task StartAsync(CancellationToken ct)
     {
         _cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        _ = Run(_cts.Token);
+        _ = Run(_cts.Token).ContinueWith(t =>
+        {
+            if (t.Exception != null)
+            {
+                logger.ZLogError(t.Exception, "Exception in initial compaction Run task");
+            }
+        }, TaskContinuationOptions.OnlyOnFaulted);
         _loopTask = Task.Run(async () =>
         {
             using var timer = new PeriodicTimer(_periodicSpan);
