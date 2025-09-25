@@ -18,10 +18,7 @@ public sealed class CompactionStartupHostedService(
             {
                 await Run(stoppingToken);
             }
-        }, stoppingToken).ContinueWith(_ =>
-        {
-            return compactionService.StopCompactionAsync(CancellationToken.None);
-        }, CancellationToken.None);
+        }, stoppingToken).ContinueWith(_ => compactionService.StopCompactionAsync(CancellationToken.None), CancellationToken.None);
 
     private async Task Run(CancellationToken ct)
     {
@@ -29,7 +26,7 @@ public sealed class CompactionStartupHostedService(
         try
         {
             var compactionStartResult = await compactionService.StartCompactionAsync(ct);
-            if (compactionStartResult?.StartTask != null)
+            if (compactionStartResult.StartTask != null)
             {
                 await compactionStartResult.StartTask;
             }
