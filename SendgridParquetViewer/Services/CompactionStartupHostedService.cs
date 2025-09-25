@@ -9,17 +9,19 @@ public sealed class CompactionStartupHostedService(
 {
     private readonly TimeSpan _periodicSpan = TimeSpan.FromDays(1);
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        await Run(stoppingToken);
-        using var timer = new PeriodicTimer(_periodicSpan);
-        while (await timer.WaitForNextTickAsync(stoppingToken))
+    protected override Task ExecuteAsync(CancellationToken stoppingToken) =>
+        Task.Run(async () =>
         {
             await Run(stoppingToken);
-        }
-
-        await compactionService.StopCompactionAsync(CancellationToken.None);
-    }
+            using var timer = new PeriodicTimer(_periodicSpan);
+            while (await timer.WaitForNextTickAsync(stoppingToken))
+            {
+                await Run(stoppingToken);
+            }
+        }, stoppingToken).ContinueWith(async _ =>
+        {
+            await compactionService.StopCompactionAsync(CancellationToken.None);
+        }, CancellationToken.None);
 
     private async Task Run(CancellationToken ct)
     {
