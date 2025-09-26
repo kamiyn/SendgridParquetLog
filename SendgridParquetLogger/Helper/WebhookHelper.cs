@@ -7,6 +7,8 @@ using Microsoft.Extensions.Options;
 
 using SendgridParquet.Shared;
 
+using SendgridParquetLogger.Models;
+
 using ZLogger;
 
 namespace SendgridParquetLogger.Helper;
@@ -44,7 +46,7 @@ public class WebhookHelper(
                 // case RequestValidator.RequestValidatorResult.NotConfigured: // 許容しない
                 try
                 {
-                    var events = JsonSerializer.Deserialize(payloadBytes, Models.AppJsonSerializerContext.Default.SendGridEventArray) ?? [];
+                    var events = JsonSerializer.Deserialize(payloadBytes, AppJsonSerializerContext.Default.SendGridEventArray) ?? [];
                     return (HttpStatusCode.OK, events);
                 }
                 catch (JsonException ex)
@@ -62,14 +64,14 @@ public class WebhookHelper(
 
     private async Task<byte[]> GetPayload(PipeReader reader, IHeaderDictionary headers, CancellationToken ct)
     {
-        int initialCapacity = 0;
-        if (headers.ContentLength is { } contentLength && contentLength > 0)
-        {
-            long capped = Math.Min(contentLength, _maxBodyBytes);
-            initialCapacity = (int)capped;
-        }
+        MemoryStream GetMemoryStream() =>
+            headers.ContentLength switch
+            {
+                > 0 => new MemoryStream((int)Math.Min(headers.ContentLength.Value, _maxBodyBytes)),
+                _ => new MemoryStream()
+            };
 
-        using var ms = initialCapacity > 0 ? new MemoryStream(initialCapacity) : new MemoryStream();
+        using MemoryStream ms = GetMemoryStream();
         long total = 0;
         try
         {
@@ -107,7 +109,7 @@ public class WebhookHelper(
         }
         finally
         {
-            reader.Complete();
+            await reader.CompleteAsync();
         }
     }
 
@@ -117,7 +119,7 @@ public class WebhookHelper(
     {
         var results = new List<HttpStatusCode>(2);
         foreach (var grp in events
-                     .Select(sendgridEvent => (sendgridEvent, timestamp: JstExtension.JstUnixTimeSeconds(sendgridEvent.Timestamp)))
+                     .Select(sendgridEvent => (sendgridEvent, timestamp: JstExtension.FromUnixTimeSecondsJst(sendgridEvent.Timestamp)))
                      .GroupBy(pair => new DateOnly(pair.timestamp.Year, pair.timestamp.Month, pair.timestamp.Day), pair => pair.sendgridEvent))
         {
             DateOnly targetDay = grp.Key;
@@ -133,8 +135,9 @@ public class WebhookHelper(
         CancellationToken ct)
     {
         var events = eventsEnumerable.ToArray();
-        await using var parquetData = await parquetService.ConvertToParquetAsync(events);
-        if (parquetData == null)
+        await using var parquetData = new MemoryStream(); // WebHook は 最大 768KB でしか来ないのでメモリ上に展開する
+        bool convertResult = await parquetService.ConvertToParquetAsync(events, parquetData);
+        if (!convertResult)
         {
             logger.ZLogError($"Failed to convert events to Parquet format");
             return HttpStatusCode.InternalServerError;

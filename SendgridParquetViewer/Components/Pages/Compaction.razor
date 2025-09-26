@@ -1,7 +1,9 @@
-@page "/compaction"
+﻿@page "/compaction"
 @rendermode InteractiveServer
 @using SendgridParquetViewer.Models
 @using SendgridParquetViewer.Services
+@using R3
+@implements IDisposable
 @inject ILogger<Compaction> Logger
 @inject CompactionService CompactionService
 
@@ -48,6 +50,17 @@
                             }
                             <br />
                             <div><strong>Output Files Created:</strong> @_runStatus.OutputFilesCreated</div>
+                            @if (!string.IsNullOrEmpty(_runStatus.LastOutputFile))
+                            {
+                                <div><strong>Last Output File:</strong> @_runStatus.LastOutputFile</div>
+                            }
+                            @if (!string.IsNullOrEmpty(_runStatus.LastProcessedFile))
+                            {
+                                <div><strong>Last Processed File:</strong> @_runStatus.LastProcessedFile</div>
+                            }
+                            <div><strong>Deleted Original Files:</strong> @_runStatus.DeletedOriginalFile</div>
+                            <div><strong>Failed Original Files:</strong> @_runStatus.FailedOriginalFiles.Count</div>
+                            <div><strong>Failed Output Files:</strong> @_runStatus.FailedOutputFiles.Count</div>
                             <div><small>Last Updated: @_runStatus.LastUpdated.ToString("s")</small></div>
                         }
                         <strong>Target Days:</strong> @_runStatus.TargetDays.Count<br />
@@ -57,6 +70,41 @@
                             <text> and @(_runStatus.TargetPathPrefixes.Count - 3) more...</text>
                         }
                     </p>
+                    <details>
+						<summary>詳細 を表示</summary>
+						<pre>
+                            @GetRunStatusJson()
+                        </pre>
+                    </details>
+                    @if (_runStatus.FailedOutputFiles.Count > 0 || _runStatus.FailedOriginalFiles.Count > 0)
+                    {
+                        <details>
+							<summary>Failed Files を表示</summary>
+							<summary>Failed files detail</summary>
+                            @if (_runStatus.FailedOutputFiles.Count > 0)
+                            {
+                                <div><strong>Failed Output Files (@_runStatus.FailedOutputFiles.Count):</strong></div>
+                                <pre>@string.Join(Environment.NewLine, _runStatus.FailedOutputFiles)</pre>
+                            }
+                            @if (_runStatus.FailedOriginalFiles.Count > 0)
+                            {
+                                <div><strong>Failed Original Files (@_runStatus.FailedOriginalFiles.Count):</strong></div>
+                                <pre>@string.Join(Environment.NewLine, _runStatus.FailedOriginalFiles)</pre>
+                            }
+                        </details>
+                    }
+					@if (_runStatus.Errors.Any())
+                    {
+                        <details>
+                            <summary>例外 を表示</summary>
+                            @foreach (var error in _runStatus.Errors)
+                            {
+                                <pre>
+                                 @(error.Message)
+                            </pre>
+                            }
+                        </details>
+                    }
                 }
                 else if (_isLoadingStatus)
                 {
@@ -101,25 +149,37 @@
 </FluentCard>
 
 @code {
-    private RunStatus? _runStatus;
-    private bool _isLoadingStatus;
-    private bool _isStarting;
-    private string _message = string.Empty;
-    private MessageIntent _messageIntent = MessageIntent.Info;
-    readonly CancellationTokenSource _cts = new CancellationTokenSource();
+	private RunStatus? _runStatus;
+	private bool _isLoadingStatus;
+	private bool _isStarting;
+	private string _message = string.Empty;
+	private IDisposable? _runStatusSubjectSubscription;
+	private MessageIntent _messageIntent = MessageIntent.Info;
+	readonly CancellationTokenSource _cts = new CancellationTokenSource();
 
-    protected override async Task OnInitializedAsync()
-    {
-        await RefreshStatus();
-    }
+	string GetRunStatusJson() => _runStatus != null
+        ? JsonSerializer.Serialize(_runStatus, new JsonSerializerOptions { WriteIndented = true })
+        : "{}";
 
-    private async Task RefreshStatus()
-    {
-        _isLoadingStatus = true;
-        try
-        {
-            var runStatus = await CompactionService.GetRunStatusAsync();
-            await SetRunStatus(runStatus);
+	protected override async Task OnInitializedAsync()
+	{
+		await RefreshStatus();
+		_runStatusSubjectSubscription = CompactionService.RunStatusSubject
+			.ObserveOnCurrentSynchronizationContext()
+            .Subscribe(runStatus =>
+            {
+				// ObserveOnCurrentSynchronizationContext を使えば InvokeAsync() にしなくてよい
+                _runStatus = runStatus;
+                StateHasChanged();
+			});
+	}
+
+	private async Task RefreshStatus()
+	{
+		_isLoadingStatus = true;
+		try
+		{
+            _runStatus = await CompactionService.GetRunStatusAsync();
         }
         catch (Exception ex)
         {
@@ -130,15 +190,16 @@
         {
             _isLoadingStatus = false;
         }
-    }
+		StateHasChanged();
+	}
 
     private async Task StartCompaction()
     {
         _isStarting = true;
         try
         {
-            var result = await CompactionService.StartCompactionAsync(SetRunStatus, _cts.Token);
-            if (result.CanStart)
+            var result = await CompactionService.StartCompactionAsync(_cts.Token);
+            if (result.StartTime != null)
             {
                 ShowMessage($"Compaction started successfully at {result.StartTime}", MessageIntent.Success);
                 await RefreshStatus();
@@ -166,12 +227,10 @@
         StateHasChanged();
     }
 
-    private async Task SetRunStatus(RunStatus? runStatus)
+    public void Dispose()
     {
-        await InvokeAsync(() =>
-        {
-            _runStatus = runStatus;
-            StateHasChanged();
-        });
+        _cts.Dispose();
+		_runStatusSubjectSubscription?.Dispose();
     }
 }
+

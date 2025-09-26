@@ -10,10 +10,16 @@ RUN apk add --no-cache \
     musl-dev \
     musl-utils
 
+# Accept build-time variables from CI
+ARG VERSION
+ARG GITHUB_RUN_NUMBER
+ARG GITHUB_SHA
+
 # Copy project files
 COPY SendgridParquetLogger/SendgridParquetLogger.csproj SendgridParquetLogger/
 COPY SendgridParquetLog.ServiceDefaults/SendgridParquetLog.ServiceDefaults.csproj SendgridParquetLog.ServiceDefaults/
 COPY SendgridParquet.Shared/SendgridParquet.Shared.csproj SendgridParquet.Shared/
+COPY Directory.Build.props ./
 
 # Restore dependencies
 RUN dotnet restore SendgridParquetLogger/SendgridParquetLogger.csproj
@@ -25,12 +31,19 @@ COPY SendgridParquet.Shared/ SendgridParquet.Shared/
 
 # Build and publish as self-contained for linux-musl-x64 (Alpine)
 WORKDIR /src/SendgridParquetLogger
+# Propagate build metadata into MSBuild so Directory.Build.props picks them up
+ENV VERSION=${VERSION}
+ENV GITHUB_RUN_NUMBER=${GITHUB_RUN_NUMBER}
+ENV GITHUB_SHA=${GITHUB_SHA}
 RUN dotnet publish -c Release -r linux-musl-x64 --self-contained true \
   -p:PublishTrimmed=true \
   -p:PublishAot=true \
   -p:PublishSingleFile=false \
   -p:UseAppHost=false \
   -p:PublishReadyToRun=true \
+  -p:VERSION=${VERSION} \
+  -p:GITHUB_RUN_NUMBER=${GITHUB_RUN_NUMBER} \
+  -p:GITHUB_SHA=${GITHUB_SHA} \
   -o /app/publish
 
 # Runtime stage - Using Alpine for minimal size

@@ -85,7 +85,16 @@ builder.Services.AddOptions<CompactionOptions>()
     .ValidateDataAnnotations()
     .ValidateOnStart();
 
-builder.Services.AddSingleton(TimeProvider.System);
+//builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddOptions<TimeProviderOptions>()
+    .Configure(options =>
+    {
+        if (TimeSpan.TryParse(builder.Configuration["TimeProviderOffset"], null, out TimeSpan span))
+        {
+            options.Offset = span;
+        }
+    });
+builder.Services.AddSingleton<TimeProvider, ConfigurableTimeProvider>();
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
@@ -103,16 +112,16 @@ builder.Services.AddFluentUIComponents();
 // Add Parquet catalog service for browser downloads
 builder.Services.AddScoped<ParquetCatalogService>();
 
-
 // Add S3 storage service
 builder.Services.AddHttpClient<S3StorageService>();
+builder.Services.AddSingleton<IS3LockService, S3LockService>();
 
 // Add Parquet service
-builder.Services.AddScoped<ParquetService>();
+builder.Services.AddSingleton<ParquetService>(); // 無状態のため AddSingleton
 
 // Add Compaction service
-builder.Services.AddScoped<CompactionService>();
-builder.Services.AddHostedService<CompactionStartupHostedService>();
+builder.Services.AddSingleton<CompactionService>(); // 1プロセスあたり同時実行は1つだけにする
+builder.Services.AddHostedService<CompactionStartupHostedService>(); // 起動時にコンパクションを開始するホストサービス
 
 // Add health checks
 builder.Services.AddHealthChecks();

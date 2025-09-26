@@ -10,5 +10,10 @@ public class CompactionOptions
     /// アプリケーション自体が 300MB 程度消費し
     /// 読み込みと 書き込みのためのバッファで概ね2倍使うため 1GB インスタンスの場合最大 350MB 程度となる
     /// </summary>
-    public long MaxBatchSizeBytes { get; set; } = 256 * 1024 * 1024;
+    public long MaxBatchSizeBytes { get; set; } = 512 * 1024 * 1024;
+
+    /// <summary>
+    /// 標準では JST基準で昨日以前のものが対象になる
+    /// </summary>
+    public TimeSpan TargetBefore { get; set; } = TimeSpan.FromDays(-1);
 }

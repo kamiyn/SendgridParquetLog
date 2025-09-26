@@ -1,0 +1,30 @@
+<Project>
+  <PropertyGroup>
+    <_BuildTimestampUtc>$([System.DateTime]::UtcNow.ToString("o"))</_BuildTimestampUtc>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(VERSION)' != ''">
+    <InformationalVersion>$(VERSION)</InformationalVersion>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(GITHUB_RUN_NUMBER)' != ''">
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>GitHubRunNumber</_Parameter1>
+      <_Parameter2>$(GITHUB_RUN_NUMBER)</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(GITHUB_SHA)' != ''">
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>GitHubCommitHash</_Parameter1>
+      <_Parameter2>$(GITHUB_SHA)</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>BuildTimestampUtc</_Parameter1>
+      <_Parameter2>$(_BuildTimestampUtc)</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
+</Project>

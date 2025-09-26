@@ -1,11 +1,14 @@
 ﻿using System.Text.Json;
 using System.Text.Json.Serialization;
 
+using MemoryPack;
+
 using SendgridParquet.Shared.Json;
 
 namespace SendgridParquet.Shared;
 
-public class SendGridEvent
+[MemoryPackable]
+public partial class SendGridEvent
 {
     [JsonPropertyName(SendGridWebHookFields.Email)]
     public string? Email { get; set; }
@@ -93,7 +96,8 @@ public class SendGridEvent
     public long? SendAt { get; set; }
 }
 
-public class Pool
+[MemoryPackable]
+public partial class Pool
 {
     [JsonPropertyName(SendGridWebHookFields.PoolFields.Name)]
     public string? Name { get; set; }

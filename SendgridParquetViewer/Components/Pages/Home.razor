@@ -155,7 +155,20 @@ else
 		</div>
 	}
 
-	<div class="table-responsive" @ref="_resultsHost"></div>
+        <FluentDataGrid Items="@_sendGridEvents" Pagination="@_pagination">
+            <TemplateColumn Title="詳細" Style="width: 40px;">
+                <FluentButton Appearance="Appearance.Lightweight" @onclick="() => ShowEventDetails(context)">表示</FluentButton>
+            </TemplateColumn>
+            <PropertyColumn Property="@(e => FromUnixTimeSecondsJst(e.Timestamp))" Title="タイムスタンプ" Format="yyyy-MM-dd HH:mm:ss JST" Sortable="true" Style="width: 200px;" />
+            <PropertyColumn Property="@(e => e.Email)" Title="メールアドレス" Sortable="true" Style="width: 250px;" />
+            <PropertyColumn Property="@(e => e.Event)" Title="イベント" Sortable="true" />
+            <PropertyColumn Property="@(e => e.Category)" Title="カテゴリ" Sortable="true" />
+            <PropertyColumn Property="@(e => e.Reason)" Title="理由" />
+            <PropertyColumn Property="@(e => e.Status)" Title="ステータス" />
+            <PropertyColumn Property="@(e => e.Response)" Title="レスポンス" />
+            <PropertyColumn Property="@(e => e.MarketingCampaignName)" Title="キャンペーン名" Sortable="true" />
+            <PropertyColumn Property="@(e => e.Url)" Title="URL" />
+        </FluentDataGrid>
 
 	@if (_hasSearched && _sendGridEvents.Length == 0)
 	{
@@ -164,92 +177,278 @@ else
 }
 
 <FluentDialog Hidden="@(!ShowEventDetailsDialog)" Modal="true" TrapFocus="true">
-	<FluentDialogHeader>
-		<FluentStack VerticalAlignment="VerticalAlignment.Center">
-			<FluentLabel Typo="Typography.Header">イベント詳細</FluentLabel>
-		</FluentStack>
-	</FluentDialogHeader>
-	<FluentDialogBody>
-		@if (_selectedEvent is not null)
-		{
-			<div style="max-height: 500px; overflow-y: auto;">
-				<FluentStack Orientation="Orientation.Vertical" Style="gap: 10px;">
-					<div><strong>Email:</strong> @_selectedEvent.Email</div>
-					<div><strong>Timestamp:</strong> @ToJst(_selectedEvent.Timestamp).ToString("yyyy-MM-dd HH:mm:ss")</div>
-					<div><strong>Event:</strong> @_selectedEvent.Event</div>
-					@if (_selectedEvent.SendAt.HasValue)
-					{
-						<div><strong>Send At:</strong> @ToJst(_selectedEvent.SendAt.Value).ToString("yyyy-MM-dd HH:mm:ss")</div>
-					}
-					@if (!string.IsNullOrEmpty(_selectedEvent.Category))
-					{
-						<div><strong>Category:</strong> @_selectedEvent.Category</div>
-					}
-					@if (!string.IsNullOrEmpty(_selectedEvent.SgEventId))
-					{
-						<div><strong>SG Event ID:</strong> @_selectedEvent.SgEventId</div>
-					}
-					@if (!string.IsNullOrEmpty(_selectedEvent.SgMessageId))
-					{
-						<div><strong>SG Message ID:</strong> @_selectedEvent.SgMessageId</div>
-					}
-					@if (!string.IsNullOrEmpty(_selectedEvent.SgTemplateId))
-					{
-						<div><strong>SG Template ID:</strong> @_selectedEvent.SgTemplateId</div>
-					}
-					@if (!string.IsNullOrEmpty(_selectedEvent.UserAgent))
-					{
-						<div><strong>User Agent:</strong> @_selectedEvent.UserAgent</div>
-					}
-					@if (!string.IsNullOrEmpty(_selectedEvent.Ip))
-					{
-						<div><strong>IP Address:</strong> @_selectedEvent.Ip</div>
-					}
-					@if (!string.IsNullOrEmpty(_selectedEvent.Url))
-					{
-						<div><strong>URL:</strong> <a href="@_selectedEvent.Url" target="_blank">@_selectedEvent.Url</a></div>
-					}
-					@if (!string.IsNullOrEmpty(_selectedEvent.Reason))
-					{
-						<div><strong>Reason:</strong> @_selectedEvent.Reason</div>
-					}
-					@if (!string.IsNullOrEmpty(_selectedEvent.Status))
-					{
-						<div><strong>Status:</strong> @_selectedEvent.Status</div>
-					}
-					@if (!string.IsNullOrEmpty(_selectedEvent.Response))
-					{
-						<div><strong>Response:</strong> @_selectedEvent.Response</div>
-					}
-					@if (!string.IsNullOrEmpty(_selectedEvent.Attempt))
-					{
-						<div><strong>Attempt:</strong> @_selectedEvent.Attempt</div>
-					}
-					@if (!string.IsNullOrEmpty(_selectedEvent.Type))
-					{
-						<div><strong>Type:</strong> @_selectedEvent.Type</div>
-					}
-					@if (!string.IsNullOrEmpty(_selectedEvent.BounceClassification))
-					{
-						<div><strong>Bounce Classification:</strong> @_selectedEvent.BounceClassification</div>
-					}
-					@if (_selectedEvent.AsmGroupId.HasValue)
-					{
-						<div><strong>ASM Group ID:</strong> @_selectedEvent.AsmGroupId</div>
-					}
-					@if (!string.IsNullOrEmpty(_selectedEvent.MarketingCampaignName))
-					{
-						<div><strong>Marketing Campaign Name:</strong> @_selectedEvent.MarketingCampaignName</div>
-					}
-					@if (_selectedEvent.PoolId.HasValue)
-					{
-						<div><strong>Pool ID:</strong> @_selectedEvent.PoolId</div>
-					}
-				</FluentStack>
-			</div>
-		}
-	</FluentDialogBody>
-	<FluentDialogFooter>
-		<FluentButton Appearance="Appearance.Neutral" @onclick="CloseEventDetailsDialog">閉じる</FluentButton>
-	</FluentDialogFooter>
+    <FluentDialogHeader>
+        <FluentStack VerticalAlignment="VerticalAlignment.Center">
+            <FluentLabel Typo="Typography.Header">イベント詳細</FluentLabel>
+        </FluentStack>
+    </FluentDialogHeader>
+    <FluentDialogBody>
+        @if (_selectedEvent != null)
+        {
+            <div style="max-height: 500px; overflow-y: auto;">
+                <FluentStack Orientation="Orientation.Vertical" Style="gap: 10px;">
+                    <div><strong>Email:</strong> @_selectedEvent.Email</div>
+                    <div><strong>Timestamp:</strong> @FromUnixTimeSecondsJst(_selectedEvent.Timestamp).ToString("yyyy-MM-dd HH:mm:ss")</div>
+                    <div><strong>Event:</strong> @_selectedEvent.Event</div>
+                    @if (_selectedEvent.SendAt.HasValue)
+                    {
+                        <div><strong>Send At:</strong> @FromUnixTimeSecondsJst(_selectedEvent.SendAt.Value).ToString("yyyy-MM-dd HH:mm:ss")</div>
+                    }
+                    @if (!string.IsNullOrEmpty(_selectedEvent.Category))
+                    {
+                        <div><strong>Category:</strong> @_selectedEvent.Category</div>
+                    }
+                    @if (!string.IsNullOrEmpty(_selectedEvent.SgEventId))
+                    {
+                        <div><strong>SG Event ID:</strong> @_selectedEvent.SgEventId</div>
+                    }
+                    @if (!string.IsNullOrEmpty(_selectedEvent.SgMessageId))
+                    {
+                        <div><strong>SG Message ID:</strong> @_selectedEvent.SgMessageId</div>
+                    }
+                    @if (!string.IsNullOrEmpty(_selectedEvent.SgTemplateId))
+                    {
+                        <div><strong>SG Template ID:</strong> @_selectedEvent.SgTemplateId</div>
+                    }
+                    @* @if (!string.IsNullOrEmpty(_selectedEvent.SmtpId))
+                    {
+                        <div><strong>SMTP ID:</strong> @_selectedEvent.SmtpId</div>
+                    } *@
+                    @if (!string.IsNullOrEmpty(_selectedEvent.UserAgent))
+                    {
+                        <div><strong>User Agent:</strong> @_selectedEvent.UserAgent</div>
+                    }
+                    @if (!string.IsNullOrEmpty(_selectedEvent.Ip))
+                    {
+                        <div><strong>IP Address:</strong> @_selectedEvent.Ip</div>
+                    }
+                    @if (!string.IsNullOrEmpty(_selectedEvent.Url))
+                    {
+                        <div><strong>URL:</strong> <a href="@_selectedEvent.Url" target="_blank">@_selectedEvent.Url</a></div>
+                    }
+                    @if (!string.IsNullOrEmpty(_selectedEvent.Reason))
+                    {
+                        <div><strong>Reason:</strong> @_selectedEvent.Reason</div>
+                    }
+                    @if (!string.IsNullOrEmpty(_selectedEvent.Status))
+                    {
+                        <div><strong>Status:</strong> @_selectedEvent.Status</div>
+                    }
+                    @if (!string.IsNullOrEmpty(_selectedEvent.Response))
+                    {
+                        <div><strong>Response:</strong> @_selectedEvent.Response</div>
+                    }
+                    @* @if (_selectedEvent.Tls.HasValue)
+                    {
+                        <div><strong>TLS:</strong> @_selectedEvent.Tls</div>
+                    } *@
+                    @if (!string.IsNullOrEmpty(_selectedEvent.Attempt))
+                    {
+                        <div><strong>Attempt:</strong> @_selectedEvent.Attempt</div>
+                    }
+                    @if (!string.IsNullOrEmpty(_selectedEvent.Type))
+                    {
+                        <div><strong>Type:</strong> @_selectedEvent.Type</div>
+                    }
+                    @if (!string.IsNullOrEmpty(_selectedEvent.BounceClassification))
+                    {
+                        <div><strong>Bounce Classification:</strong> @_selectedEvent.BounceClassification</div>
+                    }
+                    @if (_selectedEvent.AsmGroupId.HasValue)
+                    {
+                        <div><strong>ASM Group ID:</strong> @_selectedEvent.AsmGroupId</div>
+                    }
+                    @* @if (_selectedEvent.UniqueArgs != null && _selectedEvent.UniqueArgs.Any())
+                    {
+                        <div><strong>Unique Args:</strong> @JsonSerializer.Serialize(_selectedEvent.UniqueArgs)</div>
+                    }
+                    @if (_selectedEvent.MarketingCampaignId.HasValue)
+                    {
+                        <div><strong>Marketing Campaign ID:</strong> @_selectedEvent.MarketingCampaignId</div>
+                    } *@
+                    @if (!string.IsNullOrEmpty(_selectedEvent.MarketingCampaignName))
+                    {
+                        <div><strong>Marketing Campaign Name:</strong> @_selectedEvent.MarketingCampaignName</div>
+                    }
+                    @* @if (!string.IsNullOrEmpty(_selectedEvent.PoolName))
+                    {
+                        <div><strong>Pool Name:</strong> @_selectedEvent.PoolName</div>
+                    } *@
+                    @if (_selectedEvent.PoolId.HasValue)
+                    {
+                        <div><strong>Pool ID:</strong> @_selectedEvent.PoolId</div>
+                    }
+                </FluentStack>
+            </div>
+        }
+    </FluentDialogBody>
+    <FluentDialogFooter>
+        <FluentButton Appearance="Appearance.Neutral" @onclick="CloseEventDetailsDialog">閉じる</FluentButton>
+    </FluentDialogFooter>
 </FluentDialog>
+
+@code {
+    // Enum for date selection mode
+    public enum DateSelectionMode
+    {
+        YearMonth,
+        YearMonthDay
+    }
+
+    private IQueryable<SendGridEventParquet> _sendGridEvents = Array.Empty<SendGridEventParquet>().AsQueryable();
+    private bool _isLoading;
+    private bool _hasSearched;
+    private string _errorMessage = "";
+
+    // Search parameters
+    private string _selectedEmail = "";
+    private string _selectedEventType = SendGridEventTypes.Delivered;
+    private string _selectedSgTemplateId = "";
+    private DateSelectionMode _dateSelectionMode = DateSelectionMode.YearMonthDay;
+    private DateTime? _selectedDate = DateTime.UnixEpoch; // FluentDatePicker に bind するときは nullable でなければならない
+    private string _selectedHourString = "";
+    private int? SelectedHour => int.TryParse(_selectedHourString, out int v) ? v : null;
+
+    // Dialog
+    private SendGridEventParquet? _selectedEvent;
+    private bool ShowEventDetailsDialog => _selectedEvent != null;
+
+    private readonly PaginationState _pagination = new() { ItemsPerPage = 50 };
+
+    protected override async Task OnInitializedAsync()
+    {
+        _selectedDate = TimeProvider.GetUtcNow().ToJst().AddDays(-3).DateTime;
+        await base.OnInitializedAsync();
+    }
+
+    private void OnInputChange()
+    {
+        // Reset search state when any input changes
+        _hasSearched = false;
+        _errorMessage = "";
+    }
+
+    private void OnDateSelectionModeChange()
+    {
+        // Reset search state when date selection mode changes
+        OnInputChange();
+    }
+
+    private void OnHourSelectionChange()
+    {
+        // Reset search state when hour selection changes
+        OnInputChange();
+    }
+
+    private void OnEventTypeChange()
+    {
+        // Reset search state when event type selection changes
+        OnInputChange();
+    }
+
+    private async Task SearchAsync()
+    {
+        _errorMessage = "";
+        _isLoading = true;
+        _sendGridEvents = Array.Empty<SendGridEventParquet>().AsQueryable();
+        try
+        {
+            var ymd = _dateSelectionMode switch
+            {
+                DateSelectionMode.YearMonth => new YearMonthDayOptional(_selectedDate?.Year, _selectedDate?.Month, null, null),
+                DateSelectionMode.YearMonthDay => new YearMonthDayOptional(_selectedDate?.Year, _selectedDate?.Month, _selectedDate?.Day, SelectedHour),
+                _ => throw new ArgumentOutOfRangeException()
+            };
+            _sendGridEvents = (await ExecuteSearchAsync(ymd, CancellationToken.None)).AsQueryable();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"検索中にエラーが発生しました: {ex.Message}";
+        }
+        finally
+        {
+            _isLoading = false;
+            _hasSearched = true;
+            StateHasChanged(); // Force UI update
+        }
+    }
+
+    record struct YearMonthDayOptional(int? Year, int? Month, int? Day, int? Hour);
+
+    private async Task<IEnumerable<SendGridEventParquet>> ExecuteSearchAsync(YearMonthDayOptional ymd, CancellationToken ct)
+    {
+        const int limit = 1000;
+        async ValueTask<IList<SendGridEventParquet>> GetFromCompactionFolder()
+        {
+            var prefix = SendGridPathUtility.GetS3CompactionPrefix(ymd.Year, ymd.Month, ymd.Day, ymd.Hour);
+            if (await ExistsAsync(prefix, ct))
+            {
+                var folder = SendGridPathUtility.GetS3CompactionWildcard(ymd.Year, ymd.Month, ymd.Day, ymd.Hour);
+                var condition = CreateSearchCondition();
+                var events = await DuckDbService.GetEventsByDateAsync(folder, condition, limit, ct);
+                Logger.LogDebug("Compaction count: {count}", events.Count);
+                return events;
+            }
+            return [];
+        }
+        async ValueTask<IList<SendGridEventParquet>> GetFromNonCompactionFolder()
+        {
+            var prefix = SendGridPathUtility.GetS3NonCompactionPrefix(ymd.Year, ymd.Month, ymd.Day);
+            if (await ExistsAsync(prefix, ct))
+            {
+                var folder = SendGridPathUtility.GetS3NonCompactionWildcard(ymd.Year, ymd.Month, ymd.Day);
+                var condition = CreateSearchCondition();
+                var events = await DuckDbService.GetEventsByDateAsync(folder, condition, limit, ct);
+                Logger.LogDebug("NonCompaction count: {count}", events.Count);
+                return events;
+            }
+            return [];
+        }
+
+        return (await GetFromCompactionFolder()).Concat(await GetFromNonCompactionFolder());
+    }
+
+    /// <summary>
+    /// ディレクトリ または ファイルが存在すれば true
+    /// </summary>
+    private async Task<bool> ExistsAsync(string prefix, CancellationToken ct)
+    {
+        var directories = await S3StorageService.ListDirectoriesAsync(prefix, ct);
+        if (directories.Any())
+        {
+            return true;
+        }
+        var files= await S3StorageService.ListFilesAsync(prefix, ct);
+        if (files.Any())
+        {
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Create search condition from current UI state
+    /// </summary>
+    /// <returns>Search condition object</returns>
+    private SendGridSearchCondition CreateSearchCondition() => 
+    new SendGridSearchCondition
+        {
+            Email = string.IsNullOrWhiteSpace(_selectedEmail) ? null : _selectedEmail,
+            Event = string.IsNullOrWhiteSpace(_selectedEventType) ? null : _selectedEventType,
+            SgTemplateId = string.IsNullOrWhiteSpace(_selectedSgTemplateId) ? null : _selectedSgTemplateId
+        };
+
+    private void ShowEventDetails(SendGridEventParquet sendGridEvent)
+    {
+        _selectedEvent = sendGridEvent;
+        StateHasChanged();
+    }
+
+    private void CloseEventDetailsDialog()
+    {
+        _selectedEvent = null;
+        StateHasChanged();
+    }
+
+    DateTimeOffset FromUnixTimeSecondsJst(long u) => JstExtension.FromUnixTimeSecondsJst(u);
+}
