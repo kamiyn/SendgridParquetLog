@@ -10,6 +10,7 @@ ARG GITHUB_SHA
 COPY . .
 RUN dotnet restore
 
+# Publish for linux-x64 so native assets (libduckdb.so) are included
 WORKDIR /src/SendgridParquetViewer
 # Propagate build metadata into MSBuild so Directory.Build.props picks them up
 ENV VERSION=${VERSION}

@@ -115,7 +115,6 @@ public class CompactionService(
                 };
             }
         }
-        logger.ZLogDebug($"currentStatus {currentStatus}");
 
         var lockId = Guid.NewGuid().ToString();
 
@@ -490,25 +489,6 @@ public class CompactionService(
                 yield return sendGridEvent;
             }
         }
-    }
-
-    private static string ComputeSha256Hex(Stream stream)
-    {
-        long originalPosition = stream.CanSeek ? stream.Position : 0;
-        if (stream.CanSeek)
-        {
-            stream.Seek(0, SeekOrigin.Begin);
-        }
-
-        using var sha256 = SHA256.Create();
-        byte[] hash = sha256.ComputeHash(stream);
-
-        if (stream.CanSeek)
-        {
-            stream.Seek(originalPosition, SeekOrigin.Begin);
-        }
-
-        return Convert.ToHexString(hash).ToLowerInvariant();
     }
 
     /// <summary>
