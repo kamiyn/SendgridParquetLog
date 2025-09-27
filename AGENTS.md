@@ -9,6 +9,7 @@
 - IReadOnlyList<T> を作る際に、事前に要素数がわかるなら　ToArray() を使って配列にする。List<T> は避ける
 - foreach に渡すオブジェクトを生成するために 複数の集合を合成する場合には IEnumerable<T> を返すような ローカル関数 として実装してメモリ割り当てを避ける
 - コード修正の最後に dotnet format を実行する
+- razor ファイルはCSharpコードを分離せず single file にする
 
 ## Project Overview
 

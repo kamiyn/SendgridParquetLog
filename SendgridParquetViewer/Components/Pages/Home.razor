@@ -26,47 +26,21 @@
 
 <h1>SendGrid Events Viewer</h1>
 
-<div style="padding: 20px; background-color: #f8f9fa; border-radius: 8px; margin-bottom: 20px;">
-	<h3>検索条件</h3>
-
-	<FluentStack Orientation="Orientation.Horizontal" Wrap="true" Style="gap: 20px; align-items: flex-start;">
-		<div style="min-width: 250px;">
-			<FluentTextField @bind-Value="_selectedEmail" @oninput="OnInputChange" Label="email（LIKE句）" Style="width: 100%;" Placeholder="example@domain.com" />
-		</div>
-
-		<div style="min-width: 250px;">
-			<FluentTextField @bind-Value="_selectedSgTemplateId" @oninput="OnInputChange" Label="sg_template_id（完全一致）" Style="width: 100%;" Placeholder="d-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
-		</div>
-
-		<div style="min-width: 200px;">
-			<FluentLabel>イベントタイプ</FluentLabel>
-			<FluentSelect TOption="string" @bind-Value="_selectedEventType" @onchange="OnEventTypeChange" Style="width: 100%; margin-top: 5px;">
-				@foreach (var eventType in SendGridEventTypes.AllEventTypes)
-				{
-					<FluentOption TOption="string" Value="@eventType.Value">@eventType.Display</FluentOption>
-				}
-			</FluentSelect>
-		</div>
-
-		<div style="min-width: 260px;">
-			<FluentLabel>対象年月</FluentLabel>
-			<FluentStack Orientation="Orientation.Horizontal" Style="gap: 8px; align-items: center;">
-				<FluentButton Appearance="Appearance.Neutral" Disabled="@_isDownloading" OnClick="@(async () => await ChangeMonthAsync(-1))">前月</FluentButton>
-				<FluentDatePicker @bind-Value="CurrentMonthDate" @bind-Value:after="OnMonthPickerAfterChanged" Style="width: 160px;" />
-				<FluentButton Appearance="Appearance.Neutral" Disabled="@_isDownloading" OnClick="@(async () => await ChangeMonthAsync(1))">翌月</FluentButton>
-			</FluentStack>
-			<small style="color: #666; display: block; margin-top: 4px;">月を変更するとその月のParquetを自動取得します</small>
-		</div>
-
-		<div style="margin-top: 25px;">
-			<FluentButton Appearance="Appearance.Accent" Disabled="@_isDownloading" OnClick="@(async () => await EnsureMonthDataAsync())">月データ取得</FluentButton>
-		</div>
-
-		<div style="margin-top: 25px;">
-			<FluentButton Appearance="Appearance.Neutral" Disabled="@(_isLoading || _isDownloading || !_selectedDay.HasValue)" OnClick="@(async () => await SearchAsync())">検索</FluentButton>
-		</div>
-	</FluentStack>
-</div>
+<HomeSearchConditions
+    @bind-SelectedEmail="_selectedEmail"
+    @bind-SelectedSgTemplateId="_selectedSgTemplateId"
+    @bind-SelectedEventType="_selectedEventType"
+    @bind-CurrentMonthDate="CurrentMonthDate"
+    EventTypes="SendGridEventTypes.AllEventTypes"
+    FilterChanged="OnInputChange"
+    EventTypeChanged="OnEventTypeChange"
+    ChangeMonthRequested="ChangeMonthAsync"
+    MonthPickerAfterChanged="OnMonthPickerAfterChanged"
+    EnsureMonthDataRequested="EnsureMonthDataAsync"
+    SearchRequested="SearchAsync"
+    IsDownloading="@_isDownloading"
+    IsLoading="@_isLoading"
+    SelectedDay="@_selectedDay" />
 
 @if (!string.IsNullOrEmpty(_errorMessage))
 {
@@ -288,155 +262,439 @@ else
 </FluentDialog>
 
 @code {
-    // Enum for date selection mode
-    public enum DateSelectionMode
-    {
-        YearMonth,
-        YearMonthDay
-    }
-
-    private IQueryable<SendGridEventParquet> _sendGridEvents = Array.Empty<SendGridEventParquet>().AsQueryable();
+    private IJSObjectReference? _duckDbInterop;
+    private DotNetObjectReference<Home>? _dotNetRef;
+    private ElementReference _resultsHost;
+    private bool _isDownloading;
     private bool _isLoading;
+    private bool _manifestLoaded;
+    private string? _errorMessage;
+
+    private int _currentYear;
+    private int _currentMonth;
+    private DateTime? CurrentMonthDate { get; set; }
+    private int? _selectedDay;
+
+    private readonly HashSet<int> _downloadedDays = new();
+    private readonly HashSet<int> _availableDays = new();
+    private DateTime?[][] _calendarWeeks = Array.Empty<DateTime?[]>();
+    private ParquetMonthManifest? _monthManifest;
+    private readonly Dictionary<int, string[]> _dayFileUrls = new();
+
+    private SendGridEventParquet[] _sendGridEvents = Array.Empty<SendGridEventParquet>();
     private bool _hasSearched;
-    private string _errorMessage = "";
 
-    // Search parameters
-    private string _selectedEmail = "";
+    private string _selectedEmail = string.Empty;
     private string _selectedEventType = SendGridEventTypes.Delivered;
-    private string _selectedSgTemplateId = "";
-    private DateSelectionMode _dateSelectionMode = DateSelectionMode.YearMonthDay;
-    private DateTime? _selectedDate = DateTime.UnixEpoch; // FluentDatePicker に bind するときは nullable でなければならない
-    private string _selectedHourString = "";
-    private int? SelectedHour => int.TryParse(_selectedHourString, out int v) ? v : null;
-
-    // Dialog
-    private SendGridEventParquet? _selectedEvent;
-    private bool ShowEventDetailsDialog => _selectedEvent != null;
+    private string _selectedSgTemplateId = string.Empty;
 
     private readonly PaginationState _pagination = new() { ItemsPerPage = 50 };
 
-    protected override async Task OnInitializedAsync()
+    private SendGridEventParquet? _selectedEvent;
+
+    private static readonly TimeSpan DuckDbQueryTimeout = TimeSpan.FromMinutes(5);
+
+    private bool ShowEventDetailsDialog => _selectedEvent is not null;
+
+    protected override void OnInitialized()
     {
-        _selectedDate = TimeProvider.GetUtcNow().ToJst().AddDays(-3).DateTime;
-        await base.OnInitializedAsync();
+        _dotNetRef = DotNetObjectReference.Create(this);
+        var today = TimeProvider.GetLocalNow().DateTime;
+        _currentYear = today.Year;
+        _currentMonth = today.Month;
+        CurrentMonthDate = new DateTime(today.Year, today.Month, 1);
     }
 
-    private void OnInputChange()
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        // Reset search state when any input changes
+        if (firstRender)
+        {
+            await EnsureDuckDbModuleAsync().ConfigureAwait(false);
+            await EnsureMonthDataAsync().ConfigureAwait(false);
+        }
+    }
+
+    private async Task EnsureDuckDbModuleAsync()
+    {
+        if (_duckDbInterop is not null)
+        {
+            return;
+        }
+
+        try
+        {
+            var modulePath = BuildModuleImportPath();
+            _duckDbInterop = await JsRuntime.InvokeAsync<IJSObjectReference>("import", modulePath).ConfigureAwait(false);
+            await _duckDbInterop.InvokeVoidAsync("initialize", DuckDbOptions.Value).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to initialize duckdb interop module");
+            _errorMessage = $"DuckDB 初期化に失敗しました: {ex.Message}";
+        }
+    }
+
+    private async Task ChangeMonthAsync(int delta)
+    {
+        var target = new DateTime(_currentYear, _currentMonth, 1).AddMonths(delta);
+        await SetMonthAsync(target.Year, target.Month).ConfigureAwait(false);
+    }
+
+    private async Task OnMonthPickerAfterChanged()
+    {
+        if (!CurrentMonthDate.HasValue)
+        {
+            return;
+        }
+
+        var selected = CurrentMonthDate.Value;
+        var target = new DateTime(selected.Year, selected.Month, 1);
+        await SetMonthAsync(target.Year, target.Month).ConfigureAwait(false);
+    }
+
+    private async Task SetMonthAsync(int year, int month)
+    {
+        if (year == _currentYear && month == _currentMonth)
+        {
+            return;
+        }
+
+        _currentYear = year;
+        _currentMonth = month;
+        CurrentMonthDate = new DateTime(year, month, 1);
+        _selectedDay = null;
+        _sendGridEvents = Array.Empty<SendGridEventParquet>();
         _hasSearched = false;
-        _errorMessage = "";
+        _downloadedDays.Clear();
+        _availableDays.Clear();
+        _calendarWeeks = Array.Empty<DateTime?[]>();
+        _errorMessage = null;
+        _monthManifest = null;
+        _dayFileUrls.Clear();
+        await ClearRenderedResultsAsync().ConfigureAwait(false);
+        await EnsureMonthDataAsync().ConfigureAwait(false);
     }
 
-    private void OnDateSelectionModeChange()
+    private async Task EnsureMonthDataAsync()
     {
-        // Reset search state when date selection mode changes
-        OnInputChange();
+        _isDownloading = true;
+        _errorMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var manifest = await BuildCompactionManifestAsync(_currentYear, _currentMonth, CancellationToken.None).ConfigureAwait(false);
+            _monthManifest = manifest;
+            var dayManifests = manifest.Days;
+            _availableDays.Clear();
+            foreach (var day in dayManifests.Select(d => d.Day))
+            {
+                _availableDays.Add(day);
+            }
+
+            _dayFileUrls.Clear();
+            foreach (var dayManifest in dayManifests)
+            {
+                var urls = dayManifest.Files
+                    .Select(file => BuildCompactionDownloadUrl(_currentYear, _currentMonth, dayManifest.Day, file.Hour, Path.GetFileNameWithoutExtension(file.Key)))
+                    .Where(url => !string.IsNullOrEmpty(url))
+                    .ToArray();
+
+                _dayFileUrls[dayManifest.Day] = urls;
+            }
+
+            _downloadedDays.IntersectWith(_availableDays);
+            RebuildCalendar();
+            _manifestLoaded = true;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to prepare month data");
+            _errorMessage = $"月データの取得に失敗しました: {ex.Message}";
+            _monthManifest = null;
+            _availableDays.Clear();
+            _dayFileUrls.Clear();
+            _downloadedDays.Clear();
+            _calendarWeeks = Array.Empty<DateTime?[]>();
+            _manifestLoaded = false;
+        }
+        finally
+        {
+            _isDownloading = false;
+            StateHasChanged();
+        }
     }
 
-    private void OnHourSelectionChange()
+    private async Task<ParquetMonthManifest> BuildCompactionManifestAsync(int year, int month, CancellationToken cancellationToken)
     {
-        // Reset search state when hour selection changes
-        OnInputChange();
+        var prefix = SendGridPathUtility.GetS3CompactionPrefix(year, month, null, null);
+        var keys = await S3StorageService.ListFilesAsync(prefix, cancellationToken).ConfigureAwait(false);
+        var entriesByDay = new Dictionary<int, List<ParquetFileManifest>>();
+
+        foreach (string key in keys)
+        {
+            if (string.IsNullOrWhiteSpace(key))
+            {
+                continue;
+            }
+
+            if (!key.EndsWith(SendGridPathUtility.ParquetFileExtension, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (!TryParseCompactionKey(key, out int parsedYear, out int parsedMonth, out int parsedDay, out int parsedHour))
+            {
+                continue;
+            }
+
+            if (parsedYear != year || parsedMonth != month)
+            {
+                continue;
+            }
+
+            if (!entriesByDay.TryGetValue(parsedDay, out var entries))
+            {
+                entries = new List<ParquetFileManifest>();
+                entriesByDay[parsedDay] = entries;
+            }
+
+            entries.Add(new ParquetFileManifest(
+                Key: key,
+                Day: parsedDay,
+                Hour: parsedHour,
+                SizeBytes: null,
+                LastModified: null,
+                Sha256Hash: null,
+                ETag: null));
+        }
+
+        if (entriesByDay.Count == 0)
+        {
+            return new ParquetMonthManifest(year, month, Array.Empty<ParquetDayManifest>());
+        }
+
+        var dayManifests = entriesByDay
+            .OrderBy(static pair => pair.Key)
+            .Select(pair =>
+            {
+                var files = pair.Value
+                    .OrderBy(file => file.Hour)
+                    .ThenBy(file => file.Key, StringComparer.Ordinal)
+                    .ToArray();
+                return new ParquetDayManifest(pair.Key, files);
+            })
+            .ToArray();
+
+        return new ParquetMonthManifest(year, month, dayManifests);
     }
 
-    private void OnEventTypeChange()
+    private static string BuildCompactionDownloadUrl(int year, int month, int day, int hour, string? hash)
     {
-        // Reset search state when event type selection changes
-        OnInputChange();
+        if (string.IsNullOrWhiteSpace(hash))
+        {
+            return string.Empty;
+        }
+
+        return $"/api/parquet/compaction/{year:D4}/{month:D2}/{day:D2}/{hour:D2}/{hash}{SendGridPathUtility.ParquetFileExtension}";
+    }
+
+    private static bool TryParseCompactionKey(string key, out int year, out int month, out int day, out int hour)
+    {
+        year = 0;
+        month = 0;
+        day = 0;
+        hour = 0;
+
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return false;
+        }
+
+        var segments = key.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length < 6)
+        {
+            return false;
+        }
+
+        if (!string.Equals(segments[0], "v3compaction", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (!TryParseInt(segments[1], 4, out year) ||
+            !TryParseInt(segments[2], 2, out month) ||
+            !TryParseInt(segments[3], 2, out day) ||
+            !TryParseInt(segments[4], 2, out hour))
+        {
+            year = month = day = hour = 0;
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool TryParseInt(string value, int expectedLength, out int result)
+    {
+        if (value.Length != expectedLength)
+        {
+            result = 0;
+            return false;
+        }
+
+        return int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out result);
+    }
+
+    private void RebuildCalendar()
+    {
+        var firstDay = new DateTime(_currentYear, _currentMonth, 1);
+        int daysInMonth = DateTime.DaysInMonth(_currentYear, _currentMonth);
+
+        var weeks = new List<DateTime?[]>();
+        var currentWeek = new DateTime?[7];
+        int dayOfWeekIndex = 0;
+        int offset = (int)firstDay.DayOfWeek;
+
+        for (int i = 0; i < offset; i++)
+        {
+            currentWeek[dayOfWeekIndex++] = null;
+        }
+
+        for (int day = 1; day <= daysInMonth; day++)
+        {
+            currentWeek[dayOfWeekIndex++] = new DateTime(_currentYear, _currentMonth, day);
+            if (dayOfWeekIndex == 7)
+            {
+                weeks.Add(currentWeek);
+                currentWeek = new DateTime?[7];
+                dayOfWeekIndex = 0;
+            }
+        }
+
+        if (dayOfWeekIndex > 0)
+        {
+            for (int i = dayOfWeekIndex; i < 7; i++)
+            {
+                currentWeek[i] = null;
+            }
+
+            weeks.Add(currentWeek);
+        }
+
+        _calendarWeeks = weeks.Count == 0 ? Array.Empty<DateTime?[]>() : weeks.ToArray();
+        _manifestLoaded = true;
+    }
+
+    private static string GetCalendarButtonClass(bool hasData, bool available, bool selected)
+    {
+        var statusClass = hasData ? "downloaded" : available ? "available" : "no-data";
+        return selected ? $"calendar-button {statusClass} selected" : $"calendar-button {statusClass}";
+    }
+
+    private async Task OnDaySelectedAsync(int day)
+    {
+        if (!_availableDays.Contains(day) || _isLoading)
+        {
+            return;
+        }
+
+        _selectedDay = day;
+        await LoadEventsAsync().ConfigureAwait(false);
     }
 
     private async Task SearchAsync()
     {
-        _errorMessage = "";
+        if (!_selectedDay.HasValue)
+        {
+            _errorMessage = "日付を選択してください。";
+            return;
+        }
+
+        await LoadEventsAsync().ConfigureAwait(false);
+    }
+
+    private async Task LoadEventsAsync()
+    {
+        if (_duckDbInterop is null || !_selectedDay.HasValue)
+        {
+            return;
+        }
+
         _isLoading = true;
-        _sendGridEvents = Array.Empty<SendGridEventParquet>().AsQueryable();
+        _errorMessage = null;
+        _sendGridEvents = Array.Empty<SendGridEventParquet>();
+        StateHasChanged();
+
         try
         {
-            var ymd = _dateSelectionMode switch
+            var day = _selectedDay.Value;
+            if (!_dayFileUrls.TryGetValue(day, out var fileUrls) || fileUrls.Length == 0)
             {
-                DateSelectionMode.YearMonth => new YearMonthDayOptional(_selectedDate?.Year, _selectedDate?.Month, null, null),
-                DateSelectionMode.YearMonthDay => new YearMonthDayOptional(_selectedDate?.Year, _selectedDate?.Month, _selectedDate?.Day, SelectedHour),
-                _ => throw new ArgumentOutOfRangeException()
+                await ClearRenderedResultsAsync().ConfigureAwait(false);
+                _sendGridEvents = Array.Empty<SendGridEventParquet>();
+                _hasSearched = true;
+                return;
+            }
+
+            var request = new
+            {
+                fileUrls,
+                email = NormalizeFilterValue(_selectedEmail),
+                eventType = NormalizeExactValue(_selectedEventType),
+                sgTemplateId = NormalizeExactValue(_selectedSgTemplateId),
+                limit = 1000,
+                selectColumns = SendGridEventParquet.SelectColumns
             };
-            _sendGridEvents = (await ExecuteSearchAsync(ymd, CancellationToken.None)).AsQueryable();
+
+            using var timeoutCts = new CancellationTokenSource(DuckDbQueryTimeout);
+            var options = _dotNetRef is null ? null : new { dotNetHelper = _dotNetRef };
+            var result = await _duckDbInterop.InvokeAsync<JsonElement?>(
+                "queryEvents",
+                timeoutCts.Token,
+                DuckDbOptions.Value,
+                request,
+                _resultsHost,
+                options).ConfigureAwait(false);
+
+            _sendGridEvents = ConvertToSendGridEvents(result);
+            _hasSearched = true;
+            _downloadedDays.Add(day);
+        }
+        catch (TaskCanceledException tcx)
+        {
+            Logger.LogWarning(tcx, "DuckDB query timed out");
+            _errorMessage = "検索がタイムアウトしました。条件を絞り込んで再試行してください。";
+            await ClearRenderedResultsAsync().ConfigureAwait(false);
+        }
+        catch (JSException jsEx)
+        {
+            Logger.LogError(jsEx, "Query via duckdb interop failed");
+            _errorMessage = $"検索中にエラーが発生しました: {jsEx.Message}";
+            await ClearRenderedResultsAsync().ConfigureAwait(false);
         }
         catch (Exception ex)
         {
+            Logger.LogError(ex, "Query failed");
             _errorMessage = $"検索中にエラーが発生しました: {ex.Message}";
+            await ClearRenderedResultsAsync().ConfigureAwait(false);
         }
         finally
         {
             _isLoading = false;
-            _hasSearched = true;
-            StateHasChanged(); // Force UI update
+            StateHasChanged();
         }
     }
 
-    record struct YearMonthDayOptional(int? Year, int? Month, int? Day, int? Hour);
-
-    private async Task<IEnumerable<SendGridEventParquet>> ExecuteSearchAsync(YearMonthDayOptional ymd, CancellationToken ct)
+    private void OnInputChange()
     {
-        const int limit = 1000;
-        async ValueTask<IList<SendGridEventParquet>> GetFromCompactionFolder()
-        {
-            var prefix = SendGridPathUtility.GetS3CompactionPrefix(ymd.Year, ymd.Month, ymd.Day, ymd.Hour);
-            if (await ExistsAsync(prefix, ct))
-            {
-                var folder = SendGridPathUtility.GetS3CompactionWildcard(ymd.Year, ymd.Month, ymd.Day, ymd.Hour);
-                var condition = CreateSearchCondition();
-                var events = await DuckDbService.GetEventsByDateAsync(folder, condition, limit, ct);
-                Logger.LogDebug("Compaction count: {count}", events.Count);
-                return events;
-            }
-            return [];
-        }
-        async ValueTask<IList<SendGridEventParquet>> GetFromNonCompactionFolder()
-        {
-            var prefix = SendGridPathUtility.GetS3NonCompactionPrefix(ymd.Year, ymd.Month, ymd.Day);
-            if (await ExistsAsync(prefix, ct))
-            {
-                var folder = SendGridPathUtility.GetS3NonCompactionWildcard(ymd.Year, ymd.Month, ymd.Day);
-                var condition = CreateSearchCondition();
-                var events = await DuckDbService.GetEventsByDateAsync(folder, condition, limit, ct);
-                Logger.LogDebug("NonCompaction count: {count}", events.Count);
-                return events;
-            }
-            return [];
-        }
-
-        return (await GetFromCompactionFolder()).Concat(await GetFromNonCompactionFolder());
+        _hasSearched = false;
+        _errorMessage = null;
     }
 
-    /// <summary>
-    /// ディレクトリ または ファイルが存在すれば true
-    /// </summary>
-    private async Task<bool> ExistsAsync(string prefix, CancellationToken ct)
+    private void OnEventTypeChange()
     {
-        var directories = await S3StorageService.ListDirectoriesAsync(prefix, ct);
-        if (directories.Any())
-        {
-            return true;
-        }
-        var files= await S3StorageService.ListFilesAsync(prefix, ct);
-        if (files.Any())
-        {
-            return true;
-        }
-        return false;
+        OnInputChange();
     }
-
-    /// <summary>
-    /// Create search condition from current UI state
-    /// </summary>
-    /// <returns>Search condition object</returns>
-    private SendGridSearchCondition CreateSearchCondition() => 
-    new SendGridSearchCondition
-        {
-            Email = string.IsNullOrWhiteSpace(_selectedEmail) ? null : _selectedEmail,
-            Event = string.IsNullOrWhiteSpace(_selectedEventType) ? null : _selectedEventType,
-            SgTemplateId = string.IsNullOrWhiteSpace(_selectedSgTemplateId) ? null : _selectedSgTemplateId
-        };
 
     private void ShowEventDetails(SendGridEventParquet sendGridEvent)
     {
@@ -450,5 +708,275 @@ else
         StateHasChanged();
     }
 
-    DateTimeOffset FromUnixTimeSecondsJst(long u) => JstExtension.FromUnixTimeSecondsJst(u);
+    [JSInvokable]
+    public Task ShowEventDetailsFromJs(int rowIndex)
+    {
+        if (rowIndex < 0 || rowIndex >= _sendGridEvents.Length)
+        {
+            return Task.CompletedTask;
+        }
+
+        var selected = _sendGridEvents[rowIndex];
+        return InvokeAsync(() =>
+        {
+            _selectedEvent = selected;
+            StateHasChanged();
+        });
+    }
+
+    private static string? NormalizeFilterValue(string? raw)
+    {
+        return string.IsNullOrWhiteSpace(raw) ? null : raw.Trim();
+    }
+
+    private static string? NormalizeExactValue(string? raw) => NormalizeFilterValue(raw);
+
+    private static SendGridEventParquet[] ConvertToSendGridEvents(JsonElement? result)
+    {
+        if (result is null)
+        {
+            return Array.Empty<SendGridEventParquet>();
+        }
+
+        var root = result.Value;
+        if (root.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+        {
+            return Array.Empty<SendGridEventParquet>();
+        }
+
+        var columns = ExtractColumns(root);
+        var rowValues = ExtractRowValues(root, columns.Length);
+        if (columns.Length == 0 || rowValues.Length == 0)
+        {
+            return Array.Empty<SendGridEventParquet>();
+        }
+
+        var columnIndexMap = BuildColumnIndexMap(columns);
+        if (columnIndexMap.Count == 0)
+        {
+            return Array.Empty<SendGridEventParquet>();
+        }
+
+        var events = new SendGridEventParquet[rowValues.Length];
+
+        for (var i = 0; i < rowValues.Length; i++)
+        {
+            var values = rowValues[i];
+            events[i] = new SendGridEventParquet
+            {
+                Email = GetStringValue(columnIndexMap, values, nameof(SendGridEventParquet.Email)),
+                Timestamp = GetInt64Value(columnIndexMap, values, nameof(SendGridEventParquet.Timestamp)),
+                Event = GetStringValue(columnIndexMap, values, nameof(SendGridEventParquet.Event)),
+                Category = GetStringValue(columnIndexMap, values, nameof(SendGridEventParquet.Category)),
+                SgEventId = GetStringValue(columnIndexMap, values, nameof(SendGridEventParquet.SgEventId)),
+                SgMessageId = GetStringValue(columnIndexMap, values, nameof(SendGridEventParquet.SgMessageId)),
+                SgTemplateId = GetStringValue(columnIndexMap, values, nameof(SendGridEventParquet.SgTemplateId)),
+                UserAgent = GetStringValue(columnIndexMap, values, nameof(SendGridEventParquet.UserAgent)),
+                Ip = GetStringValue(columnIndexMap, values, nameof(SendGridEventParquet.Ip)),
+                Url = GetStringValue(columnIndexMap, values, nameof(SendGridEventParquet.Url)),
+                Reason = GetStringValue(columnIndexMap, values, nameof(SendGridEventParquet.Reason)),
+                Status = GetStringValue(columnIndexMap, values, nameof(SendGridEventParquet.Status)),
+                Response = GetStringValue(columnIndexMap, values, nameof(SendGridEventParquet.Response)),
+                MarketingCampaignName = GetStringValue(columnIndexMap, values, nameof(SendGridEventParquet.MarketingCampaignName)),
+                BounceClassification = GetStringValue(columnIndexMap, values, nameof(SendGridEventParquet.BounceClassification)),
+                Attempt = GetStringValue(columnIndexMap, values, nameof(SendGridEventParquet.Attempt)),
+                Type = GetStringValue(columnIndexMap, values, nameof(SendGridEventParquet.Type)),
+                AsmGroupId = GetNullableInt32Value(columnIndexMap, values, nameof(SendGridEventParquet.AsmGroupId)),
+                PoolId = GetNullableInt32Value(columnIndexMap, values, nameof(SendGridEventParquet.PoolId)),
+                SendAt = GetNullableInt64Value(columnIndexMap, values, nameof(SendGridEventParquet.SendAt))
+            };
+        }
+
+        return events;
+    }
+
+    private static IReadOnlyList<string> ExtractColumns(JsonElement root)
+    {
+        if (!root.TryGetProperty("columns", out var columnsElement) || columnsElement.ValueKind != JsonValueKind.Array)
+        {
+            return Array.Empty<string>();
+        }
+
+        var columns = new string[columnsElement.GetArrayLength()];
+        var index = 0;
+        foreach (var column in columnsElement.EnumerateArray())
+        {
+            columns[index++] = column.GetString() ?? string.Empty;
+        }
+
+        return columns;
+    }
+
+    private static IReadOnlyList<IReadOnlyList<string>> ExtractRowValues(JsonElement root, int expectedColumnCount)
+    {
+        if (!root.TryGetProperty("data", out var dataElement) || dataElement.ValueKind != JsonValueKind.Array)
+        {
+            return Array.Empty<IReadOnlyList<string>>();
+        }
+
+        var rows = new List<IReadOnlyList<string>>(dataElement.GetArrayLength());
+
+        foreach (var row in dataElement.EnumerateArray())
+        {
+            if (row.ValueKind != JsonValueKind.Array)
+            {
+                continue;
+            }
+
+            var values = new string[expectedColumnCount];
+            var columnIndex = 0;
+
+            foreach (var value in row.EnumerateArray())
+            {
+                if (columnIndex >= expectedColumnCount)
+                {
+                    break;
+                }
+
+                values[columnIndex++] = ConvertJsonElementToString(value) ?? string.Empty;
+            }
+
+            rows.Add(values);
+        }
+
+        return rows.Count == 0 ? Array.Empty<IReadOnlyList<string>>() : rows.ToArray();
+    }
+
+    private static string? ConvertJsonElementToString(JsonElement element)
+    {
+        return element.ValueKind switch
+        {
+            JsonValueKind.String => element.GetString(),
+            JsonValueKind.Number => element.ToString(),
+            JsonValueKind.True => bool.TrueString,
+            JsonValueKind.False => bool.FalseString,
+            JsonValueKind.Null or JsonValueKind.Undefined => null,
+            JsonValueKind.Object => element.ToString(),
+            JsonValueKind.Array => element.ToString(),
+            _ => element.ToString()
+        };
+    }
+
+    private static Dictionary<string, int> BuildColumnIndexMap(IReadOnlyList<string> columns)
+    {
+        var map = new Dictionary<string, int>(columns.Count, StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < columns.Count; i++)
+        {
+            var column = columns[i];
+            if (string.IsNullOrWhiteSpace(column) || map.ContainsKey(column))
+            {
+                continue;
+            }
+
+            map[column] = i;
+        }
+
+        return map;
+    }
+
+    private static string? GetStringValue(Dictionary<string, int> indexMap, IReadOnlyList<string> values, string columnName)
+    {
+        var raw = GetRawValue(indexMap, values, columnName);
+        return string.IsNullOrWhiteSpace(raw) ? null : raw;
+    }
+
+    private static long GetInt64Value(Dictionary<string, int> indexMap, IReadOnlyList<string> values, string columnName)
+    {
+        var raw = GetRawValue(indexMap, values, columnName);
+        return long.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) ? parsed : 0L;
+    }
+
+    private static long? GetNullableInt64Value(Dictionary<string, int> indexMap, IReadOnlyList<string> values, string columnName)
+    {
+        var raw = GetRawValue(indexMap, values, columnName);
+        return long.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) ? parsed : null;
+    }
+
+    private static int? GetNullableInt32Value(Dictionary<string, int> indexMap, IReadOnlyList<string> values, string columnName)
+    {
+        var raw = GetRawValue(indexMap, values, columnName);
+        return int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) ? parsed : null;
+    }
+
+    private static string? GetRawValue(Dictionary<string, int> indexMap, IReadOnlyList<string> values, string columnName)
+    {
+        if (!indexMap.TryGetValue(columnName, out var index) || index < 0 || index >= values.Count)
+        {
+            return null;
+        }
+
+        return values[index];
+    }
+
+    private async Task ClearRenderedResultsAsync()
+    {
+        if (_duckDbInterop is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _duckDbInterop.InvokeVoidAsync("clearResults", _resultsHost).ConfigureAwait(false);
+        }
+        catch (JSException ex)
+        {
+            Logger.LogWarning(ex, "Failed to clear duckdb results");
+        }
+    }
+
+    private static DateTimeOffset FromUnixTimeSecondsJst(long unixSeconds) => JstExtension.FromUnixTimeSecondsJst(unixSeconds);
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_duckDbInterop is not null)
+        {
+            try
+            {
+                await _duckDbInterop.InvokeVoidAsync("dispose").ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Failed to dispose duckdb module");
+            }
+
+            try
+            {
+                await _duckDbInterop.DisposeAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Failed to release duckdb interop reference");
+            }
+        }
+
+        _dotNetRef?.Dispose();
+        _dotNetRef = null;
+    }
+
+    private string BuildModuleImportPath()
+    {
+        var options = DuckDbOptions.Value;
+        var moduleLoader = options.ModuleLoader.Trim();
+        if (Uri.TryCreate(moduleLoader, UriKind.Absolute, out var absoluteLoader))
+        {
+            return absoluteLoader.ToString();
+        }
+
+        var basePath = options.BundleBasePath.Trim();
+        if (Uri.TryCreate(basePath, UriKind.Absolute, out var absoluteBase))
+        {
+            var combined = new Uri(absoluteBase, moduleLoader);
+            return combined.ToString();
+        }
+
+        basePath = basePath.TrimEnd('/');
+        if (!basePath.StartsWith('/'))
+        {
+            basePath = $"/{basePath}";
+        }
+
+        moduleLoader = moduleLoader.TrimStart('/');
+        return $"{basePath}/{moduleLoader}";
+    }
 }

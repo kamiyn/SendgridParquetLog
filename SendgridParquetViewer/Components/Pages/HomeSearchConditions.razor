@@ -1,0 +1,43 @@
+@using SendgridParquetViewer.Models
+
+<div class="conditionPain" style="padding: 20px; background-color: #f8f9fa; border-radius: 8px; margin-bottom: 20px;">
+    <h3>検索条件</h3>
+
+    <FluentStack Orientation="Orientation.Horizontal" Wrap="true" Style="gap: 20px; align-items: flex-start;">
+        <div style="min-width: 250px;">
+            <FluentTextField @bind-Value="SelectedEmail" @oninput="HandleFilterChanged" Label="email（LIKE句）" Style="width: 100%;" Placeholder="example@domain.com" />
+        </div>
+
+        <div style="min-width: 250px;">
+            <FluentTextField @bind-Value="SelectedSgTemplateId" @oninput="HandleFilterChanged" Label="sg_template_id（完全一致）" Style="width: 100%;" Placeholder="d-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
+        </div>
+
+        <div style="min-width: 200px;">
+            <FluentLabel>イベントタイプ</FluentLabel>
+            <FluentSelect TOption="string" @bind-Value="SelectedEventType" @onchange="HandleEventTypeChanged" Style="width: 100%; margin-top: 5px;">
+                @foreach (var eventType in EventTypes)
+                {
+                    <FluentOption TOption="string" Value="@eventType.Value">@eventType.Display</FluentOption>
+                }
+            </FluentSelect>
+        </div>
+
+        <div style="min-width: 260px;">
+            <FluentLabel>対象年月</FluentLabel>
+            <FluentStack Orientation="Orientation.Horizontal" Style="gap: 8px; align-items: center;">
+                <FluentButton Appearance="Appearance.Neutral" Disabled="@IsDownloading" OnClick="@(async () => await ChangeMonthAsync(-1))">前月</FluentButton>
+                <FluentDatePicker @bind-Value="CurrentMonthDate" @bind-Value:after="HandleMonthPickerAfterChanged" Style="width: 160px;" />
+                <FluentButton Appearance="Appearance.Neutral" Disabled="@IsDownloading" OnClick="@(async () => await ChangeMonthAsync(1))">翌月</FluentButton>
+            </FluentStack>
+            <small style="color: #666; display: block; margin-top: 4px;">月を変更するとその月のParquetを自動取得します</small>
+        </div>
+
+        <div style="margin-top: 25px;">
+            <FluentButton Appearance="Appearance.Accent" Disabled="@IsDownloading" OnClick="EnsureMonthDataAsync">月データ取得</FluentButton>
+        </div>
+
+        <div style="margin-top: 25px;">
+            <FluentButton Appearance="Appearance.Neutral" Disabled="@(IsLoading || IsDownloading || !SelectedDay.HasValue)" OnClick="SearchAsync">検索</FluentButton>
+        </div>
+    </FluentStack>
+</div>
