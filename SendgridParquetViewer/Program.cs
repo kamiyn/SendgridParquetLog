@@ -108,6 +108,9 @@ builder.Services.AddControllersWithViews()
 // Add Fluent UI
 builder.Services.AddFluentUIComponents();
 
+// Add in-memory cache for metadata lookups
+builder.Services.AddMemoryCache();
+
 
 // Add Parquet catalog service for browser downloads
 builder.Services.AddScoped<ParquetCatalogService>();

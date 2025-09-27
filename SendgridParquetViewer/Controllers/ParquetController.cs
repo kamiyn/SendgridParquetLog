@@ -1,8 +1,11 @@
 ﻿using System;
 using System.IO;
+using System.Threading.Tasks;
 
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Primitives;
 
 using SendgridParquet.Shared;
 
@@ -16,9 +19,12 @@ namespace SendgridParquetViewer.Controllers;
 [Route("api/parquet")]
 public class ParquetController(
     ParquetCatalogService catalogService,
-    S3StorageService s3StorageService) : ControllerBase
+    S3StorageService s3StorageService,
+    IMemoryCache memoryCache) : ControllerBase
 {
     private static readonly char[] ValidHashCharacters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_".ToCharArray();
+    private static readonly TimeSpan MetadataCacheDuration = TimeSpan.FromSeconds(60);
+    private const string MetadataCachePrefix = "parquet:metadata:";
 
     [HttpGet("month/{year:int}/{month:int}")]
     public async Task<ActionResult<ParquetMonthManifest>> GetMonthAsync(int year, int month, CancellationToken ct)
@@ -91,10 +97,16 @@ public class ParquetController(
 
     private async Task<IActionResult> DownloadParquetAsync(string key, CancellationToken ct)
     {
-        S3ObjectMetadata? metadata = await s3StorageService.GetObjectMetadataAsync(key, ct);
+        S3ObjectMetadata? metadata = await GetMetadataWithCacheAsync(key, ct).ConfigureAwait(false);
         if (metadata is null)
         {
             return NotFound();
+        }
+
+        if (IsEtagMatch(Request.Headers.IfNoneMatch, metadata.ETag))
+        {
+            AddMetadataHeaders(metadata);
+            return StatusCode(StatusCodes.Status304NotModified);
         }
 
         byte[] content = await s3StorageService.GetObjectAsByteArrayAsync(key, ct);
@@ -103,17 +115,84 @@ public class ParquetController(
             return NotFound();
         }
 
-        if (!string.IsNullOrEmpty(metadata.Sha256Hash))
-        {
-            Response.Headers.TryAdd("x-parquet-sha256", metadata.Sha256Hash);
-        }
-
-        if (!string.IsNullOrEmpty(metadata.ETag))
-        {
-            Response.Headers.TryAdd("ETag", metadata.ETag);
-        }
+        AddMetadataHeaders(metadata);
 
         return File(content, "application/octet-stream", Path.GetFileName(key));
+    }
+
+    private async ValueTask<S3ObjectMetadata?> GetMetadataWithCacheAsync(string key, CancellationToken ct)
+    {
+        string cacheKey = string.Concat(MetadataCachePrefix, key);
+        if (memoryCache.TryGetValue(cacheKey, out S3ObjectMetadata? cachedMetadata))
+        {
+            return cachedMetadata;
+        }
+
+        S3ObjectMetadata? metadata = await s3StorageService.GetObjectMetadataAsync(key, ct).ConfigureAwait(false);
+        var cacheEntryOptions = new MemoryCacheEntryOptions
+        {
+            AbsoluteExpirationRelativeToNow = MetadataCacheDuration
+        };
+
+        memoryCache.Set(cacheKey, metadata, cacheEntryOptions);
+        return metadata;
+    }
+
+    private void AddMetadataHeaders(S3ObjectMetadata metadata)
+    {
+        if (!string.IsNullOrWhiteSpace(metadata.Sha256Hash))
+        {
+            Response.Headers["x-parquet-sha256"] = metadata.Sha256Hash;
+        }
+
+        if (!string.IsNullOrWhiteSpace(metadata.ETag))
+        {
+            Response.Headers["ETag"] = metadata.ETag;
+        }
+    }
+
+    private static bool IsEtagMatch(StringValues requestEtags, string? metadataEtag)
+    {
+        if (StringValues.IsNullOrEmpty(requestEtags))
+        {
+            return false;
+        }
+
+        if (metadataEtag is null)
+        {
+            return false;
+        }
+
+        foreach (var rawValue in requestEtags)
+        {
+            if (string.IsNullOrWhiteSpace(rawValue))
+            {
+                continue;
+            }
+
+            if (rawValue.Contains('*', StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            if (string.Equals(NormalizeEtag(rawValue), NormalizeEtag(metadataEtag), StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static string NormalizeEtag(string etag)
+    {
+        var trimmed = etag.Trim();
+        if (trimmed.StartsWith("W/", StringComparison.OrdinalIgnoreCase))
+        {
+            trimmed = trimmed[2..];
+        }
+
+        return trimmed.Trim('"');
     }
 
     private static bool IsValidDate(int year, int month, int day)
