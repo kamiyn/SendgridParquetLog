@@ -1,4 +1,6 @@
-﻿using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+﻿using System.Collections.Generic;
+
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.FluentUI.AspNetCore.Components;
 using Microsoft.Identity.Web;
@@ -9,6 +11,8 @@ using SendgridParquet.Shared;
 using SendgridParquetViewer.Components;
 using SendgridParquetViewer.Models;
 using SendgridParquetViewer.Services;
+
+using Yarp.ReverseProxy.Configuration;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -119,6 +123,36 @@ builder.Services.AddHostedService<CompactionStartupHostedService>(); // 起動�
 // Add health checks
 builder.Services.AddHealthChecks();
 
+var s3Routes = new[]
+{
+    new RouteConfig
+    {
+        RouteId = "s3-route",
+        ClusterId = "s3-cluster",
+        Match = new RouteMatch { Path = "/s3files/{**s3Key}" }
+    }
+};
+
+var s3Clusters = new[]
+{
+    new ClusterConfig
+    {
+        ClusterId = "s3-cluster",
+        Destinations = new Dictionary<string, DestinationConfig>
+        {
+            ["s3"] = new DestinationConfig
+            {
+                // Placeholder; S3PresigningTransformer assigns the actual pre-signed URL per request.
+                Address = "https://placeholder.invalid/"
+            }
+        }
+    }
+};
+
+builder.Services.AddReverseProxy()
+    .AddTransforms<S3PresigningTransformer>()
+    .LoadFromMemory(s3Routes, s3Clusters);
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
@@ -144,6 +178,7 @@ app.MapRazorComponents<App>()
 
 // Map controllers for authentication endpoints
 app.MapControllers();
+app.MapReverseProxy();
 
 // Map health check endpoint (allow anonymous access)
 app.MapHealthChecks("/health6QQl").AllowAnonymous();

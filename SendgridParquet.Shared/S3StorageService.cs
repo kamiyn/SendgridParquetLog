@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -26,6 +27,7 @@ public class S3StorageService(
 )
 {
     private readonly S3Options _options = options.Value;
+    private const double MaxPresignedLifetimeSeconds = 7 * 24 * 60 * 60; // 7 days per AWS limit
 
     const int MaxErrorContentLength = 1024;
     private static string ErrorContent(string? s) => string.IsNullOrEmpty(s)
@@ -212,6 +214,100 @@ public class S3StorageService(
             logger.ZLogError(ex, $"Error deleting object {uri} from S3");
             return false;
         }
+    }
+
+    /// <summary>
+    /// Generate a pre-signed GET URL for the specified object key.
+    /// </summary>
+    public string CreatePreSignedGetUrl(
+        string key,
+        TimeSpan lifetime,
+        IEnumerable<KeyValuePair<string, string?>>? additionalQueryParameters = null)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            throw new ArgumentException("Key must be provided.", nameof(key));
+        }
+
+        if (lifetime <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(lifetime), "Lifetime must be positive.");
+        }
+
+        double lifetimeSeconds = Math.Min(lifetime.TotalSeconds, MaxPresignedLifetimeSeconds);
+        int expires = (int)Math.Max(1, Math.Floor(lifetimeSeconds));
+
+        var signatureSource = CreateSignatureSource();
+        var requestUri = new Uri($"{_options.SERVICEURL}/{_options.BUCKETNAME}/{key}");
+        var hostHeader = requestUri.IsDefaultPort ? requestUri.Host : $"{requestUri.Host}:{requestUri.Port}";
+        var canonicalHeaders = new S3CanonicalHeaders(new[]
+        {
+            new KeyValuePair<string, string>("Host", hostHeader)
+        });
+
+        static string EncodeComponent(string value) =>
+            Uri.EscapeDataString(value).Replace("%7E", "~", StringComparison.Ordinal);
+
+        var encodedQueryParameters = new List<(string Key, string Value)>();
+
+        void AddQueryParameter(string name, string value)
+        {
+            encodedQueryParameters.Add((EncodeComponent(name), EncodeComponent(value)));
+        }
+
+        AddQueryParameter("X-Amz-Algorithm", "AWS4-HMAC-SHA256");
+        AddQueryParameter("X-Amz-Credential", $"{_options.ACCESSKEY}/{signatureSource.GetCredentialScope()}");
+        AddQueryParameter("X-Amz-Date", signatureSource.AmzDate);
+        AddQueryParameter("X-Amz-Expires", expires.ToString(CultureInfo.InvariantCulture));
+        AddQueryParameter("X-Amz-SignedHeaders", canonicalHeaders.SignedHeaders);
+
+        if (additionalQueryParameters is not null)
+        {
+            foreach (var pair in additionalQueryParameters)
+            {
+                if (string.IsNullOrEmpty(pair.Key))
+                {
+                    continue;
+                }
+
+                AddQueryParameter(pair.Key, pair.Value ?? string.Empty);
+            }
+        }
+
+        encodedQueryParameters.Sort(static (left, right) =>
+        {
+            int keyComparison = StringComparer.Ordinal.Compare(left.Key, right.Key);
+            return keyComparison != 0
+                ? keyComparison
+                : StringComparer.Ordinal.Compare(left.Value, right.Value);
+        });
+
+        string canonicalQuery = string.Join("&", encodedQueryParameters.Select(p => $"{p.Key}={p.Value}"));
+
+        var canonicalRequestBuilder = new StringBuilder();
+        canonicalRequestBuilder.Append("GET\n");
+        canonicalRequestBuilder.Append(requestUri.AbsolutePath);
+        canonicalRequestBuilder.Append('\n');
+        canonicalRequestBuilder.Append(canonicalQuery);
+        canonicalRequestBuilder.Append('\n');
+        canonicalRequestBuilder.Append(canonicalHeaders.CanonicalHeaders);
+        canonicalRequestBuilder.Append(canonicalHeaders.SignedHeaders);
+        canonicalRequestBuilder.Append('\n');
+        canonicalRequestBuilder.Append("UNSIGNED-PAYLOAD");
+        string canonicalRequest = canonicalRequestBuilder.ToString();
+
+        string canonicalRequestHash = CalculateSHA256Hash(Encoding.UTF8.GetBytes(canonicalRequest));
+        var credentialScope = signatureSource.GetCredentialScope();
+        string stringToSign =
+            $"AWS4-HMAC-SHA256\n{signatureSource.AmzDate}\n{credentialScope}\n{canonicalRequestHash}";
+        string signature = CalculateSignature(stringToSign, signatureSource);
+
+        string finalQuery = canonicalQuery.Length == 0
+            ? $"X-Amz-Signature={signature}"
+            : $"{canonicalQuery}&X-Amz-Signature={signature}";
+
+        string basePath = requestUri.GetLeftPart(UriPartial.Path);
+        return $"{basePath}?{finalQuery}";
     }
 
     public async ValueTask<bool> PutObjectWithConditionAsync(string key, byte[] content, byte[] expectExists, CancellationToken ct)
