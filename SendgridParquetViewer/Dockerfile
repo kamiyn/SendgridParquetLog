@@ -11,10 +11,7 @@ COPY . .
 RUN dotnet restore
 
 WORKDIR /src/SendgridParquetViewer
-# Propagate build metadata into MSBuild so Directory.Build.props picks them up
-ENV VERSION=${VERSION}
-ENV GITHUB_RUN_NUMBER=${GITHUB_RUN_NUMBER}
-ENV GITHUB_SHA=${GITHUB_SHA}
+# dotnet publish passes build metadata properties (-p:VERSION, etc.) to the imported targets
 
 # use aspnet:10.0-noble-chiseled for Viewer
 # default setting (PublishAot=false,PublishTrimmed=false,-self-contained false)
