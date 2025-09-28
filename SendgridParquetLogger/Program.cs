@@ -16,15 +16,25 @@ builder.Logging.ClearProviders();
 builder.Logging.AddZLoggerConsole();
 
 // Configure options
+// .csproj に以下の記述をして PublishAot を伝播させている
+//  <PropertyGroup Condition="'$(PublishAot)' == 'true'">
+//    <DefineConstants>$(DefineConstants);PUBLISHAOT</DefineConstants>
+//  </PropertyGroup>
 builder.Services.AddOptions<S3Options>()
     .Bind(builder.Configuration.GetSection(S3Options.SectionName))
+#if !PUBLISHAOT
     .ValidateDataAnnotations()
-    .ValidateOnStart();
+    .ValidateOnStart()
+#endif
+    ;
 
 builder.Services.AddOptions<SendGridOptions>()
     .Bind(builder.Configuration.GetSection(SendGridOptions.SectionName))
+#if !PUBLISHAOT
     .ValidateDataAnnotations()
-    .ValidateOnStart();
+    .ValidateOnStart()
+#endif
+    ;
 
 #if UseSwagger
 builder.Services.AddControllers()
