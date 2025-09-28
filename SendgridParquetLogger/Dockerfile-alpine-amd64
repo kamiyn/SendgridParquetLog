@@ -1,5 +1,5 @@
 # Build stage
-FROM mcr.microsoft.com/dotnet/sdk:10.0-alpine-aot AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0-aot AS build
 WORKDIR /src
 
 # 10.0-alpine-aot includes these toolchain
@@ -36,7 +36,7 @@ WORKDIR /src/SendgridParquetLogger
 ENV VERSION=${VERSION}
 ENV GITHUB_RUN_NUMBER=${GITHUB_RUN_NUMBER}
 ENV GITHUB_SHA=${GITHUB_SHA}
-RUN dotnet publish -c Release -r linux-musl-x64 --self-contained true \
+RUN dotnet publish -c Release -r linux-x64 --self-contained true \
  -p:PublishTrimmed=true \
  -p:PublishAot=true \
  -p:VERSION=${VERSION:-0.0.0} \
@@ -46,18 +46,18 @@ RUN dotnet publish -c Release -r linux-musl-x64 --self-contained true \
 
 # Runtime stage - Using Alpine for minimal size
 # 182MB: mcr.microsoft.com/dotnet/runtime:10.0-alpine-amd64
-# FROM mcr.microsoft.com/dotnet/runtime:10.0-alpine-amd64
+FROM mcr.microsoft.com/dotnet/runtime:10.0-alpine-amd64
 # 107MB: alpine:3.22, 105MB: alpine:3.20
-FROM alpine:3.22
+# FROM alpine:3.22
 WORKDIR /app
 
 # Install required dependencies for .NET runtime on Alpine
-RUN apk add --no-cache \
-    libstdc++ \
-    libgcc \
-    icu-libs \
-    ca-certificates \
-    curl
+# RUN apk add --no-cache \
+#     libstdc++ \
+#     libgcc \
+#     icu-libs \
+#     ca-certificates \
+#     curl
 
 # Copy published application
 COPY --from=build /app/publish .
