@@ -1,5 +1,4 @@
-﻿using System.Collections.Concurrent;
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Threading.Channels;
 
 using MemoryPack;
@@ -26,9 +25,10 @@ public class CompactionService(
 )
 {
     /// <summary>
-    /// 200,000 行で約 24 MiB 程度になる（10000 行で約 1.2 MiB）。Compaction においてはメモリに余裕のあるインスタンスで実行する
+    /// Compaction においてはメモリに余裕のあるインスタンスで実行する
+    /// 1GB インスタンスで 200,000 行を指定したところ メモリ不足で失敗した
     /// </summary>
-    private const int RowGroupSize = 200_000;
+    private const int RowGroupSize = 60_000;
 
     private CancellationTokenSource? _startupCancellation;
     private CompactionStartResult? _compactionStartResult;
@@ -421,17 +421,16 @@ public class CompactionService(
     private async Task<IReadOnlyCollection<string>> CreateCompactedParquetAsync(FetchReadParquetFilesResult fetchReadParquetFilesResult, CancellationToken token)
     {
         var outputFiles = new List<string>(fetchReadParquetFilesResult.PackedByHours.Count);
-        foreach (var hourGroup in fetchReadParquetFilesResult.PackedByHours
-                     .GroupBy(item => item.KeyUnixTimeSeconds)
-                     .OrderBy(grp => grp.Key))
+        foreach (HourlyFolder hourlyFolder in fetchReadParquetFilesResult.PackedByHours
+                     .OrderBy(grp => grp.Key)
+                     .Select(kv => kv.Value))
         {
-            var firstItem = hourGroup.First();
-            DateTimeOffset dt = JstExtension.FromUnixTimeSecondsJst(firstItem.KeyUnixTimeSeconds);
+            DateTimeOffset dt = JstExtension.FromUnixTimeSecondsJst(hourlyFolder.KeyUnixTimeSeconds);
             var dateOnly = new DateOnly(dt.Year, dt.Month, dt.Day);
             string outputFileName = string.Empty;
             try
             {
-                int hourEventCount = hourGroup.Sum(x => x.Count);
+                int hourEventCount = hourlyFolder.Count;
                 if (hourEventCount == 0)
                 {
                     logger.ZLogWarning($"No events found for this hour group (hour {dt.Hour})");
@@ -444,7 +443,7 @@ public class CompactionService(
                 try
                 {
                     bool convertToParquetResult = await parquetService.ConvertToParquetStreamingAsync(
-                        EnumeratePackedEventsAsync(hourGroup, token),
+                        EnumeratePackedEventsAsync(hourlyFolder, token),
                         outputStream,
                         rowGroupSize: RowGroupSize,
                         token: token);
@@ -477,16 +476,16 @@ public class CompactionService(
     }
 
     private static async IAsyncEnumerable<SendGridEvent> EnumeratePackedEventsAsync(
-        IEnumerable<FetchReadParquetFilesResult.PackedItem> packedItems,
+        HourlyFolder hourlyFolder,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken token)
     {
-        foreach (var packedFile in packedItems)
+        foreach (FileInfo packedFile in hourlyFolder.DirectoryInfo.GetFiles().OrderBy(x => x.Name))
         {
             token.ThrowIfCancellationRequested();
-            string fullName = packedFile.FileInfo.FullName;
+            string fullName = packedFile.FullName;
             await using var fs = new FileStream(fullName, FileMode.Open, FileAccess.Read, FileShare.Read, DisposableTempFile.BufferSize, useAsync: true);
             SendGridEvent[] events = await MemoryPackSerializer.DeserializeAsync<SendGridEvent[]>(fs, cancellationToken: token) ?? [];
-            foreach (var sendGridEvent in events)
+            foreach (SendGridEvent sendGridEvent in events)
             {
                 token.ThrowIfCancellationRequested();
                 yield return sendGridEvent;
@@ -549,16 +548,31 @@ public class CompactionService(
         public FileStream ParquetTempStream { get; init; } = null!;
     }
 
+    class HourlyFolder
+    {
+        internal long KeyUnixTimeSeconds { get; private set; }
+        internal DirectoryInfo DirectoryInfo { get; init; }
+        internal int Count => _count;
+        private int _count;
+
+        internal HourlyFolder(DateTimeOffset hourGroupKey, DirectoryInfo directoryInfo)
+        {
+            KeyUnixTimeSeconds = hourGroupKey.ToUnixTimeSeconds();
+            DirectoryInfo = directoryInfo;
+            _count = 0;
+        }
+
+        internal void AddCount(int cnt) => Interlocked.Add(ref _count, cnt);
+    }
+
     class FetchReadParquetFilesResult
     {
-        internal record struct PackedItem(long KeyUnixTimeSeconds, int Count, FileInfo FileInfo);
-
         /// <summary>
         /// 1時間ごとの SendGridEvent 配列を格納した一時ファイルの一覧
         /// </summary>
-        internal IReadOnlyCollection<PackedItem> PackedByHours { get; init; } = [];
+        internal IReadOnlyDictionary<long, HourlyFolder> PackedByHours { get; init; } = new Dictionary<long, HourlyFolder>();
 
-        internal int Count => PackedByHours.DefaultIfEmpty().Sum(x => x.Count);
+        internal int Count => PackedByHours.Any() ? PackedByHours.Sum(x => x.Value.Count) : 0;
     }
 
     /// <summary>
@@ -591,13 +605,13 @@ public class CompactionService(
         return await consumer;
     }
 
+
     private async Task<FetchReadParquetFilesResult> FetchParquetFilesConsumerAsync(CompactionBatchContext ctx,
         ChannelReader<SendGridEventsOneFile> reader,
         CancellationToken token)
     {
         DirectoryInfo dailyTargetFolder = ctx.CreateTempFolderForRawFiles(logger);
-        var createdHourlyFolders = new ConcurrentDictionary<string, DateTimeOffset>();
-        var results = new List<FetchReadParquetFilesResult.PackedItem>(25);
+        var createdHourlyFolders = new Dictionary<long, HourlyFolder>();
 
         await foreach (SendGridEventsOneFile sendgridEventOneFile in reader.ReadAllAsync(token))
         {
@@ -619,22 +633,26 @@ public class CompactionService(
                     SendGridEvent[] eventsByHour = hourGroup.ToArray(); // シリアライズする前に 配列にする
 
                     DateTimeOffset hourGroupKey = JstExtension.FromUnixTimeSecondsJst(hourGroup.Key * 3600);
-                    string targetFolder = Path.Combine(dailyTargetFolder.FullName, $"{hourGroupKey:yyyyMMddHH}");
-                    if (createdHourlyFolders.TryAdd(targetFolder, hourGroupKey))
+                    if (!createdHourlyFolders.TryGetValue(hourGroup.Key, out HourlyFolder? hourlyfolder))
                     {
+                        string targetFolder = Path.Combine(dailyTargetFolder.FullName, $"{hourGroupKey:yyyyMMddHH}");
                         Directory.CreateDirectory(targetFolder);
+                        hourlyfolder = new HourlyFolder(hourGroupKey, new DirectoryInfo(targetFolder));
+
+                        createdHourlyFolders.Add(hourGroup.Key, hourlyfolder);
                     }
                     string originalFileName = Path.GetFileName(sendgridEventOneFile.ParquetFile);
-                    string targetFilePath = Path.Combine(targetFolder, originalFileName);
+                    // 中断した場合は上書きしたいため 元のファイル名を使う
+                    string targetFilePath = Path.Combine(hourlyfolder.DirectoryInfo.FullName, originalFileName);
                     await using var fs = new FileStream(targetFilePath, FileMode.Create, FileAccess.Write, FileShare.None, DisposableTempFile.BufferSize, useAsync: true);
                     await MemoryPackSerializer.SerializeAsync(fs, eventsByHour, cancellationToken: token);
 
-                    results.Add(new FetchReadParquetFilesResult.PackedItem(hourGroupKey.ToUnixTimeSeconds(), eventsByHour.Length, new FileInfo(targetFilePath)));
+                    hourlyfolder.AddCount(eventsByHour.Length);
                 }
             }
         }
 
-        return new FetchReadParquetFilesResult { PackedByHours = results, };
+        return new FetchReadParquetFilesResult { PackedByHours = createdHourlyFolders, };
     }
 
     private async Task FetchParquetFilesProducerAsync(CompactionBatchContext ctx,
