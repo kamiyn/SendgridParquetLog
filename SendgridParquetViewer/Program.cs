@@ -17,15 +17,16 @@ var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
 #endif
 
-#if DEBUG // Dev認証機能については 安全のため Release ビルドで明示的に無効化された状態にする
-var azureAdSection = builder.Configuration.GetSection("AzureAd");
-if (string.IsNullOrEmpty(azureAdSection.GetValue<string>("Instance")))
+// 開発用認証は、環境変数 ENABLE_DEV_AUTH が true の場合に有効になります。
+// 本番環境では public な S3 互換ストレージを利用することを想定しています。
+// Development authentication is enabled when the ENABLE_DEV_AUTH environment variable is set to true.
+var enableDevAuth = Environment.GetEnvironmentVariable("ENABLE_DEV_AUTH");
+if (string.Equals(enableDevAuth, "true", StringComparison.OrdinalIgnoreCase))
 {
     builder.AddDevAuthentication();
     builder.AddDevAuthorization();
 }
 else
-#endif
 {
     // Add Azure AD authentication
     builder.Services.AddAuthentication(OpenIdConnectDefaults.AuthenticationScheme)
