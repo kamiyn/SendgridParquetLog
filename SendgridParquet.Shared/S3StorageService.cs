@@ -90,7 +90,7 @@ public class S3StorageService(
         }
     }
 
-    public async ValueTask CreateBucketIfNotExistsAsync(CancellationToken ct)
+    public async Task CreateBucketIfNotExistsAsync(CancellationToken ct)
     {
         if (!await BucketExistsAsync(ct))
         {
