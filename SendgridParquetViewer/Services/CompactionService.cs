@@ -1,6 +1,4 @@
-﻿using System.Buffers;
-using System.Collections.Concurrent;
-using System.Globalization;
+﻿using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Threading.Channels;
 
@@ -542,9 +540,8 @@ public class CompactionService(
     /// </summary>
     class SendGridEventsOneFile
     {
-        internal IReadOnlyList<SendGridEvent> SendGridEvents { get; init; } = Array.Empty<SendGridEvent>();
+        internal IReadOnlyCollection<SendGridEvent> SendGridEvents { get; init; } = [];
         internal string ParquetFile { get; init; } = string.Empty;
-        internal int ChunkIndex { get; init; }
     }
 
     class FetchReadParquetFilesResult
@@ -609,13 +606,8 @@ public class CompactionService(
                 {
                     Directory.CreateDirectory(targetFolder);
                 }
-                string originalFileNameWithoutExtension = Path.GetFileNameWithoutExtension(sendgridEventOneFile.ParquetFile);
-                string extension = Path.GetExtension(sendgridEventOneFile.ParquetFile);
-                string chunkSuffix = sendgridEventOneFile.ChunkIndex == 0
-                    ? string.Empty
-                    : $"_{sendgridEventOneFile.ChunkIndex.ToString("D4", CultureInfo.InvariantCulture)}";
-                string targetFileName = string.Concat(originalFileNameWithoutExtension, chunkSuffix, extension);
-                string targetFilePath = Path.Combine(targetFolder, targetFileName);
+                string originalFileName = Path.GetFileName(sendgridEventOneFile.ParquetFile);
+                string targetFilePath = Path.Combine(targetFolder, originalFileName);
                 await using var fs = new FileStream(targetFilePath, FileMode.Create, FileAccess.Write, FileShare.None, DisposableTempFile.BufferSize, useAsync: true);
                 await MemoryPackSerializer.SerializeAsync(fs, eventsByHour, cancellationToken: token);
 
@@ -633,17 +625,10 @@ public class CompactionService(
         foreach (string parquetFile in ctx.CandidateParquetFiles)
         {
             token.ThrowIfCancellationRequested();
-
-            if (ctx.ProcessedBytes >= _compactionOptions.MaxBatchSizeBytes && ctx.ProcessedBytes > 0)
-            {
-                logger.ZLogInformation($"Reached read limit {_compactionOptions.MaxBatchSizeBytes}, stopping further reads in this batch");
-                break;
-            }
-
             try
             {
+                var sendGridEvents = new List<SendGridEvent>();
                 logger.ZLogInformation($"Reading Parquet file: {parquetFile}");
-
                 using HttpResponseMessage response = await s3StorageService.GetObjectAsync(parquetFile, token);
                 if (!response.IsSuccessStatusCode)
                 {
@@ -653,8 +638,13 @@ public class CompactionService(
                 }
 
                 long? responseLength = response.Content.Headers.ContentLength;
+                if (responseLength is null or <= 0)
+                {
+                    logger.ZLogWarning($"Empty parquet file: {parquetFile}");
+                    ctx.AddFailedReadingParquetFiles(parquetFile, timeProvider.GetUtcNow());
+                    continue;
+                }
                 if (ctx.ProcessedBytes > 0
-                    && responseLength.HasValue
                     && ctx.ProcessedBytes + responseLength.Value > _compactionOptions.MaxBatchSizeBytes)
                 {
                     logger.ZLogInformation(
@@ -667,58 +657,25 @@ public class CompactionService(
                 await responseStream.CopyToAsync(parquetTempStream, DisposableTempFile.BufferSize, token);
                 parquetTempStream.Seek(0, SeekOrigin.Begin);
 
-                long processedBytes = parquetTempStream.Length;
                 using ParquetReader parquetReader = await ParquetReader.CreateAsync(parquetTempStream, cancellationToken: token);
-
-                int maxEventsPerChunk = Math.Max(1, _compactionOptions.MaxEventsPerChunk);
-                var chunkBuffer = new ArrayBufferWriter<SendGridEvent>(maxEventsPerChunk);
-                int chunkIndex = 0;
-                long eventsRead = 0;
-
-                async ValueTask FlushChunkAsync()
-                {
-                    if (chunkBuffer.WrittenCount == 0)
-                    {
-                        return;
-                    }
-
-                    SendGridEvent[] chunkEvents = chunkBuffer.WrittenSpan.ToArray();
-                    chunkBuffer.Clear();
-                    int currentChunkIndex = chunkIndex;
-                    chunkIndex += 1;
-
-                    await writer.WriteAsync(
-                        new SendGridEventsOneFile
-                        {
-                            ParquetFile = parquetFile,
-                            SendGridEvents = chunkEvents,
-                            ChunkIndex = currentChunkIndex,
-                        }, token);
-                }
-
                 for (int rowGroupIndex = 0; rowGroupIndex < parquetReader.RowGroupCount; rowGroupIndex++)
                 {
-                    token.ThrowIfCancellationRequested();
                     using ParquetRowGroupReader rowGroupReader = parquetReader.OpenRowGroupReader(rowGroupIndex);
-                    await foreach (SendGridEvent sendGridEvent in parquetService.ReadRowGroupEventsAsync(rowGroupReader, parquetReader, token))
+                    await foreach (SendGridEvent sendGridEvent in parquetService.ReadRowGroupEventsAsync(
+                                       rowGroupReader, parquetReader, token))
                     {
-                        token.ThrowIfCancellationRequested();
-                        Span<SendGridEvent> span = chunkBuffer.GetSpan(1);
-                        span[0] = sendGridEvent;
-                        chunkBuffer.Advance(1);
-                        eventsRead += 1;
-
-                        if (chunkBuffer.WrittenCount >= maxEventsPerChunk)
-                        {
-                            await FlushChunkAsync();
-                        }
+                        sendGridEvents.Add(sendGridEvent);
                     }
                 }
 
-                await FlushChunkAsync();
-
-                ctx.AddProcessedFile(parquetFile, processedBytes, timeProvider.GetUtcNow());
-                logger.ZLogInformation($"Successfully read {eventsRead} events in {chunkIndex} chunks from {parquetFile}");
+                await writer.WriteAsync(
+                    new SendGridEventsOneFile
+                    {
+                        ParquetFile = parquetFile,
+                        SendGridEvents = sendGridEvents,
+                    }, token);
+                ctx.AddProcessedFile(parquetFile, responseLength.Value, timeProvider.GetUtcNow());
+                logger.ZLogInformation($"Successfully read {sendGridEvents.Count} events from {parquetFile}");
             }
             catch (OperationCanceledException)
             {
