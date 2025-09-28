@@ -19,8 +19,10 @@ builder.AddServiceDefaults();
 
 // S3の接続先が port 9000 でアクセスキーが minioadmin の場合は開発用認証を使う。
 // 本番においては public な S3 互換ストレージを使うことを想定しているため。
+var tenantId = builder.Configuration.GetSection("AzureAd").GetValue<string>("TenantId");
 var s3Section = builder.Configuration.GetSection(S3Options.SectionName);
-if (Uri.TryCreate(s3Section.GetValue<string>("SERVICEURL"), UriKind.Absolute,out Uri s3Uri)
+if (Guid.TryParse(tenantId, out Guid _) == false // TenantId が Guid として不正な場合
+    && Uri.TryCreate(s3Section.GetValue<string>("SERVICEURL"), UriKind.Absolute,out Uri s3Uri)
     && s3Uri is { Scheme: "http", Port: 9000 }
     && s3Section.GetValue<string>("ACCESSKEY") == "minioadmin")
 {
