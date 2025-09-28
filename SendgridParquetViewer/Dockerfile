@@ -1,29 +1,30 @@
 # Build stage
-FROM mcr.microsoft.com/dotnet/sdk:10.0-preview AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 # Accept build-time variables from CI
-ARG VERSION
+ARG VERSION=0.0.0
 ARG GITHUB_RUN_NUMBER
 ARG GITHUB_SHA
 
 COPY . .
 RUN dotnet restore
 
-# Publish for linux-x64 so native assets (libduckdb.so) are included
 WORKDIR /src/SendgridParquetViewer
 # Propagate build metadata into MSBuild so Directory.Build.props picks them up
 ENV VERSION=${VERSION}
 ENV GITHUB_RUN_NUMBER=${GITHUB_RUN_NUMBER}
 ENV GITHUB_SHA=${GITHUB_SHA}
-RUN dotnet publish -c Release -r linux-x64 -o /app/publish \
- --self-contained false \
- -p:PublishTrimmed=false \
- -p:VERSION=${VERSION} \
- -p:GITHUB_RUN_NUMBER=${GITHUB_RUN_NUMBER} \
- -p:GITHUB_SHA=${GITHUB_SHA}
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0-preview AS runtime
+# use aspnet:10.0-noble-chiseled for Viewer
+# default setting (PublishAot=false,PublishTrimmed=false,-self-contained false)
+RUN dotnet publish -c Release -r linux-x64 \
+ -p:VERSION=${VERSION:-0.0.0} \
+ -p:GITHUB_RUN_NUMBER=${GITHUB_RUN_NUMBER} \
+ -p:GITHUB_SHA=${GITHUB_SHA} \
+ -o /app/publish
+
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled AS runtime
 WORKDIR /app
 
 # Copy published output

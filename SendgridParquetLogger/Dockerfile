@@ -1,5 +1,5 @@
 # Build stage
-FROM mcr.microsoft.com/dotnet/sdk:10.0-preview-alpine AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0-alpine AS build
 WORKDIR /src
 
 # NativeAOT prerequisites (platform linker, musl toolchain)
@@ -36,18 +36,18 @@ ENV VERSION=${VERSION}
 ENV GITHUB_RUN_NUMBER=${GITHUB_RUN_NUMBER}
 ENV GITHUB_SHA=${GITHUB_SHA}
 RUN dotnet publish -c Release -r linux-musl-x64 --self-contained true \
-  -p:PublishTrimmed=true \
-  -p:PublishAot=true \
-  -p:PublishSingleFile=false \
-  -p:UseAppHost=false \
-  -p:PublishReadyToRun=true \
-  -p:VERSION=${VERSION} \
-  -p:GITHUB_RUN_NUMBER=${GITHUB_RUN_NUMBER} \
-  -p:GITHUB_SHA=${GITHUB_SHA} \
-  -o /app/publish
+ -p:PublishTrimmed=true \
+ -p:PublishAot=true \
+ -p:VERSION=${VERSION:-0.0.0} \
+ -p:GITHUB_RUN_NUMBER=${GITHUB_RUN_NUMBER} \
+ -p:GITHUB_SHA=${GITHUB_SHA} \
+ -o /app/publish
 
 # Runtime stage - Using Alpine for minimal size
-FROM alpine:3.20
+# 182MB: mcr.microsoft.com/dotnet/runtime:10.0-alpine-amd64
+# FROM mcr.microsoft.com/dotnet/runtime:10.0-alpine-amd64
+# 107MB: alpine:3.22, 105MB: alpine:3.20
+FROM alpine:3.22
 WORKDIR /app
 
 # Install required dependencies for .NET runtime on Alpine

@@ -80,10 +80,13 @@ public class CompactionService(
         await _startupTaskSemaphore.WaitAsync(ct);
         try
         {
-            var isTaskRunning = _compactionStartResult?.StartTask != null && !_compactionStartResult.StartTask.IsCompleted;
-            if (isTaskRunning)
+            if (_compactionStartResult != null)
             {
-                return _compactionStartResult;
+                var isTaskRunning = _compactionStartResult.StartTask != null && !_compactionStartResult.StartTask.IsCompleted;
+                if (isTaskRunning)
+                {
+                    return _compactionStartResult;
+                }
             }
             // 開始の指示に対しては Faulted, Cancelled でも再開する
             return await StartCompactionAsyncInLock(ct);

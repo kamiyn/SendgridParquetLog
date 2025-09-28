@@ -1,6 +1,17 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+プロンプトに書かれた内容、および、処理内容 を Markdown 形式 ./codinglog/Gpt<yyyyMMddHHmm>.md ファイルへ記録してください
+
+プルリクエストメッセージ案を出力する際は VSCode extension でコピーしやすいよう ''' ''' で囲ってください
+
+## Important Notes
+
+- do not use 'sudo' command
+- なるべく immuntable なデータ構造を使うこと。関数内で生成されたデータは IReadOnlyList<T> で返すのが望ましい
+- IReadOnlyList<T> を作る際に、事前に要素数がわかるなら　ToArray() を使って配列にする。List<T> は避ける
+- foreach に渡すオブジェクトを生成するために 複数の集合を合成する場合には IEnumerable<T> を返すような ローカル関数 として実装してメモリ割り当てを避ける
+- コード修正の最後に dotnet format を実行する
+- razor ファイルはCSharpコードを分離せず single file にする
 
 ## Project Overview
 
@@ -80,6 +91,13 @@ Webhook signature verification requires configuration via Options:
 
 In Aspire environment, these are automatically configured to use local MinIO instance.
 
+## S3 Storage Layout
+
+- Raw webhook uploads land under `v3raw/YYYY/MM/DD/<Base64UrlHash>.parquet`. The hash is the SHA-256 of the Parquet payload, so duplicate retries overwrite.
+- Compacted hourly outputs are written to `v3compaction/YYYY/MM/DD/HH/<Base64UrlHash>.parquet`, sharing the same hashing scheme.
+- `v3compaction/run.json` tracks the active compaction run status (start/end timestamps, progress), and `v3compaction/run.lock` holds the distributed lock metadata.
+- Compaction only targets days up to the prior UTC day; once merged, the per-day folders under `v3raw` can be treated as source archives while queries should use the hourly compaction tree.
+
 ## Important Notes
 
 - Swagger/OpenAPI is only available in DEBUG builds (controlled by conditional compilation)
@@ -87,4 +105,4 @@ In Aspire environment, these are automatically configured to use local MinIO ins
 - Parquet files are compatible with DuckDB for direct querying
 - All timestamps are stored in UnixTime (long)
 - 保存時のファイル分割は JST 基準
- - Webhook body size limit and timestamp skew are configurable via `SENDGRID__MAXBODYBYTES` and `SENDGRID__ALLOWEDSKEW`.
+- Webhook body size limit and timestamp skew are configurable via `SENDGRID__MAXBODYBYTES` and `SENDGRID__ALLOWEDSKEW`.

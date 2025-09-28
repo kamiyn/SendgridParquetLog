@@ -21,5 +21,7 @@
     <DefineConstants>UseSwagger;$(DefineConstants)</DefineConstants>
     <DefineConstants>UseAspire;$(DefineConstants)</DefineConstants>
   </PropertyGroup>
-
+  <PropertyGroup Condition="'$(PublishAot)' == 'true'">
+    <DefineConstants>$(DefineConstants);PUBLISHAOT</DefineConstants>
+  </PropertyGroup>
 </Project>
