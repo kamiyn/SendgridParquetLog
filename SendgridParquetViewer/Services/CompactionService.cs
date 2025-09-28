@@ -566,8 +566,6 @@ public class CompactionService(
 
     class FetchReadParquetFilesResult
     {
-        //internal record struct PackedItem(long KeyUnixTimeSeconds, int Count, FileInfo FileInfo);
-
         /// <summary>
         /// 1時間ごとの SendGridEvent 配列を格納した一時ファイルの一覧
         /// </summary>
