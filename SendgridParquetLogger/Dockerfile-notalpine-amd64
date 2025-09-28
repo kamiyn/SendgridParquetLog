@@ -18,7 +18,7 @@ RUN dotnet restore SendgridParquetLogger/SendgridParquetLogger.csproj
 # Build and publish as self-contained for linux-musl-x64 (Alpine)
 WORKDIR /src/SendgridParquetLogger
 # dotnet publish passes build metadata properties (-p:VERSION, etc.) to the imported targets
-RUN dotnet publish -c Release -r linux-x64 --self-contained true \
+RUN dotnet publish -c Release -r linux-x64 \
  -p:PublishTrimmed=true \
  -p:PublishAot=true \
  -p:VERSION=${VERSION:-0.0.0} \
@@ -31,26 +31,24 @@ RUN dotnet publish -c Release -r linux-x64 --self-contained true \
 # 107MB: alpine:3.22, 105MB: alpine:3.20
 #
 # 182MB: FROM mcr.microsoft.com/dotnet/runtime:10.0-alpine-amd64
+# 186MB: FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled AS runtime
 WORKDIR /app
 
-# Copy published application
+# Copy published output
 COPY --from=build /app/publish .
 
-# Make the app executable
-RUN chmod +x ./SendgridParquetLogger
+# Ensure native libraries from publish are discoverable
+ENV LD_LIBRARY_PATH=/app
 
 # Set environment variables
 ENV ASPNETCORE_URLS=http://+:8080
 ENV ASPNETCORE_ENVIRONMENT=Production
-ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false
 
-# Expose port
 EXPOSE 8080
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:8080/health6QQl || exit 1
 
-# Run the application
-ENTRYPOINT ["/app/SendgridParquetLogger"]
+ENTRYPOINT ["dotnet", "SendgridParquetLogger.dll"]
