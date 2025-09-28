@@ -44,7 +44,10 @@ RUN dotnet publish -c Release -r linux-musl-x64 --self-contained true \
  -o /app/publish
 
 # Runtime stage - Using Alpine for minimal size
-FROM alpine:3.20
+# 182MB: mcr.microsoft.com/dotnet/runtime:10.0-alpine-amd64
+# FROM mcr.microsoft.com/dotnet/runtime:10.0-alpine-amd64
+# 107MB: alpine:3.22, 105MB: alpine:3.20
+FROM alpine:3.22
 WORKDIR /app
 
 # Install required dependencies for .NET runtime on Alpine
