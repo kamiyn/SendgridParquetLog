@@ -1,4 +1,4 @@
-# Build stage
+# ================ Build stage ================
 FROM mcr.microsoft.com/dotnet/sdk:10.0-aot AS build
 WORKDIR /src
 
@@ -16,26 +16,17 @@ ARG VERSION
 ARG GITHUB_RUN_NUMBER
 ARG GITHUB_SHA
 
-# Copy project files
-COPY SendgridParquetLogger/SendgridParquetLogger.csproj SendgridParquetLogger/
-COPY SendgridParquetLog.ServiceDefaults/SendgridParquetLog.ServiceDefaults.csproj SendgridParquetLog.ServiceDefaults/
-COPY SendgridParquet.Shared/SendgridParquet.Shared.csproj SendgridParquet.Shared/
-COPY Directory.Build.props ./
-
-# Restore dependencies
-RUN dotnet restore SendgridParquetLogger/SendgridParquetLogger.csproj
-
 # Copy source code
 COPY SendgridParquetLogger/ SendgridParquetLogger/
 COPY SendgridParquetLog.ServiceDefaults/ SendgridParquetLog.ServiceDefaults/
 COPY SendgridParquet.Shared/ SendgridParquet.Shared/
 
+# Restore dependencies
+RUN dotnet restore SendgridParquetLogger/SendgridParquetLogger.csproj
+
 # Build and publish as self-contained for linux-musl-x64 (Alpine)
 WORKDIR /src/SendgridParquetLogger
-# Propagate build metadata into MSBuild so Directory.Build.props picks them up
-ENV VERSION=${VERSION}
-ENV GITHUB_RUN_NUMBER=${GITHUB_RUN_NUMBER}
-ENV GITHUB_SHA=${GITHUB_SHA}
+# dotnet publish passes build metadata properties (-p:VERSION, etc.) to the imported targets
 RUN dotnet publish -c Release -r linux-x64 --self-contained true \
  -p:PublishTrimmed=true \
  -p:PublishAot=true \
@@ -44,11 +35,12 @@ RUN dotnet publish -c Release -r linux-x64 --self-contained true \
  -p:GITHUB_SHA=${GITHUB_SHA} \
  -o /app/publish
 
-# Runtime stage - Using Alpine for minimal size
-# 182MB: mcr.microsoft.com/dotnet/runtime:10.0-alpine-amd64
-FROM mcr.microsoft.com/dotnet/runtime:10.0-alpine-amd64
+# ================ Runtime stage ================
+# Using Alpine for minimal size
 # 107MB: alpine:3.22, 105MB: alpine:3.20
-# FROM alpine:3.22
+#
+# 182MB: FROM mcr.microsoft.com/dotnet/runtime:10.0-alpine-amd64
+FROM mcr.microsoft.com/dotnet/runtime:10.0-alpine-amd64
 WORKDIR /app
 
 # Install required dependencies for .NET runtime on Alpine
