@@ -1,5 +1,5 @@
 # ================ Build stage ================
-# this Dockerfile for NOT AOT
+# This Dockerfile does not use AOT compilation
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
