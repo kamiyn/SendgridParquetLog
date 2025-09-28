@@ -44,7 +44,7 @@ services:
       - S3__SERVICEURL=${S3__SERVICEURL:-http://minio:9000}
       - S3__REGION=${S3__REGION:-jp-north-1}
       - S3__BUCKETNAME=${S3__BUCKETNAME:-sendgrid-events}
-      - ENABLE_DEV_AUTH=${ENABLE_DEV_AUTH:-false}
+      - ENABLE_DEV_AUTH=${ENABLE_DEV_AUTH:-true}
       - AzureAd__Domain=${AzureAd__Domain:-}
       - AzureAd__TenantId=${AzureAd__TenantId:-}
       - AzureAd__ClientId=${AzureAd__ClientId:-}
