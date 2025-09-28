@@ -1,9 +1,28 @@
 ﻿using SendgridParquet.Shared;
+using Microsoft.Extensions.Logging;
 
 namespace SendgridParquetLogger.Helper;
 
-internal class CreateBucketService(S3StorageService s3StorageService) : BackgroundService
+internal class CreateBucketService : BackgroundService
 {
-    protected override Task ExecuteAsync(CancellationToken stoppingToken)
-        => s3StorageService.CreateBucketIfNotExistsAsync(stoppingToken);
+    private readonly S3StorageService _s3StorageService;
+    private readonly ILogger<CreateBucketService> _logger;
+
+    public CreateBucketService(S3StorageService s3StorageService, ILogger<CreateBucketService> logger)
+    {
+        _s3StorageService = s3StorageService;
+        _logger = logger;
+    }
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        try
+        {
+            await _s3StorageService.CreateBucketIfNotExistsAsync(stoppingToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to create S3 bucket in background service.");
+        }
+    }
 }
