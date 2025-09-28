@@ -65,6 +65,9 @@ APPRUN_MIN_SCALE=${APPRUN_MIN_SCALE:-0}
 APPRUN_MAX_SCALE=${APPRUN_MAX_SCALE:-1}
 APPRUN_MAX_CPU=${APPRUN_MAX_CPU:-"0.1"}
 APPRUN_MAX_MEMORY=${APPRUN_MAX_MEMORY:-"256Mi"}
+# The maximum batch size (in bytes) for compaction operations.
+# Default is 268435456 (256MB), chosen as a balance between memory usage and performance for typical workloads.
+# Adjust this value if your environment requires larger or smaller compaction batches.
 Compaction__MaxBatchSizeBytes=${Compaction__MaxBatchSizeBytes:-268435456}
 
 # AppRun API endpoint
