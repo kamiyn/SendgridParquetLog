@@ -479,7 +479,7 @@ public class CompactionService(
         HourlyFolder hourlyFolder,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken token)
     {
-        foreach (FileInfo packedFile in hourlyFolder.DirectoryInfo.GetFiles())
+        foreach (FileInfo packedFile in hourlyFolder.DirectoryInfo.GetFiles().OrderBy(x => x.Name))
         {
             token.ThrowIfCancellationRequested();
             string fullName = packedFile.FullName;
@@ -487,6 +487,7 @@ public class CompactionService(
             SendGridEvent[] events = await MemoryPackSerializer.DeserializeAsync<SendGridEvent[]>(fs, cancellationToken: token) ?? [];
             foreach (SendGridEvent sendGridEvent in events)
             {
+                token.ThrowIfCancellationRequested();
                 yield return sendGridEvent;
             }
         }
@@ -642,6 +643,7 @@ public class CompactionService(
                         createdHourlyFolders.Add(hourGroup.Key, hourlyfolder);
                     }
                     string originalFileName = Path.GetFileName(sendgridEventOneFile.ParquetFile);
+                    // 中断した場合は上書きしたいため 元のファイル名を使う
                     string targetFilePath = Path.Combine(hourlyfolder.DirectoryInfo.FullName, originalFileName);
                     await using var fs = new FileStream(targetFilePath, FileMode.Create, FileAccess.Write, FileShare.None, DisposableTempFile.BufferSize, useAsync: true);
                     await MemoryPackSerializer.SerializeAsync(fs, eventsByHour, cancellationToken: token);
