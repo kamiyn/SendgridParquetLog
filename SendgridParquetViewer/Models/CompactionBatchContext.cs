@@ -79,7 +79,7 @@ internal class CompactionBatchContext(RunStatusContext runStatusContext, DateOnl
         Path.Combine(Path.GetTempPath(), $"raw{TargetDate:yyyyMMdd}_{batchCount}");
 
     /// <summary>
-    /// 空になった対象状態の一時フォルダを作成する
+    /// 空になった対象状態の一時フォルダを作成する バッチごとに異なるフォルダ
     /// </summary>
     internal DirectoryInfo CreateTempFolderForRawFiles(ILogger logger)
     {
