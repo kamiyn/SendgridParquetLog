@@ -540,8 +540,13 @@ public class CompactionService(
     /// </summary>
     class SendGridEventsOneFile
     {
-        internal IReadOnlyCollection<SendGridEvent> SendGridEvents { get; init; } = [];
         internal string ParquetFile { get; init; } = string.Empty;
+
+        /// <summary>
+        /// Pipeの受け取り側が Close(Dispose) すること
+        /// FileOptions.DeleteOnClose で作成されており Close とともに削除される
+        /// </summary>
+        public FileStream ParquetTempStream { get; init; } = null!;
     }
 
     class FetchReadParquetFilesResult
@@ -593,25 +598,39 @@ public class CompactionService(
         DirectoryInfo dailyTargetFolder = ctx.CreateTempFolderForRawFiles(logger);
         var createdHourlyFolders = new ConcurrentDictionary<string, DateTimeOffset>();
         var results = new List<FetchReadParquetFilesResult.PackedItem>(25);
+
         await foreach (SendGridEventsOneFile sendgridEventOneFile in reader.ReadAllAsync(token))
         {
-            var sendGridEvents = sendgridEventOneFile.SendGridEvents;
-            foreach (var hourGroup in sendGridEvents.GroupBy(e => e.Timestamp / 3600 /* 1時間単位に分割 */))
+            await using FileStream parquetTempStream = sendgridEventOneFile.ParquetTempStream;
+            parquetTempStream.Seek(0, SeekOrigin.Begin);
+            using ParquetReader parquetReader = await ParquetReader.CreateAsync(parquetTempStream, cancellationToken: token);
+            for (int rowGroupIndex = 0; rowGroupIndex < parquetReader.RowGroupCount; rowGroupIndex++)
             {
-                SendGridEvent[] eventsByHour = hourGroup.ToArray(); // シリアライズする前に 配列にする
-
-                DateTimeOffset hourGroupKey = JstExtension.FromUnixTimeSecondsJst(hourGroup.Key * 3600);
-                string targetFolder = Path.Combine(dailyTargetFolder.FullName, $"{hourGroupKey:yyyyMMddHH}");
-                if (createdHourlyFolders.TryAdd(targetFolder, hourGroupKey))
+                var sendGridEvents = new List<SendGridEvent>();
+                using ParquetRowGroupReader rowGroupReader = parquetReader.OpenRowGroupReader(rowGroupIndex);
+                await foreach (SendGridEvent sendGridEvent in parquetService.ReadRowGroupEventsAsync(
+                                   rowGroupReader, parquetReader, token))
                 {
-                    Directory.CreateDirectory(targetFolder);
+                    sendGridEvents.Add(sendGridEvent);
                 }
-                string originalFileName = Path.GetFileName(sendgridEventOneFile.ParquetFile);
-                string targetFilePath = Path.Combine(targetFolder, originalFileName);
-                await using var fs = new FileStream(targetFilePath, FileMode.Create, FileAccess.Write, FileShare.None, DisposableTempFile.BufferSize, useAsync: true);
-                await MemoryPackSerializer.SerializeAsync(fs, eventsByHour, cancellationToken: token);
 
-                results.Add(new FetchReadParquetFilesResult.PackedItem(hourGroupKey.ToUnixTimeSeconds(), eventsByHour.Length, new FileInfo(targetFilePath)));
+                foreach (var hourGroup in sendGridEvents.GroupBy(e => e.Timestamp / 3600 /* 1時間単位に分割 */))
+                {
+                    SendGridEvent[] eventsByHour = hourGroup.ToArray(); // シリアライズする前に 配列にする
+
+                    DateTimeOffset hourGroupKey = JstExtension.FromUnixTimeSecondsJst(hourGroup.Key * 3600);
+                    string targetFolder = Path.Combine(dailyTargetFolder.FullName, $"{hourGroupKey:yyyyMMddHH}");
+                    if (createdHourlyFolders.TryAdd(targetFolder, hourGroupKey))
+                    {
+                        Directory.CreateDirectory(targetFolder);
+                    }
+                    string originalFileName = Path.GetFileName(sendgridEventOneFile.ParquetFile);
+                    string targetFilePath = Path.Combine(targetFolder, originalFileName);
+                    await using var fs = new FileStream(targetFilePath, FileMode.Create, FileAccess.Write, FileShare.None, DisposableTempFile.BufferSize, useAsync: true);
+                    await MemoryPackSerializer.SerializeAsync(fs, eventsByHour, cancellationToken: token);
+
+                    results.Add(new FetchReadParquetFilesResult.PackedItem(hourGroupKey.ToUnixTimeSeconds(), eventsByHour.Length, new FileInfo(targetFilePath)));
+                }
             }
         }
 
@@ -627,43 +646,42 @@ public class CompactionService(
             token.ThrowIfCancellationRequested();
             try
             {
-                var sendGridEvents = new ConcurrentQueue<SendGridEvent>();
                 logger.ZLogInformation($"Reading Parquet file: {parquetFile}");
-                byte[] parquetData = await s3StorageService.GetObjectAsByteArrayAsync(parquetFile, token);
-                if (ctx.ProcessedBytes + parquetData.Length > _compactionOptions.MaxBatchSizeBytes)
+                using HttpResponseMessage response = await s3StorageService.GetObjectAsync(parquetFile, token);
+                if (!response.IsSuccessStatusCode)
+                {
+                    logger.ZLogWarning($"Failed to download parquet file: {parquetFile} HttpStatus:{response.StatusCode}");
+                    ctx.AddFailedReadingParquetFiles(parquetFile, timeProvider.GetUtcNow());
+                    continue;
+                }
+
+                long? responseLength = response.Content.Headers.ContentLength;
+                if (responseLength is null or <= 0)
+                {
+                    logger.ZLogWarning($"Empty parquet file: {parquetFile}");
+                    ctx.AddFailedReadingParquetFiles(parquetFile, timeProvider.GetUtcNow());
+                    continue;
+                }
+                if (ctx.ProcessedBytes > 0
+                    && ctx.ProcessedBytes + responseLength.Value > _compactionOptions.MaxBatchSizeBytes)
                 {
                     logger.ZLogInformation(
                         $"Reached read limit {_compactionOptions.MaxBatchSizeBytes}, stopping further reads in this batch");
                     break;
                 }
 
-                if (parquetData.Any())
-                {
-                    await using var ms = new MemoryStream(parquetData);
-                    using ParquetReader parquetReader = await ParquetReader.CreateAsync(ms, cancellationToken: token);
-                    for (int rowGroupIndex = 0; rowGroupIndex < parquetReader.RowGroupCount; rowGroupIndex++)
-                    {
-                        using ParquetRowGroupReader rowGroupReader = parquetReader.OpenRowGroupReader(rowGroupIndex);
-                        await foreach (SendGridEvent sendGridEvent in parquetService.ReadRowGroupEventsAsync(
-                                           rowGroupReader, parquetReader, token))
-                        {
-                            sendGridEvents.Enqueue(sendGridEvent);
-                        }
-                    }
+                FileStream parquetTempStream = DisposableTempFile.Open(nameof(FetchParquetFilesProducerAsync));
+                await using Stream responseStream = await response.Content.ReadAsStreamAsync(token);
+                await responseStream.CopyToAsync(parquetTempStream, DisposableTempFile.BufferSize, token);
 
-                    await writer.WriteAsync(
-                        new SendGridEventsOneFile
-                        {
-                            ParquetFile = parquetFile,
-                            SendGridEvents = sendGridEvents.ToArray(),
-                        }, token);
-                    ctx.AddProcessedFile(parquetFile, parquetData.Length, timeProvider.GetUtcNow());
-                    logger.ZLogInformation($"Successfully read {sendGridEvents.Count} events from {parquetFile}");
-                }
-                else
-                {
-                    logger.ZLogWarning($"Empty parquet file: {parquetFile}");
-                }
+                await writer.WriteAsync(
+                    new SendGridEventsOneFile
+                    {
+                        ParquetFile = parquetFile,
+                        ParquetTempStream = parquetTempStream,
+                    }, token);
+                ctx.AddProcessedFile(parquetFile, responseLength.Value, timeProvider.GetUtcNow());
+                logger.ZLogInformation($"Successfully read from {parquetFile}");
             }
             catch (OperationCanceledException)
             {
