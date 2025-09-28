@@ -1,5 +1,5 @@
 # ================ Build stage ================
-FROM mcr.microsoft.com/dotnet/sdk:10.0-aot AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 # Accept build-time variables from CI
@@ -18,7 +18,7 @@ RUN dotnet restore SendgridParquetLogger/SendgridParquetLogger.csproj
 WORKDIR /src/SendgridParquetLogger
 RUN dotnet publish -c Release -r linux-x64 \
  -p:PublishTrimmed=true \
- -p:PublishAot=true \
+ -p:PublishAot=false \
  -p:VERSION=${VERSION:-0.0.0} \
  -p:GITHUB_RUN_NUMBER=${GITHUB_RUN_NUMBER} \
  -p:GITHUB_SHA=${GITHUB_SHA} \
@@ -29,7 +29,7 @@ RUN dotnet publish -c Release -r linux-x64 \
 # 107MB: alpine:3.22, 105MB: alpine:3.20
 #
 # 182MB: FROM mcr.microsoft.com/dotnet/runtime:10.0-alpine-amd64
-# 186MB: FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled
+# 158MB: FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled AS runtime
 WORKDIR /app
 
