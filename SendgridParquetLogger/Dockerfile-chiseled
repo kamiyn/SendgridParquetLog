@@ -1,8 +1,7 @@
 # ================ Build stage ================
-FROM mcr.microsoft.com/dotnet/sdk:10.0-alpine-aot AS build
+# This Dockerfile does not use AOT compilation
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
-
-# 10.0-alpine-aot includes toolchain NativeAOT prerequisites (platform linker, musl toolchain)
 
 # Accept build-time variables from CI
 ARG VERSION
@@ -17,11 +16,10 @@ COPY SendgridParquet.Shared/ SendgridParquet.Shared/
 # Restore dependencies
 RUN dotnet restore SendgridParquetLogger/SendgridParquetLogger.csproj
 
-# Build and publish as self-contained for linux-musl-x64 (Alpine)
 WORKDIR /src/SendgridParquetLogger
-RUN dotnet publish -c Release -r linux-musl-x64 --self-contained true \
+RUN dotnet publish -c Release -r linux-x64 \
  -p:PublishTrimmed=true \
- -p:PublishAot=true \
+ -p:PublishAot=false \
  -p:VERSION=${VERSION:-0.0.0} \
  -p:GITHUB_RUN_NUMBER=${GITHUB_RUN_NUMBER} \
  -p:GITHUB_SHA=${GITHUB_SHA} \
@@ -30,34 +28,26 @@ RUN dotnet publish -c Release -r linux-musl-x64 --self-contained true \
 # ================ Runtime stage ================
 # Using Alpine for minimal size
 # 107MB: alpine:3.22, 105MB: alpine:3.20
-FROM alpine:3.22
+#
+# 182MB: FROM mcr.microsoft.com/dotnet/runtime:10.0-alpine-amd64
+# 158MB: FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled AS runtime
 WORKDIR /app
 
-# Install required dependencies for .NET runtime on Alpine
-RUN apk add --no-cache \
-    libstdc++ \
-    libgcc \
-    icu-libs \
-    ca-certificates \
-    curl
-
-# Copy published application
+# Copy published output
 COPY --from=build /app/publish .
 
-# Make the app executable
-RUN chmod +x ./SendgridParquetLogger
+# Ensure native libraries from publish are discoverable
+ENV LD_LIBRARY_PATH=/app
 
 # Set environment variables
 ENV ASPNETCORE_URLS=http://+:8080
 ENV ASPNETCORE_ENVIRONMENT=Production
-ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false
 
-# Expose port
 EXPOSE 8080
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:8080/health6QQl || exit 1
 
-# Run the application
-ENTRYPOINT ["/app/SendgridParquetLogger"]
+ENTRYPOINT ["dotnet", "SendgridParquetLogger.dll"]

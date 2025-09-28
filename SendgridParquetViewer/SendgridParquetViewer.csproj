@@ -8,6 +8,8 @@
     <UserSecretsId>a2f5d616-4527-4330-bccd-cae0fcb37990</UserSecretsId>
   </PropertyGroup>
 
+  <Import Project="../SendgridParquet.Shared/BuildMetadata.targets" Condition="Exists('../SendgridParquet.Shared/BuildMetadata.targets')" />
+
   <ItemGroup>
     <PackageReference Include="Dapper" Version="2.1.66" />
     <PackageReference Include="DuckDB.NET.Data.Full" Version="1.3.2" />
