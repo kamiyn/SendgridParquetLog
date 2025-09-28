@@ -7,6 +7,9 @@ using Microsoft.AspNetCore.Http;
 
 using SendgridParquet.Shared;
 
+using SendgridParquetViewer.Authorization;
+
+using Yarp.ReverseProxy.Configuration;
 using Yarp.ReverseProxy.Transforms;
 using Yarp.ReverseProxy.Transforms.Builder;
 
@@ -17,6 +20,9 @@ namespace SendgridParquetViewer.Services;
 /// </summary>
 public sealed class S3PresigningTransformer : ITransformProvider
 {
+    internal const string RouteId = "s3-route";
+    internal const string ClusterId = "s3-cluster";
+
     private static readonly PathString RoutePrefix = new("/s3files");
     private static readonly TimeSpan DefaultLifetime = TimeSpan.FromMinutes(5);
     private readonly S3StorageService _storageService;
@@ -36,7 +42,7 @@ public sealed class S3PresigningTransformer : ITransformProvider
 
     public void Apply(TransformBuilderContext context)
     {
-        if (!string.Equals(context.Route.RouteId, "s3-route", StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(context.Route.RouteId, RouteId, StringComparison.OrdinalIgnoreCase))
         {
             return;
         }
@@ -58,8 +64,8 @@ public sealed class S3PresigningTransformer : ITransformProvider
 
     private static IEnumerable<KeyValuePair<string, string?>> EnumerateQuery(IQueryCollection query)
     {
-        return query.SelectMany(static pair =>
-            pair.Value.Select(value => new KeyValuePair<string, string?>(pair.Key, value)));
+        return query.SelectMany(
+            static pair => pair.Value.Select(value => new KeyValuePair<string, string?>(pair.Key, value)));
     }
 
     private static string ResolveObjectKey(PathString path)
@@ -70,5 +76,42 @@ public sealed class S3PresigningTransformer : ITransformProvider
         }
 
         return path.Value?.TrimStart('/') ?? string.Empty;
+    }
+
+    public static IReadOnlyList<RouteConfig> BuildRoutes()
+    {
+        RouteConfig[] routes =
+        {
+            new RouteConfig
+            {
+                RouteId = RouteId,
+                ClusterId = ClusterId,
+                Match = new RouteMatch { Path = "/s3files/{**s3Key}" },
+                AuthorizationPolicy = AuthorizationPolicies.ViewerRole
+            }
+        };
+
+        return routes;
+    }
+
+    public static IReadOnlyList<ClusterConfig> BuildClusters()
+    {
+        ClusterConfig[] clusters =
+        {
+            new ClusterConfig
+            {
+                ClusterId = ClusterId,
+                Destinations = new Dictionary<string, DestinationConfig>
+                {
+                    ["s3"] = new DestinationConfig
+                    {
+                        // Placeholder; S3PresigningTransformer assigns the actual pre-signed URL per request.
+                        Address = "https://placeholder.invalid/"
+                    }
+                }
+            }
+        };
+
+        return clusters;
     }
 }

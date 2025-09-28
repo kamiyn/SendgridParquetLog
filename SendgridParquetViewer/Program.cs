@@ -1,6 +1,4 @@
-﻿using System.Collections.Generic;
-
-using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+﻿using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.FluentUI.AspNetCore.Components;
 using Microsoft.Identity.Web;
@@ -8,11 +6,10 @@ using Microsoft.Identity.Web.UI;
 
 using SendgridParquet.Shared;
 
+using SendgridParquetViewer.Authorization;
 using SendgridParquetViewer.Components;
 using SendgridParquetViewer.Models;
 using SendgridParquetViewer.Services;
-
-using Yarp.ReverseProxy.Configuration;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -63,11 +60,11 @@ else
             .Build();
 
         // Define role-based policies for AppRoles
-        options.AddPolicy("ViewerRole", policy =>
-            policy.RequireRole("Viewer", "Admin"));
+        options.AddPolicy(AuthorizationPolicies.ViewerRole, policy =>
+            policy.RequireRole(AuthorizationRoles.Viewer, AuthorizationRoles.Admin));
 
-        options.AddPolicy("AdminRole", policy =>
-            policy.RequireRole("Admin"));
+        options.AddPolicy(AuthorizationPolicies.AdminRole, policy =>
+            policy.RequireRole(AuthorizationRoles.Admin));
     });
 }
 
@@ -123,32 +120,8 @@ builder.Services.AddHostedService<CompactionStartupHostedService>(); // 起動�
 // Add health checks
 builder.Services.AddHealthChecks();
 
-var s3Routes = new[]
-{
-    new RouteConfig
-    {
-        RouteId = "s3-route",
-        ClusterId = "s3-cluster",
-        Match = new RouteMatch { Path = "/s3files/{**s3Key}" },
-        AuthorizationPolicy = "ViewerRole"
-    }
-};
-
-var s3Clusters = new[]
-{
-    new ClusterConfig
-    {
-        ClusterId = "s3-cluster",
-        Destinations = new Dictionary<string, DestinationConfig>
-        {
-            ["s3"] = new DestinationConfig
-            {
-                // Placeholder; S3PresigningTransformer assigns the actual pre-signed URL per request.
-                Address = "https://placeholder.invalid/"
-            }
-        }
-    }
-};
+var s3Routes = S3PresigningTransformer.BuildRoutes();
+var s3Clusters = S3PresigningTransformer.BuildClusters();
 
 builder.Services.AddReverseProxy()
     .AddTransforms<S3PresigningTransformer>()
