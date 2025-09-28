@@ -105,4 +105,4 @@ In Aspire environment, these are automatically configured to use local MinIO ins
 - Parquet files are compatible with DuckDB for direct querying
 - All timestamps are stored in UnixTime (long)
 - 保存時のファイル分割は JST 基準
- - Webhook body size limit and timestamp skew are configurable via `SENDGRID__MAXBODYBYTES` and `SENDGRID__ALLOWEDSKEW`.
+- Webhook body size limit and timestamp skew are configurable via `SENDGRID__MAXBODYBYTES` and `SENDGRID__ALLOWEDSKEW`.
