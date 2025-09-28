@@ -612,7 +612,6 @@ public class CompactionService(
     {
         DirectoryInfo dailyTargetFolder = ctx.CreateTempFolderForRawFiles(logger);
         var createdHourlyFolders = new Dictionary<long, HourlyFolder>();
-        //var results = new List<FetchReadParquetFilesResult.PackedItem>(25);
 
         await foreach (SendGridEventsOneFile sendgridEventOneFile in reader.ReadAllAsync(token))
         {
