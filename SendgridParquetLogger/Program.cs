@@ -83,8 +83,9 @@ app.MapControllers();
 // Minimal APIs when UseSwagger is not defined
 app.MapGet("/health6QQl", (TimeProvider timeProvider) =>
 {
+    var version = $"{typeof(Program).Assembly.GetName().Version?.ToString()}";
     var ts = timeProvider.GetUtcNow();
-    string json = $"{{\"status\":\"healthy\",\"timestamp\":\"{ts:O}\"}}";
+    string json = $"{{\"status\":\"healthy\",\"timestamp\":\"{ts:O}\",\"version\":\"{version}\"}}";
     return Results.Text(json, "application/json");
 });
 
