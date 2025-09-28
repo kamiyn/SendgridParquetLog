@@ -57,15 +57,11 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<ParquetService>(); // 無状態のため AddSingleton
 builder.Services.AddSingleton<RequestValidator>(); // 処理は無状態 PublicKey の生成をキャッシュするため AddSingleton
 builder.Services.AddHttpClient<S3StorageService>();
+builder.Services.AddHostedService<CreateBucketService>();
 builder.Services.AddScoped<WebhookHelper>();
 
 var app = builder.Build();
 
-// if (!app.Environment.IsDevelopment())
-{
-    var s3Service = app.Services.GetRequiredService<S3StorageService>();
-    await s3Service.CreateBucketIfNotExistsAsync(CancellationToken.None);
-}
 #if UseSwagger
 {
     //app.UseSwagger(); // dotnet 8.0 以前用
@@ -83,8 +79,9 @@ app.MapControllers();
 // Minimal APIs when UseSwagger is not defined
 app.MapGet("/health6QQl", (TimeProvider timeProvider) =>
 {
+    var version = typeof(Program).Assembly.GetName().Version?.ToString() ?? "unknown";
     var ts = timeProvider.GetUtcNow();
-    string json = $"{{\"status\":\"healthy\",\"timestamp\":\"{ts:O}\"}}";
+    string json = $"{{\"status\":\"healthy\",\"timestamp\":\"{ts:O}\",\"version\":\"{version}\"}}";
     return Results.Text(json, "application/json");
 });
 
