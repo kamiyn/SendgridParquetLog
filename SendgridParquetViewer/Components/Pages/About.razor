@@ -23,19 +23,19 @@
         margin-top: 0.5rem;
     }
 
-    .about-table th,
-    .about-table td {
-        border: 1px solid #d0d7de;
-        padding: 0.5rem 0.75rem;
-        text-align: left;
-        vertical-align: top;
-    }
+        .about-table th,
+        .about-table td {
+            border: 1px solid #d0d7de;
+            padding: 0.5rem 0.75rem;
+            text-align: left;
+            vertical-align: top;
+        }
 
-    .about-table th {
-        background-color: #f6f8fa;
-        font-weight: 600;
-        width: 240px;
-    }
+        .about-table th {
+            background-color: #f6f8fa;
+            font-weight: 600;
+            width: 240px;
+        }
 
     .about-temp-path {
         font-family: monospace;
@@ -46,13 +46,13 @@
         width: 100%;
     }
 
-    .about-env-table th:nth-child(1) {
-        width: 32%;
-    }
+        .about-env-table th:nth-child(1) {
+            width: 32%;
+        }
 
-    .about-env-table th:nth-child(2) {
-        width: 68%;
-    }
+        .about-env-table th:nth-child(2) {
+            width: 68%;
+        }
 
     .about-warning {
         color: #b54708;
@@ -92,6 +92,49 @@
     </table>
 </section>
 
+@if (_gcMemoryInfo != null)
+{
+    <section class="about-section">
+        <h2>GCMemoryInfo</h2>
+        <table class="about-table">
+            <tbody>
+                <tr>
+                    <th>HighMemoryLoadThresholdBytes</th>
+                    <td>@_gcMemoryInfo.HighMemoryLoadThresholdBytes</td>
+                </tr>
+                <tr>
+                    <th>MemoryLoadBytes</th>
+                    <td>@_gcMemoryInfo.MemoryLoadBytes</td>
+                </tr>
+                <tr>
+                    <th>TotalAvailableMemoryBytes</th>
+                    <td>@_gcMemoryInfo.TotalAvailableMemoryBytes</td>
+                </tr>
+                <tr>
+                    <th>HeapSizeBytes</th>
+                    <td>@_gcMemoryInfo.HeapSizeBytes</td>
+                </tr>
+                <tr>
+                    <th>FragmentedBytes</th>
+                    <td>@_gcMemoryInfo.FragmentedBytes</td>
+                </tr>
+                <tr>
+                    <th>TotalCommittedBytes</th>
+                    <td>@_gcMemoryInfo.TotalCommittedBytes</td>
+                </tr>
+                <tr>
+                    <th>PromotedBytes</th>
+                    <td>@_gcMemoryInfo.PromotedBytes</td>
+                </tr>
+                <tr>
+                    <th>PinnedObjectsCount</th>
+                    <td>@_gcMemoryInfo.PinnedObjectsCount</td>
+                </tr>
+            </tbody>
+        </table>
+    </section>
+}
+
 @if (_tempFolderInfo != null)
 {
     <section class="about-section">
@@ -99,22 +142,22 @@
         <p><strong>Path.GetTempPath():</strong> <span class="about-temp-path">@_tempFolderInfo.Path</span></p>
         <table class="about-table">
             <tbody>
-            <tr>
-                <th>合計容量</th>
-                <td>@_tempFolderInfo.TotalSizeDisplay</td>
-            </tr>
-            <tr>
-                <th>利用可能な空き容量</th>
-                <td>@_tempFolderInfo.AvailableFreeSpaceDisplay</td>
-            </tr>
-            <tr>
-                <th>ドライブ種別</th>
-                <td>@_tempFolderInfo.DriveType</td>
-            </tr>
-            <tr>
-                <th>ファイルシステム</th>
-                <td>@_tempFolderInfo.DriveFormat</td>
-            </tr>
+                <tr>
+                    <th>合計容量</th>
+                    <td>@_tempFolderInfo.TotalSizeDisplay</td>
+                </tr>
+                <tr>
+                    <th>利用可能な空き容量</th>
+                    <td>@_tempFolderInfo.AvailableFreeSpaceDisplay</td>
+                </tr>
+                <tr>
+                    <th>ドライブ種別</th>
+                    <td>@_tempFolderInfo.DriveType</td>
+                </tr>
+                <tr>
+                    <th>ファイルシステム</th>
+                    <td>@_tempFolderInfo.DriveFormat</td>
+                </tr>
             </tbody>
         </table>
         @if (!string.IsNullOrEmpty(_tempFolderInfo.Warning))
@@ -146,149 +189,177 @@
 </section>
 
 @code {
-	private readonly BuildInfo _buildInfo = BuildInfo.Create(typeof(Program).Assembly);
-	private TempFolderInfo? _tempFolderInfo;
-	private IReadOnlyCollection<EnvironmentVariableEntry>? _environmentVariables;
+    private readonly BuildInfo _buildInfo = BuildInfo.Create(typeof(Program).Assembly);
+    private GcMemoryInfoFormatted? _gcMemoryInfo;
+    private TempFolderInfo? _tempFolderInfo;
+    private IReadOnlyCollection<EnvironmentVariableEntry>? _environmentVariables;
 
-	protected override Task OnInitializedAsync()
-	{
-		_tempFolderInfo = TempFolderInfo.Create(Logger);
-		_environmentVariables = EnvironmentVariableEntry.GetMaskedEnvironmentVariables()
-				.OrderBy(v => v.Name, StringComparer.OrdinalIgnoreCase)
-				.ToArray();
-		return Task.CompletedTask;
-	}
+    protected override Task OnInitializedAsync()
+    {
+        _gcMemoryInfo = GcMemoryInfoFormatted.Create();
+        _tempFolderInfo = TempFolderInfo.Create(Logger);
+        _environmentVariables = EnvironmentVariableEntry.GetMaskedEnvironmentVariables()
+        .OrderBy(v => v.Name, StringComparer.OrdinalIgnoreCase)
+        .ToArray();
+        return Task.CompletedTask;
+    }
 
-	private sealed record BuildInfo(
-		string AssemblyName,
-		string AssemblyVersion,
-		string InformationalVersion,
-		string GitHubRunNumber,
-		string GitHubCommitHash,
-		string BuildTimestampUtc)
-	{
-		public static BuildInfo Create(Assembly assembly)
-		{
-			var metadata = assembly.GetCustomAttributes<AssemblyMetadataAttribute>().ToList();
+    private sealed record BuildInfo(
+    string AssemblyName,
+    string AssemblyVersion,
+    string InformationalVersion,
+    string GitHubRunNumber,
+    string GitHubCommitHash,
+    string BuildTimestampUtc)
+    {
+        public static BuildInfo Create(Assembly assembly)
+        {
+            var metadata = assembly.GetCustomAttributes<AssemblyMetadataAttribute>().ToList();
 
-			string assemblyName = assembly.GetName().Name ?? "(不明)";
-			string assemblyVersion = assembly.GetName().Version?.ToString() ?? "(不明)";
-			string informationalVersion = assembly
-				.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
-				.InformationalVersion ?? "(未設定)";
+            string assemblyName = assembly.GetName().Name ?? "(不明)";
+            string assemblyVersion = assembly.GetName().Version?.ToString() ?? "(不明)";
+            string informationalVersion = assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
+            .InformationalVersion ?? "(未設定)";
 
-			string gitHubRunNumber = ReadMetadata(metadata, "GitHubRunNumber", fallback: "(未設定)");
-			string gitHubCommitHash = ReadMetadata(metadata, "GitHubCommitHash", fallback: "(未設定)");
-			string buildTimestampUtc = ReadMetadata(metadata, "BuildTimestampUtc", fallback: "(未設定)");
+            string gitHubRunNumber = ReadMetadata(metadata, "GitHubRunNumber", fallback: "(未設定)");
+            string gitHubCommitHash = ReadMetadata(metadata, "GitHubCommitHash", fallback: "(未設定)");
+            string buildTimestampUtc = ReadMetadata(metadata, "BuildTimestampUtc", fallback: "(未設定)");
 
-			return new BuildInfo(
-				assemblyName,
-				assemblyVersion,
-				informationalVersion,
-				gitHubRunNumber,
-				gitHubCommitHash,
-				buildTimestampUtc);
-		}
+            return new BuildInfo(
+            assemblyName,
+            assemblyVersion,
+            informationalVersion,
+            gitHubRunNumber,
+            gitHubCommitHash,
+            buildTimestampUtc);
+        }
 
-		private static string ReadMetadata(IEnumerable<AssemblyMetadataAttribute> metadata, string key, string fallback)
-		{
-			return metadata.FirstOrDefault(m => string.Equals(m.Key, key, StringComparison.OrdinalIgnoreCase))?.Value ?? fallback;
-		}
-	}
+        private static string ReadMetadata(IEnumerable<AssemblyMetadataAttribute> metadata, string key, string fallback)
+        {
+            return metadata.FirstOrDefault(m => string.Equals(m.Key, key, StringComparison.OrdinalIgnoreCase))?.Value ?? fallback;
+        }
+    }
 
-	private sealed record TempFolderInfo(
-		string Path,
-		string TotalSizeDisplay,
-		string AvailableFreeSpaceDisplay,
-		string DriveType,
-		string DriveFormat,
-		string Warning)
-	{
-		public static TempFolderInfo Create(ILogger logger)
-		{
-			var tempPath = System.IO.Path.GetTempPath();
-			string warning;
+    private sealed record GcMemoryInfoFormatted(
+    string HighMemoryLoadThresholdBytes,
+    string MemoryLoadBytes,
+    string TotalAvailableMemoryBytes,
+    string HeapSizeBytes,
+    string FragmentedBytes,
+    string TotalCommittedBytes,
+    string PromotedBytes,
+    string PinnedObjectsCount)
+    {
+        public static GcMemoryInfoFormatted Create()
+        {
+            GCMemoryInfo gcInfo = GC.GetGCMemoryInfo();
+            return new GcMemoryInfoFormatted(
+            HighMemoryLoadThresholdBytes: FormatBytes(gcInfo.HighMemoryLoadThresholdBytes),
+            MemoryLoadBytes: FormatBytes(gcInfo.MemoryLoadBytes),
+            TotalAvailableMemoryBytes: FormatBytes(gcInfo.TotalAvailableMemoryBytes),
+            HeapSizeBytes: FormatBytes(gcInfo.HeapSizeBytes),
+            FragmentedBytes: FormatBytes(gcInfo.FragmentedBytes),
+            TotalCommittedBytes: FormatBytes(gcInfo.TotalCommittedBytes),
+            PromotedBytes: FormatBytes(gcInfo.PromotedBytes),
+            PinnedObjectsCount: FormatBytes(gcInfo.PinnedObjectsCount)
+            );
+        }
+    }
 
-			try
-			{
-				var driveRoot = System.IO.Path.GetPathRoot(tempPath);
-				var drivePath = !string.IsNullOrEmpty(driveRoot) ? driveRoot : tempPath;
-				var driveInfo = new DriveInfo(drivePath);
+    private sealed record TempFolderInfo(
+    string Path,
+    string TotalSizeDisplay,
+    string AvailableFreeSpaceDisplay,
+    string DriveType,
+    string DriveFormat,
+    string Warning)
+    {
+        public static TempFolderInfo Create(ILogger logger)
+        {
+            var tempPath = System.IO.Path.GetTempPath();
+            string warning;
 
-				if (driveInfo.IsReady)
-				{
-					return new TempFolderInfo(
-						tempPath,
-						FormatBytes(driveInfo.TotalSize),
-						FormatBytes(driveInfo.AvailableFreeSpace),
-						driveInfo.DriveType.ToString(),
-						driveInfo.DriveFormat,
-						Warning: string.Empty);
+            try
+            {
+                var driveRoot = System.IO.Path.GetPathRoot(tempPath);
+                var drivePath = !string.IsNullOrEmpty(driveRoot) ? driveRoot : tempPath;
+                var driveInfo = new DriveInfo(drivePath);
 
-				}
+                if (driveInfo.IsReady)
+                {
+                    return new TempFolderInfo(
+                    tempPath,
+                    FormatBytes(driveInfo.TotalSize),
+                    FormatBytes(driveInfo.AvailableFreeSpace),
+                    driveInfo.DriveType.ToString(),
+                    driveInfo.DriveFormat,
+                    Warning: string.Empty);
 
-				warning = "ドライブ情報が利用できません。";
-				logger.ZLogWarning($"ドライブ情報が利用できません。 {drivePath}");
-			}
-			catch (Exception ex)
-			{
-				warning = $"ドライブ情報の取得時にエラーが発生しました";
-				logger.ZLogWarning(ex, $"ドライブ情報の取得時にエラーが発生しました");
-			}
+                }
 
-			return new TempFolderInfo(
-				tempPath,
-				"(取得できませんでした)",
-				"(取得できませんでした)",
-				"(取得できませんでした)",
-				"(取得できませんでした)",
-				warning);
-		}
-	}
+                warning = "ドライブ情報が利用できません。";
+                logger.ZLogWarning($"ドライブ情報が利用できません。 {drivePath}");
+            }
+            catch (Exception ex)
+            {
+                warning = $"ドライブ情報の取得時にエラーが発生しました";
+                logger.ZLogWarning(ex, $"ドライブ情報の取得時にエラーが発生しました");
+            }
 
-	private static string FormatBytes(long bytes)
-	{
-		const long scale = 1024;
-		string[] orders = ["B", "KB", "MB", "GB", "TB", "PB"];
+            return new TempFolderInfo(
+            tempPath,
+            "(取得できませんでした)",
+            "(取得できませんでした)",
+            "(取得できませんでした)",
+            "(取得できませんでした)",
+            warning);
+        }
+    }
 
-		double value = bytes;
-		var orderIndex = 0;
+    private static string FormatBytes(long bytes)
+    {
+        const long scale = 1024;
+        string[] orders = ["B", "KB", "MB", "GB", "TB", "PB"];
 
-		while (value >= scale && orderIndex < orders.Length - 1)
-		{
-			value /= scale;
-			orderIndex++;
-		}
+        double value = bytes;
+        var orderIndex = 0;
 
-		return FormattableString.Invariant($"{value:0.##} {orders[orderIndex]} ({bytes:N0} バイト)");
-	}
+        while (value >= scale && orderIndex < orders.Length - 1)
+        {
+            value /= scale;
+            orderIndex++;
+        }
 
-	private sealed record EnvironmentVariableEntry(string Name, string DisplayValue)
-	{
-		private const string MaskValue = "****";
+        return FormattableString.Invariant($"{value:0.##} {orders[orderIndex]} ({bytes:N0} バイト)");
+    }
 
-		internal static IEnumerable<EnvironmentVariableEntry> GetMaskedEnvironmentVariables()
-		{
-			foreach (DictionaryEntry entry in Environment.GetEnvironmentVariables())
-			{
-				if (entry.Key is not string key)
-				{
-					continue;
-				}
+    private sealed record EnvironmentVariableEntry(string Name, string DisplayValue)
+    {
+        private const string MaskValue = "****";
 
-				var value = entry.Value?.ToString() ?? string.Empty;
-				var displayValue = ShouldMask(key) ? MaskValue : value;
-				yield return new EnvironmentVariableEntry(key, displayValue);
-			}
-		}
+        internal static IEnumerable<EnvironmentVariableEntry> GetMaskedEnvironmentVariables()
+        {
+            foreach (DictionaryEntry entry in Environment.GetEnvironmentVariables())
+            {
+                if (entry.Key is not string key)
+                {
+                    continue;
+                }
 
-		private static readonly string[] DenyEnvironmentNameList = [
-            "key",
-			"secret",
-			"password",
-			"token",
-			"connectionstring",
-		];
+                var value = entry.Value?.ToString() ?? string.Empty;
+                var displayValue = ShouldMask(key) ? MaskValue : value;
+                yield return new EnvironmentVariableEntry(key, displayValue);
+            }
+        }
+
+        private static readonly string[] DenyEnvironmentNameList = [
+        "key",
+"secret",
+"password",
+"token",
+"connectionstring",
+];
 
         private static bool ShouldMask(string variableName)
         {
