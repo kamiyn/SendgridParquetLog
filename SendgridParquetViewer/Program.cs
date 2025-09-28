@@ -17,9 +17,9 @@ var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
 #endif
 
-// S3の接続先が port 9000 でアクセスキーが minioadmin の場合は開発用認証を使う。
-// 本番においては public な S3 互換ストレージを使うことを想定しているため。
-// Use explicit environment variable to enable development authentication.
+// 開発用認証は、環境変数 ENABLE_DEV_AUTH が true の場合に有効になります。
+// 本番環境では public な S3 互換ストレージを利用することを想定しています。
+// Development authentication is enabled when the ENABLE_DEV_AUTH environment variable is set to true.
 var enableDevAuth = Environment.GetEnvironmentVariable("ENABLE_DEV_AUTH");
 if (string.Equals(enableDevAuth, "true", StringComparison.OrdinalIgnoreCase))
 {
