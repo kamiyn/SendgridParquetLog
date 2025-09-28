@@ -26,7 +26,7 @@ internal class CompactionBatchContext(RunStatusContext runStatusContext, DateOnl
     /// </summary>
     internal long ProcessedBytes => _processedBytes;
 
-    public void AddProcessedFile(string parquetFile, int parquetDataLength, DateTimeOffset now)
+    public void AddProcessedFile(string parquetFile, long parquetDataLength, DateTimeOffset now)
     {
         _processingFiles.Enqueue(parquetFile);
         Interlocked.Add(ref _processedBytes, parquetDataLength);

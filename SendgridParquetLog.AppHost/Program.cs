@@ -24,7 +24,7 @@ void AddSolutionApps(Func<string> serviceUrlFactory, string region, string acces
         .WithEnvironment("S3__ACCESSKEY", accessKey)
         .WithEnvironment("S3__SECRETKEY", secretKey)
         .WithEnvironment("S3__BUCKETNAME", bucketName)
-        .WithEnvironment("AzureAd__Instance", "");
+        .WithEnvironment("ENABLE_DEV_AUTH", "true");
 }
 
 var s3Section = builder.Configuration.GetSection("S3");

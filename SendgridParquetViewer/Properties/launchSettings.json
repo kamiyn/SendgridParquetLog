@@ -7,6 +7,7 @@
         "launchBrowser": true,
         "applicationUrl": "http://localhost:5007",
         "environmentVariables": {
+          "ENABLE_DEV_AUTH": "true",
           "ASPNETCORE_ENVIRONMENT": "Development"
         }
       },
@@ -16,6 +17,7 @@
         "launchBrowser": true,
         "applicationUrl": "https://localhost:7100;http://localhost:5007",
         "environmentVariables": {
+          "ENABLE_DEV_AUTH": "true",
           "ASPNETCORE_ENVIRONMENT": "Development"
         }
       }
