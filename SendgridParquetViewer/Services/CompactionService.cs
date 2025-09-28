@@ -649,7 +649,6 @@ public class CompactionService(
                     await MemoryPackSerializer.SerializeAsync(fs, eventsByHour, cancellationToken: token);
 
                     hourlyfolder.AddCount(eventsByHour.Length);
-                    // results.Add(new FetchReadParquetFilesResult.PackedItem(hourGroupKey.ToUnixTimeSeconds(), eventsByHour.Length, new FileInfo(targetFilePath)));
                 }
             }
         }
