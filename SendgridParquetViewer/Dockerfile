@@ -26,7 +26,8 @@ RUN mkdir -p /app/tools \
  && dotnet tool install --tool-path /app/tools dotnet-dump
 
 # ================ Runtime stage ================
-FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled AS runtime
+#FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble AS runtime
 WORKDIR /app
 
 # Copy published output
