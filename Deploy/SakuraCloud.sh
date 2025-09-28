@@ -65,6 +65,7 @@ APPRUN_MIN_SCALE=${APPRUN_MIN_SCALE:-0}
 APPRUN_MAX_SCALE=${APPRUN_MAX_SCALE:-1}
 APPRUN_MAX_CPU=${APPRUN_MAX_CPU:-"0.1"}
 APPRUN_MAX_MEMORY=${APPRUN_MAX_MEMORY:-"256Mi"}
+Compaction__MaxBatchSizeBytes=${Compaction__MaxBatchSizeBytes:-268435456}
 
 # AppRun API endpoint
 API_BASE_URL="https://secure.sakura.ad.jp/cloud/api/apprun/1.0/apprun/api"
@@ -209,6 +210,10 @@ DEPLOYMENT_PAYLOAD=$(cat <<EOF
         }
       },
       "env": [
+        {
+          "key": "Compaction__MaxBatchSizeBytes",
+          "value": "${Compaction__MaxBatchSizeBytes}"
+        },
         {
           "key": "S3__SERVICEURL",
           "value": "${S3__SERVICEURL}"
