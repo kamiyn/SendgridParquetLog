@@ -7,6 +7,14 @@ ARG VERSION=0.0.0
 ARG GITHUB_RUN_NUMBER
 ARG GITHUB_SHA
 
+# need for NativeAOT
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+    clang \
+    lld \
+    zlib1g-dev \
+ && rm -rf /var/lib/apt/lists/*
+
 COPY . .
 RUN dotnet restore
 
