@@ -129,7 +129,8 @@ var s3Routes = new[]
     {
         RouteId = "s3-route",
         ClusterId = "s3-cluster",
-        Match = new RouteMatch { Path = "/s3files/{**s3Key}" }
+        Match = new RouteMatch { Path = "/s3files/{**s3Key}" },
+        AuthorizationPolicy = "ViewerRole"
     }
 };
 
