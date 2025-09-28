@@ -1,11 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
-
-using Microsoft.AspNetCore.Http;
-
-using SendgridParquet.Shared;
+﻿using SendgridParquet.Shared;
 
 using SendgridParquetViewer.Authorization;
 
@@ -18,20 +11,17 @@ namespace SendgridParquetViewer.Services;
 /// <summary>
 /// Generates S3 pre-signed URLs on the fly so YARP can proxy private objects.
 /// </summary>
-public sealed class S3PresigningTransformer : ITransformProvider
+public sealed class S3PresigningTransformer(S3StorageService storageService) : ITransformProvider
 {
-    internal const string RouteId = "s3-route";
-    internal const string ClusterId = "s3-cluster";
+    private const string RouteId = "s3-route";
+    private const string ClusterId = "s3-cluster";
 
-    private static readonly PathString RoutePrefix = new("/s3files");
-    private static readonly TimeSpan DefaultLifetime = TimeSpan.FromMinutes(5);
-    private readonly S3StorageService _storageService;
-
-    public S3PresigningTransformer(S3StorageService storageService)
-    {
-        _storageService = storageService;
-    }
-
+    /// <summary>
+    /// Proxy として利用するパスのプレフィックス
+    /// S3 の BUCKETNAME と同じになっているとURLをコピーして作業しやすい
+    /// </summary>
+    private const string PathPrefix = "/sendgrid-events";
+    
     public void ValidateRoute(TransformRouteValidationContext context)
     {
     }
@@ -49,69 +39,62 @@ public sealed class S3PresigningTransformer : ITransformProvider
 
         context.AddRequestTransform(transformContext =>
         {
-            string objectKey = ResolveObjectKey(transformContext.Path);
-            var presignedUrl = _storageService.CreatePreSignedGetUrl(
-                objectKey,
-                DefaultLifetime,
-                EnumerateQuery(transformContext.HttpContext.Request.Query));
+            switch (transformContext.ProxyRequest.Method.Method.ToLowerInvariant())
+            {
+                // content に対する 署名が必要になるため、PUT/POST はサポートしない
+                case "put":
+                case "post":
+                    throw new NotSupportedException("PUT/POST is not supported");
+            }
 
-            transformContext.ProxyRequest.RequestUri = new Uri(presignedUrl);
+            string s3ObjectKey = GetS3ObjectKey(transformContext.HttpContext.Request);
+            transformContext.ProxyRequest.RequestUri = storageService.GetObjectUri(s3ObjectKey);
+            storageService.AddAwsSignatureHeaders(transformContext.ProxyRequest, null);
+
             transformContext.ProxyRequest.Headers.Host = null;
-
             return ValueTask.CompletedTask;
         });
     }
 
-    private static IEnumerable<KeyValuePair<string, string?>> EnumerateQuery(IQueryCollection query)
+    /// <summary>
+    /// リクエストの Path に含まれる "/bucket/" 以降の部分を S3 Object Key として抽出する
+    /// </summary>
+    private static string GetS3ObjectKey(HttpRequest request)
     {
-        return query.SelectMany(
-            static pair => pair.Value.Select(value => new KeyValuePair<string, string?>(pair.Key, value)));
-    }
-
-    private static string ResolveObjectKey(PathString path)
-    {
-        if (path.HasValue && path.StartsWithSegments(RoutePrefix, out var suffix))
+        var path = $"{request.PathBase.Value}{request.Path.Value}{request.QueryString.Value}";
+        var bucketIndex = path.IndexOf('/', 1 /* 最初のスラッシュをスキップ */);
+        if (bucketIndex < 0)
         {
-            return suffix.Value?.TrimStart('/') ?? string.Empty;
+            throw new ArgumentException("path must includes bucket name");
         }
 
-        return path.Value?.TrimStart('/') ?? string.Empty;
+        return path.Substring(bucketIndex + 1 /* ヒットしたスラッシュもスキップ */);
     }
 
-    public static IReadOnlyList<RouteConfig> BuildRoutes()
-    {
-        RouteConfig[] routes =
+    public static IReadOnlyList<RouteConfig> BuildRoutes() =>
+    [
+        new()
         {
-            new RouteConfig
-            {
-                RouteId = RouteId,
-                ClusterId = ClusterId,
-                Match = new RouteMatch { Path = "/s3files/{**s3Key}" },
-                AuthorizationPolicy = AuthorizationPolicies.ViewerRole
-            }
-        };
+            RouteId = RouteId,
+            ClusterId = ClusterId,
+            Match = new RouteMatch { Path = $"{PathPrefix}/{{**s3Key}}" },
+            AuthorizationPolicy = AuthorizationPolicies.ViewerRole
+        }
+    ];
 
-        return routes;
-    }
-
-    public static IReadOnlyList<ClusterConfig> BuildClusters()
-    {
-        ClusterConfig[] clusters =
+    public static IReadOnlyList<ClusterConfig> BuildClusters() =>
+    [
+        new()
         {
-            new ClusterConfig
+            ClusterId = ClusterId,
+            Destinations = new Dictionary<string, DestinationConfig>
             {
-                ClusterId = ClusterId,
-                Destinations = new Dictionary<string, DestinationConfig>
+                ["s3"] = new()
                 {
-                    ["s3"] = new DestinationConfig
-                    {
-                        // Placeholder; S3PresigningTransformer assigns the actual pre-signed URL per request.
-                        Address = "https://placeholder.invalid/"
-                    }
+                    // Placeholder; S3PresigningTransformer assigns the actual URL
+                    Address = "https://placeholder.invalid/"
                 }
             }
-        };
-
-        return clusters;
-    }
+        }
+    ];
 }
