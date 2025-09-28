@@ -20,7 +20,6 @@ RUN dotnet restore SendgridParquetLogger/SendgridParquetLogger.csproj
 
 # Build and publish as self-contained for linux-musl-x64 (Alpine)
 WORKDIR /src/SendgridParquetLogger
-# dotnet publish passes build metadata properties (-p:VERSION, etc.) to the imported targets
 RUN dotnet publish -c Release -r linux-musl-x64 --self-contained true \
  -p:PublishTrimmed=true \
  -p:PublishAot=true \
