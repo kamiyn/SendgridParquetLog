@@ -1,5 +1,6 @@
-﻿using SendgridParquet.Shared;
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
+
+using SendgridParquet.Shared;
 
 namespace SendgridParquetLogger.Helper;
 
