@@ -262,7 +262,7 @@
             FragmentedBytes: FormatBytes(gcInfo.FragmentedBytes),
             TotalCommittedBytes: FormatBytes(gcInfo.TotalCommittedBytes),
             PromotedBytes: FormatBytes(gcInfo.PromotedBytes),
-            PinnedObjectsCount: FormatBytes(gcInfo.PinnedObjectsCount)
+            PinnedObjectsCount: gcInfo.PinnedObjectsCount.ToString()
             );
         }
     }
