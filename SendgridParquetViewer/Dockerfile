@@ -16,10 +16,9 @@ ENV VERSION=${VERSION}
 ENV GITHUB_RUN_NUMBER=${GITHUB_RUN_NUMBER}
 ENV GITHUB_SHA=${GITHUB_SHA}
 
-# PublishAot=false for Viewer
+# use aspnet:10.0-noble-chiseled for Viewer
+# default setting (PublishAot=false,PublishTrimmed=false,-self-contained false)
 RUN dotnet publish -c Release -r linux-x64 \
- -p:PublishTrimmed=true \
- -p:PublishAot=false \
  -p:VERSION=${VERSION:-0.0.0} \
  -p:GITHUB_RUN_NUMBER=${GITHUB_RUN_NUMBER} \
  -p:GITHUB_SHA=${GITHUB_SHA} \
