@@ -2,8 +2,7 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0-alpine-aot AS build
 WORKDIR /src
 
-# 10.0-alpine-aot includes toolchain
-# NativeAOT prerequisites (platform linker, musl toolchain)
+# 10.0-alpine-aot includes toolchain NativeAOT prerequisites (platform linker, musl toolchain)
 
 # Accept build-time variables from CI
 ARG VERSION
