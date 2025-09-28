@@ -571,7 +571,7 @@ public class CompactionService(
         /// <summary>
         /// 1時間ごとの SendGridEvent 配列を格納した一時ファイルの一覧
         /// </summary>
-        internal IReadOnlyDictionary<long, HourlyFolder> PackedByHours { get; init; } = [];
+        internal IReadOnlyDictionary<long, HourlyFolder> PackedByHours { get; init; } = new Dictionary<long, HourlyFolder>();
 
         internal int Count => PackedByHours.Any() ? PackedByHours.Sum(x => x.Value.Count) : 0;
     }
