@@ -17,15 +17,17 @@ var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
 #endif
 
-#if DEBUG // Dev認証機能については 安全のため Release ビルドで明示的に無効化された状態にする
-var azureAdSection = builder.Configuration.GetSection("AzureAd");
-if (string.IsNullOrEmpty(azureAdSection.GetValue<string>("Instance")))
+// S3の接続先が port 9000 でアクセスキーが minioadmin の場合は開発用認証を使う。
+// 本番においては public な S3 互換ストレージを使うことを想定しているため。
+var s3Section = builder.Configuration.GetSection(S3Options.SectionName);
+if (Uri.TryCreate(s3Section.GetValue<string>("SERVICEURL"), UriKind.Absolute,out Uri s3Uri)
+    && s3Uri is { Scheme: "http", Port: 9000 }
+    && s3Section.GetValue<string>("ACCESSKEY") == "minioadmin")
 {
     builder.AddDevAuthentication();
     builder.AddDevAuthorization();
 }
 else
-#endif
 {
     // Add Azure AD authentication
     builder.Services.AddAuthentication(OpenIdConnectDefaults.AuthenticationScheme)

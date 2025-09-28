@@ -1,5 +1,4 @@
-﻿#if DEBUG // 認証機能については 安全のため Release ビルドで明示的に無効化された状態にする
-using System.Security.Claims;
+﻿using System.Security.Claims;
 using System.Text.Encodings.Web;
 
 using Microsoft.AspNetCore.Authentication;
@@ -62,4 +61,3 @@ internal static class DevAuthenticationExtensions
         return builder;
     }
 }
-#endif
