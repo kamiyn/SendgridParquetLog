@@ -44,6 +44,8 @@ services:
       - S3__SERVICEURL=${S3__SERVICEURL:-http://minio:9000}
       - S3__REGION=${S3__REGION:-jp-north-1}
       - S3__BUCKETNAME=${S3__BUCKETNAME:-sendgrid-events}
+      # WARNING: Enabling development authentication is insecure and should only be used for local development.
+      # Do NOT enable in production environments.
       - ENABLE_DEV_AUTH=${ENABLE_DEV_AUTH:-false}
       - AzureAd__Domain=${AzureAd__Domain:-}
       - AzureAd__TenantId=${AzureAd__TenantId:-}
