@@ -2,7 +2,7 @@
 /**
  * DuckDB のクエリ結果を表示する Vue3 app
  */
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import type { ResultState } from './resultTypes';
 
 const props = defineProps<{ state: ResultState }>();
@@ -23,6 +23,22 @@ const handleRowClick = (rowIndex: number) => {
 const closeRowDialog = () => {
   selectedRowIndex.value = null;
 };
+
+// ESC キーでダイアログを閉じる
+const handleKeydown = (e: KeyboardEvent) => {
+  if (e.key === 'Escape' && selectedRowIndex.value !== null) {
+    e.preventDefault();
+    closeRowDialog();
+  }
+};
+
+onMounted(() => {
+  window.addEventListener('keydown', handleKeydown);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleKeydown);
+});
 </script>
 
 <template>
