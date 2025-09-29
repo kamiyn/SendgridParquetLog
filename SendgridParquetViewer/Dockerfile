@@ -8,6 +8,9 @@ RUN npm install --include=dev
 
 # Build bundle assets
 COPY DuckDbBundle/ ./
+# DUCKDB_OUTPUT_DIRECTORY specifies the output directory for the DuckDB WASM bundle assets.
+# The npm build process reads this environment variable to determine where to place the built files,
+# which are later copied into the ASP.NET Core app's wwwroot/duckdb directory in the next Docker stage.
 ENV DUCKDB_OUTPUT_DIRECTORY=/duckdb-dist
 RUN npm run build
 
