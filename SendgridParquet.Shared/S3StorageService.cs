@@ -329,7 +329,7 @@ public class S3StorageService(
         return results;
     }
 
-    public async ValueTask<IEnumerable<string>> ListFilesAsync(string prefix, CancellationToken ct)
+    public async ValueTask<IReadOnlyCollection<string>> ListFilesAsync(string prefix, CancellationToken ct)
     {
         var results = new List<string>();
         string? continuationToken = null;

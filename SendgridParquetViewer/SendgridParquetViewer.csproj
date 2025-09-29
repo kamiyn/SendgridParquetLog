@@ -52,22 +52,15 @@
       <MissingDuckDbAsset Include="@(DuckDbRequiredAsset)" Condition="!Exists(%(DuckDbRequiredAsset.Identity))" />
     </ItemGroup>
 
-    <Exec Condition="@(MissingDuckDbAsset) != ''"
-          WorkingDirectory="$(DuckDbBundleDirectory)"
-          Command="npm install" />
+    <Exec Condition="@(MissingDuckDbAsset) != ''" WorkingDirectory="$(DuckDbBundleDirectory)" Command="npm install" />
 
-    <Exec Condition="@(MissingDuckDbAsset) != ''"
-          WorkingDirectory="$(DuckDbBundleDirectory)"
-          Command="npm run build"
-          EnvironmentVariables="DUCKDB_OUTPUT_DIRECTORY=$(DuckDbRuntimeDirectoryFullPath)" />
+    <Exec Condition="@(MissingDuckDbAsset) != ''" WorkingDirectory="$(DuckDbBundleDirectory)" Command="npm run build" EnvironmentVariables="DUCKDB_OUTPUT_DIRECTORY=$(DuckDbRuntimeDirectoryFullPath)" />
 
     <ItemGroup Condition="@(MissingDuckDbAsset) != ''">
-      <RemainingMissingDuckDbAsset Include="@(DuckDbRequiredAsset)"
-                                   Condition="!Exists(%(DuckDbRequiredAsset.Identity))" />
+      <RemainingMissingDuckDbAsset Include="@(DuckDbRequiredAsset)" Condition="!Exists(%(DuckDbRequiredAsset.Identity))" />
     </ItemGroup>
 
-    <Error Text="DuckDB WASM assets are missing after running 'npm run build'. Missing: @(RemainingMissingDuckDbAsset-&gt;'%(Identity)', ', ')"
-           Condition="@(RemainingMissingDuckDbAsset) != ''" />
+    <Error Text="DuckDB WASM assets are missing after running 'npm run build'. Missing: @(RemainingMissingDuckDbAsset->'%(Identity)', ', ')" Condition="@(RemainingMissingDuckDbAsset) != ''" />
   </Target>
 
 </Project>
