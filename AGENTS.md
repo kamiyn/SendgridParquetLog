@@ -2,7 +2,7 @@
 
 プロンプトに書かれた内容、および、処理内容 を Markdown 形式 ./codinglog/Gpt<yyyyMMddHHmm>.md ファイルへ記録してください
 
-プルリクエストメッセージ案を出力する際は VSCode extension でコピーしやすいよう ''' ''' で囲ってください
+プルリクエストメッセージ案を出力する際は VSCode extension でコピーしやすいよう コード形式 で出力してください
 
 ## Important Notes
 
