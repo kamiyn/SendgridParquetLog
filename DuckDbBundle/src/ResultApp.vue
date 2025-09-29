@@ -49,7 +49,7 @@ const closeRowDialog = () => {
       v-else-if="state.rows.length > 0 && state.columns.length > 0"
       class="table-responsive mt-4"
     >
-      <table class="table table-striped table-sm align-middle">
+      <table class="table table-striped table-sm table-bordered align-middle">
         <thead>
           <tr>
             <th
@@ -66,8 +66,6 @@ const closeRowDialog = () => {
             v-for="(row, rowIndex) in state.rows"
             :key="rowIndex"
             class="clickable-row"
-            role="button"
-            tabindex="0"
             @click="handleRowClick(rowIndex)"
             @keydown.enter.prevent="handleRowClick(rowIndex)"
             @keydown.space.prevent="handleRowClick(rowIndex)"
@@ -94,7 +92,12 @@ const closeRowDialog = () => {
     >
       <div class="modal-content">
         <header class="modal-header">
-          <h5 id="row-dialog-title" class="modal-title">Row details</h5>
+          <h5
+            id="row-dialog-title"
+            class="modal-title"
+          >
+            Details
+          </h5>
           <button
             type="button"
             class="btn-close"
@@ -103,13 +106,16 @@ const closeRowDialog = () => {
           />
         </header>
         <div class="modal-body">
-          <table class="table table-borderless table-sm mb-0">
+          <table class="table table-striped table-sm table-bordered align-middle">
             <tbody>
               <tr
                 v-for="(columnName, columnIndex) in state.columns"
                 :key="columnIndex"
               >
-                <th scope="row" class="text-nowrap align-top">
+                <th
+                  scope="row"
+                  class="text-nowrap align-top"
+                >
                   {{ columnName }}
                 </th>
                 <td>{{ selectedRow[columnIndex] }}</td>
@@ -118,11 +124,20 @@ const closeRowDialog = () => {
           </table>
         </div>
         <footer class="modal-footer">
-          <button type="button" class="btn btn-secondary" @click="closeRowDialog">
+          <button
+            type="button"
+            class="btn btn-secondary"
+            @click="closeRowDialog"
+          >
             Close
           </button>
         </footer>
       </div>
+    </div>
+    <div class="mt-3">
+      <pre style="width: 960px; overflow-x: scroll;">
+      {{ state.sql }}
+      </pre>
     </div>
   </div>
 </template>

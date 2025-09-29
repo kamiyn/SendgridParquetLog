@@ -19,12 +19,14 @@ export type ResultState = {
   rows: string[][];
   targetColumn: number[];
   error: string;
+  sql:string;
   isLoading: boolean;
 }
 
 export type DuckDbQueryPayload = {
   columns: string[];
   rows: string[][];
+  sql:string;
 }
 
 export type ResultAppHandle = {

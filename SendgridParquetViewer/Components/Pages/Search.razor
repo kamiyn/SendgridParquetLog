@@ -52,7 +52,7 @@
         {
             <!-- Hour Selection (Optional) -->
             <div style="min-width: 150px;">
-                <FluentLabel>時間（オプション）</FluentLabel>
+                <FluentLabel>時間</FluentLabel>
                 <FluentSelect TOption="string" @bind-Value="_selectedHourString" @onchange="OnHourSelectionChange" Style="width: 100%; margin-top: 5px;">
                     <FluentOption TOption="string" Value="">全時間</FluentOption>
                     @for (int i = 0; i < 24; i++)

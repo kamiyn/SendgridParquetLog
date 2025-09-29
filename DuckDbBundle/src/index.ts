@@ -53,7 +53,7 @@ function toDisplayValue(column: string, value: unknown): string {
     return '';
   }
 
-  console.log("toDisplayValue", column, value);
+  // console.log("toDisplayValue", column, value);
   switch (column) {
     case "timestamp":
       return formatISO9075(new Date(Number(value) * 1000))
@@ -78,6 +78,7 @@ function CalcTargetColumn(columns: string[]): number[] {
     "reason",
     "status",
     "response",
+    "sg_template_id",
     "marketing_campaign_name",
   ];
 
@@ -122,6 +123,7 @@ export function createResultApp(
     rows: [],
     targetColumn: [],
     error: '',
+    sql: '',
     isLoading: false
   });
 
@@ -136,6 +138,7 @@ export function createResultApp(
       }
 
       state.error = '';
+      state.sql = '';
       state.columns = [];
       state.rows = [];
       state.isLoading = true;
@@ -145,6 +148,7 @@ export function createResultApp(
         state.columns = result.columns;
         state.rows = result.rows;
         state.targetColumn = CalcTargetColumn(result.columns);
+        state.sql = result.sql;
       } catch (error) {
         state.error = error instanceof Error ? error.message : String(error ?? '');
       } finally {
@@ -169,6 +173,33 @@ export function createResultApp(
   app.mount(element);
   resultAppRegistry.set(element, { app, handle });
   return handle;
+}
+
+/**
+ * WHERE句を組み立てる
+ */
+function whereClause(searchCondition: SearchCondition): string {
+  const conditions = [];
+  if (searchCondition.email) {
+    // Escape single quotes to prevent SQL injection
+    const emailEscaped = searchCondition.email.replace("'", "''");
+    conditions.push(`email ILIKE '${emailEscaped}'`)
+  }
+  if (searchCondition.eventType) {
+    // Escape single quotes to prevent SQL injection
+    const eventEscaped = searchCondition.eventType.replace("'", "''");
+    conditions.push(`event = '${eventEscaped}'`);
+  }
+  if (searchCondition.sgTemplateId) {
+    // Escape single quotes to prevent SQL injection
+    const sgTemplateIdEscaped = searchCondition.sgTemplateId.replace("'", "''");
+    conditions.push(`sg_template_id = '${sgTemplateIdEscaped}'`);
+  }
+
+  if (conditions.length == 0) {
+    return "";
+  }
+  return "WHERE " + conditions.join(" AND ");
 }
 
 async function executeQuery(
@@ -197,12 +228,13 @@ async function executeQuery(
     // UNION ALL クエリ でテーブルを結合してクエリを実施する
     const unionClauses = virtualFileNames.map(name => `SELECT * FROM '${name}'`);
     const fullQuery = `
-        SELECT 
-            *
-        FROM (
-            ${unionClauses.join(' UNION ALL ')}
-        ) AS all_records
-        LIMIT 1000;
+SELECT 
+    *
+FROM (
+    ${unionClauses.join(' UNION ALL ')}
+) AS all_records
+${whereClause(searchCondition)}
+LIMIT 1000;
     `;
 
     const result = await connection.query(fullQuery);
@@ -214,6 +246,7 @@ async function executeQuery(
     return {
       columns,
       rows: rowValues,
+      sql: fullQuery,
     } satisfies DuckDbQueryPayload;
   } finally {
     await connection.close();
