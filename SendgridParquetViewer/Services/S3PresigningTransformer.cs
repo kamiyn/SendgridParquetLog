@@ -21,7 +21,7 @@ public sealed class S3PresigningTransformer(S3StorageService storageService) : I
     /// S3 の BUCKETNAME と同じになっているとURLをコピーして作業しやすい
     /// </summary>
     public const string PathPrefix = "/sendgrid-events";
-    
+
     public void ValidateRoute(TransformRouteValidationContext context)
     {
     }

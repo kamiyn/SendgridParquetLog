@@ -32,7 +32,7 @@ public class S3StorageService(
         ? "<empty>"
         : s.Length <= MaxErrorContentLength ? s : s[..MaxErrorContentLength] + "...(truncated)";
 
-    public Uri GetObjectUri(string key)=> new($"{_options.SERVICEURL}/{_options.BUCKETNAME}/{key}");
+    public Uri GetObjectUri(string key) => new($"{_options.SERVICEURL}/{_options.BUCKETNAME}/{key}");
 
     public async ValueTask<bool> PutObjectAsync(Stream content, string key, CancellationToken ct)
     {
