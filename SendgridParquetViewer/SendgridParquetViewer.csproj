@@ -17,6 +17,7 @@
     <PackageReference Include="Microsoft.FluentUI.AspNetCore.Components" Version="4.12.1" />
     <PackageReference Include="Microsoft.Identity.Web" Version="3.14.1" />
     <PackageReference Include="Microsoft.Identity.Web.UI" Version="3.14.1" />
+    <PackageReference Include="Yarp.ReverseProxy" Version="2.3.0" />
     <PackageReference Include="R3" Version="1.3.0" />
   </ItemGroup>
 
@@ -32,5 +33,34 @@
   <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
     <DefineConstants>UseAspire;$(DefineConstants)</DefineConstants>
   </PropertyGroup>
+
+  <PropertyGroup>
+    <DuckDbRuntimeDirectory>$([System.IO.Path]::Combine('$(MSBuildProjectDirectory)', 'wwwroot', 'duckdb'))</DuckDbRuntimeDirectory>
+    <DuckDbRuntimeDirectoryFullPath>$([System.IO.Path]::GetFullPath('$(DuckDbRuntimeDirectory)'))</DuckDbRuntimeDirectoryFullPath>
+    <DuckDbBundleDirectory>$([System.IO.Path]::GetFullPath($([System.IO.Path]::Combine('$(MSBuildProjectDirectory)', '..', 'DuckDbBundle'))))</DuckDbBundleDirectory>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <DuckDbRequiredAsset Include="$(DuckDbRuntimeDirectory)/duckdb-browser.mjs" />
+    <DuckDbRequiredAsset Include="$(DuckDbRuntimeDirectory)/duckdb-eh.wasm" />
+    <DuckDbRequiredAsset Include="$(DuckDbRuntimeDirectory)/duckdb-browser-eh.worker.js" />
+    <DuckDbRequiredAsset Include="$(DuckDbRuntimeDirectory)/duckdb-browser-coi.pthread.worker.js" />
+  </ItemGroup>
+
+  <Target Name="VerifyDuckDbWasmAssets" BeforeTargets="BeforeBuild">
+    <ItemGroup>
+      <MissingDuckDbAsset Include="@(DuckDbRequiredAsset)" Condition="!Exists(%(DuckDbRequiredAsset.Identity))" />
+    </ItemGroup>
+
+    <Exec Condition="@(MissingDuckDbAsset) != ''" WorkingDirectory="$(DuckDbBundleDirectory)" Command="npm install" />
+
+    <Exec Condition="@(MissingDuckDbAsset) != ''" WorkingDirectory="$(DuckDbBundleDirectory)" Command="npm run build" EnvironmentVariables="DUCKDB_OUTPUT_DIRECTORY=$(DuckDbRuntimeDirectoryFullPath)" />
+
+    <ItemGroup Condition="@(MissingDuckDbAsset) != ''">
+      <RemainingMissingDuckDbAsset Include="@(DuckDbRequiredAsset)" Condition="!Exists(%(DuckDbRequiredAsset.Identity))" />
+    </ItemGroup>
+
+    <Error Text="DuckDB WASM assets are missing after running 'npm run build'. Missing: @(RemainingMissingDuckDbAsset->'%(Identity)', ', ')" Condition="@(RemainingMissingDuckDbAsset) != ''" />
+  </Target>
 
 </Project>

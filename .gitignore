@@ -43,3 +43,6 @@ Scratch/
 app.db
 app.db-shm
 app.db-wal
+
+# Download and build files
+*/wwwroot/duckdb

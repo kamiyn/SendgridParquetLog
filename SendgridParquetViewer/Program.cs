@@ -1,11 +1,15 @@
-﻿using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+﻿using System.Globalization;
+
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Localization;
 using Microsoft.FluentUI.AspNetCore.Components;
 using Microsoft.Identity.Web;
 using Microsoft.Identity.Web.UI;
 
 using SendgridParquet.Shared;
 
+using SendgridParquetViewer.Authorization;
 using SendgridParquetViewer.Components;
 using SendgridParquetViewer.Models;
 using SendgridParquetViewer.Services;
@@ -59,11 +63,11 @@ else
             .Build();
 
         // Define role-based policies for AppRoles
-        options.AddPolicy("ViewerRole", policy =>
-            policy.RequireRole("Viewer", "Admin"));
+        options.AddPolicy(AuthorizationPolicies.ViewerRole, policy =>
+            policy.RequireRole(AuthorizationRoles.Viewer, AuthorizationRoles.Admin));
 
-        options.AddPolicy("AdminRole", policy =>
-            policy.RequireRole("Admin"));
+        options.AddPolicy(AuthorizationPolicies.AdminRole, policy =>
+            policy.RequireRole(AuthorizationRoles.Admin));
     });
 }
 
@@ -102,6 +106,9 @@ builder.Services.AddControllersWithViews()
 // Add Fluent UI
 builder.Services.AddFluentUIComponents();
 
+// 1. ローカライゼーションサービスをDIコンテナに登録します。
+builder.Services.AddLocalization(options => options.ResourcesPath = "Resources");
+
 // Add DuckDB service
 builder.Services.AddTransient<DuckDbService>();
 
@@ -119,7 +126,30 @@ builder.Services.AddHostedService<CompactionStartupHostedService>(); // 起動�
 // Add health checks
 builder.Services.AddHealthChecks();
 
+var s3Routes = S3PresigningTransformer.BuildRoutes();
+var s3Clusters = S3PresigningTransformer.BuildClusters();
+
+builder.Services.AddReverseProxy()
+    .AddTransforms<S3PresigningTransformer>()
+    .LoadFromMemory(s3Routes, s3Clusters);
+
 var app = builder.Build();
+
+var supportedCultures = new[]
+{
+    new CultureInfo("ja-JP")
+};
+
+var localizationOptions = new RequestLocalizationOptions
+{
+    DefaultRequestCulture = new RequestCulture("ja-JP"),
+    SupportedCultures = supportedCultures,
+    SupportedUICultures = supportedCultures
+};
+
+// 4. ローカライゼーションミドルウェアをパイプラインに追加します。
+// これにより、すべてのリクエストでカルチャが設定されるようになります。
+app.UseRequestLocalization(localizationOptions);
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
@@ -144,6 +174,7 @@ app.MapRazorComponents<App>()
 
 // Map controllers for authentication endpoints
 app.MapControllers();
+app.MapReverseProxy();
 
 // Map health check endpoint (allow anonymous access)
 app.MapHealthChecks("/health6QQl").AllowAnonymous();
