@@ -107,14 +107,19 @@
         await base.OnInitializedAsync();
     }
 
-    private void OnInputChange()
+    private async Task OnInputChange()
     {
-        // Reset search state when any input changes
+        if (_isExecuting)
+        {
+            return;
+        }
+
+        await RunQueryAsync();
     }
 
-    private void OnHourSelectionChange() => OnInputChange();
+    private Task OnHourSelectionChange() => OnInputChange();
 
-    private void OnEventTypeChange() => OnInputChange();
+    private Task OnEventTypeChange() => OnInputChange();
 
     private async Task OnEmailKeyDown(KeyboardEventArgs args)
     {
