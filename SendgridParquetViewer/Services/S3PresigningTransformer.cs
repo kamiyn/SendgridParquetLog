@@ -47,6 +47,11 @@ public sealed class S3PresigningTransformer(S3StorageService storageService) : I
                     throw new NotSupportedException("PUT/POST is not supported");
             }
 
+            if (transformContext.HttpContext.User.Identity?.IsAuthenticated != true)
+            {
+                throw new UnauthorizedAccessException("Not Authenticated");
+            }
+
             string s3ObjectKey = GetS3ObjectKey(transformContext.HttpContext.Request);
             transformContext.ProxyRequest.RequestUri = storageService.GetObjectUri(s3ObjectKey);
             storageService.AddAwsSignatureHeaders(transformContext.ProxyRequest, null);
@@ -85,7 +90,7 @@ public sealed class S3PresigningTransformer(S3StorageService storageService) : I
             RouteId = RouteId,
             ClusterId = ClusterId,
             Match = new RouteMatch { Path = $"{PathPrefix}/{{**s3Key}}" },
-            AuthorizationPolicy = AuthorizationPolicies.ViewerRole
+            //AuthorizationPolicy = AuthorizationPolicies.ViewerRole, // Apply() で認証済みかチェックするので不要
         }
     ];
 
