@@ -202,13 +202,16 @@ function whereClause(searchCondition: SearchCondition): string {
   return "WHERE " + conditions.join(" AND ");
 }
 
+type DuckDBException = {
+  message: string
+};
+
 async function executeQuery(
   config: DuckDbBundleConfig,
   searchCondition: SearchCondition
 ): Promise<DuckDbQueryPayload> {
   const { db } = await loadDuckDb(config);
   const connection = await db.connect();
-
   try {
     const virtualFileNames = [];
     for (const parquetUrl of searchCondition.parquetUrls) {
@@ -225,7 +228,11 @@ async function executeQuery(
           false // ファイル全体をキャッシュするかどうか
         );
       } catch (ex) {
-        console.error(ex);
+        if (((<DuckDBException>ex).message?.startsWith("File already registered:"))) {
+          // 同一名称の登録によるエラーは抑制する
+        } else {
+          console.error(ex);
+        }
       }
     }
 
