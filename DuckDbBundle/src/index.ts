@@ -47,7 +47,7 @@ async function loadDuckDb(config: DuckDbBundleConfig): Promise<DuckDbInstance> {
   return duckDbState.duckDbPromise;
 }
 
-function toDisplayValue(value: unknown): string {
+function toDisplayValue(column: string, value: unknown): string {
   if (value === null || value === undefined) {
     return '';
   }
@@ -59,41 +59,6 @@ function toDisplayValue(value: unknown): string {
   return String(value);
 }
 
-function resolveParquetUrl(parquetUrl: string): string {
-  if (!parquetUrl) {
-    return parquetUrl;
-  }
-
-  if (parquetUrl.startsWith('http://') || parquetUrl.startsWith('https://')) {
-    return parquetUrl;
-  }
-
-  const baseUrl = typeof window === 'object' && window.location
-    ? window.location.origin
-    : globalThis.location?.origin ?? '';
-
-  return new URL(parquetUrl, baseUrl).toString();
-}
-
-function cloneRowValues(rows: DuckDbQueryPayload['rows']): string[][] {
-  if (!Array.isArray(rows)) {
-    return [];
-  }
-
-  return rows.map(row => {
-    const values = Array.isArray(row?.values) ? row.values : [];
-    return values.map(value => String(value ?? ''));
-  });
-}
-
-function ensureHostElement(element: Element | null | undefined): Element {
-  if (!element) {
-    throw new Error('A host element is required to mount the result application.');
-  }
-
-  return element;
-}
-
 export function createResultApp(
   element: Element | null | undefined,
   config: DuckDbBundleConfig
@@ -101,12 +66,14 @@ export function createResultApp(
   if (!config || typeof config.bundleBasePath !== 'string') {
     throw new Error('DuckDB configuration is required.');
   }
-
-  const host = ensureHostElement(element);
-  const existing = resultAppRegistry.get(host);
+  if (!element) {
+    throw new Error('A host element is required to mount the result application.');
+  }
+  const existing = resultAppRegistry.get(element);
   if (existing) {
     return existing.handle;
   }
+  element.innerHTML = '';
 
   const resolvedConfig: DuckDbBundleConfig = {
     bundleBasePath: config.bundleBasePath,
@@ -116,16 +83,12 @@ export function createResultApp(
     pthreadWorker: config.pthreadWorker ?? null
   };
 
-  host.innerHTML = '';
   const state = reactive<ResultState>({
     columns: [],
     rows: [],
     error: '',
     isLoading: false
   });
-
-  const app = createApp(ResultApp, { state });
-  app.mount(host);
 
   const handle: ResultAppHandle = {
     async runQuery(searchCondition: SearchCondition) {
@@ -144,8 +107,8 @@ export function createResultApp(
 
       try {
         const result = await executeQuery(resolvedConfig, searchCondition);
-        state.columns = Array.isArray(result.columns) ? [...result.columns] : [];
-        state.rows = cloneRowValues(result.rows);
+        state.columns = result.columns;
+        state.rows = result.rows; // Values(result.rows);
       } catch (error) {
         state.error = error instanceof Error ? error.message : String(error ?? '');
       } finally {
@@ -160,46 +123,42 @@ export function createResultApp(
     },
     unmount() {
       app.unmount();
-      host.innerHTML = '';
-      resultAppRegistry.delete(host);
+      element.innerHTML = '';
+      resultAppRegistry.delete(element);
     }
   };
 
-  resultAppRegistry.set(host, { app, handle });
+  // element に Vue3 app としてマウントする
+  const app = createApp(ResultApp, { state });
+  app.mount(element);
+  resultAppRegistry.set(element, { app, handle });
   return handle;
 }
 
-export async function executeQuery(
+async function executeQuery(
   config: DuckDbBundleConfig,
   searchCondition: SearchCondition
 ): Promise<DuckDbQueryPayload> {
-  if (!config) {
-    throw new Error('DuckDB configuration is required.');
-  }
-
   const { db } = await loadDuckDb(config);
   const connection = await db.connect();
 
   try {
     const virtualFileNames = [];
-    // 2. 各URLをループで登録
     for (const parquetUrl of searchCondition.parquetUrls) {
-      const resolvedParquetUrl = resolveParquetUrl(parquetUrl);
-      // URLからファイル名を取得して仮想ファイル名として使用
-      const virtualName = resolvedParquetUrl.split('/').pop(); // スラッシュで区切った末尾のファイル名
+      const virtualName = parquetUrl.split('/').pop(); // スラッシュで区切った末尾のファイル名を仮想ファイル名として使用
       if (!virtualName) {
         continue;
       }
       virtualFileNames.push(virtualName);
       await db.registerFileURL(
-        virtualName,        // 仮想ファイル名
-        resolvedParquetUrl, // 対応するURL
+        virtualName, // 仮想ファイル名
+        parquetUrl, // 対応するURL
         duckdb.DuckDBDataProtocol.HTTP, // プロトコル
-        false               // ファイル全体をキャッシュするかどうか
+        false // ファイル全体をキャッシュするかどうか
       );
     }
 
-    // 3. UNION ALL クエリ でテーブルを結合
+    // UNION ALL クエリ でテーブルを結合してクエリを実施する
     const unionClauses = virtualFileNames.map(name => `SELECT * FROM '${name}'`);
     const fullQuery = `
         SELECT 
@@ -214,14 +173,14 @@ export async function executeQuery(
     const columns = Array.isArray(result?.schema?.fields)
       ? result.schema.fields.map(field => field.name ?? '').filter(name => Boolean(name))
       : [];
-
-    const rowValues = result.toArray().map(row => columns.map(column => toDisplayValue(row[column])));
+    // columns の順番に合わせて row を作る
+    const rowValues = result.toArray().map(row => columns.map(column => toDisplayValue(column, row[column])));
 
     closeArrowTable(result);
 
     return {
       columns,
-      rows: rowValues.map(values => ({ values }))
+      rows: rowValues,
     } satisfies DuckDbQueryPayload;
   } finally {
     await connection.close();

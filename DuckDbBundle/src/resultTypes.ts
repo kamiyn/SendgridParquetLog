@@ -23,7 +23,7 @@ export type ResultState = {
 
 export type DuckDbQueryPayload = {
   columns: string[];
-  rows: Array<{ values: string[] }>;
+  rows: string[][];
 }
 
 export type ResultAppHandle = {
