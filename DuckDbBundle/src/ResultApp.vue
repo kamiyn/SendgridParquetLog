@@ -37,11 +37,11 @@ const state = props.state;
         <thead>
           <tr>
             <th
-              v-for="column in state.columns"
+              v-for="column in state.targetColumn"
               :key="column"
               scope="col"
             >
-              {{ column }}
+              {{ state.columns[column] }}
             </th>
           </tr>
         </thead>
@@ -51,11 +51,11 @@ const state = props.state;
             :key="rowIndex"
           >
             <td
-              v-for="(value, valueIndex) in row"
-              :key="valueIndex"
+              v-for="columnIndex in state.targetColumn"
+              :key="columnIndex"
               class="text-nowrap"
             >
-              {{ value }}
+              {{ row[columnIndex] }}
             </td>
           </tr>
         </tbody>

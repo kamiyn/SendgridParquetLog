@@ -66,6 +66,33 @@ function toDisplayValue(column: string, value: unknown): string {
   return String(value);
 }
 
+/**
+ * 表に表示するカラム番号の配列を返す
+ */
+function CalcTargetColumn(columns: string[]): number[] {
+  const showColumns = [
+    "timestamp",
+    "email",
+    "event",
+    "category",
+    "reason",
+    "status",
+    "response",
+    "marketing_campaign_name",
+  ];
+
+  const targetColumn: number[] = [];
+  for (const column of showColumns) {
+    const idx = columns.indexOf(column);
+    if (idx >= 0) {
+      targetColumn.push(idx);
+    }
+  }
+
+  return targetColumn;
+}
+
+
 export function createResultApp(
   element: Element | null | undefined,
   config: DuckDbBundleConfig
@@ -93,6 +120,7 @@ export function createResultApp(
   const state = reactive<ResultState>({
     columns: [],
     rows: [],
+    targetColumn: [],
     error: '',
     isLoading: false
   });
@@ -115,7 +143,8 @@ export function createResultApp(
       try {
         const result = await executeQuery(resolvedConfig, searchCondition);
         state.columns = result.columns;
-        state.rows = result.rows; // Values(result.rows);
+        state.rows = result.rows;
+        state.targetColumn = CalcTargetColumn(result.columns);
       } catch (error) {
         state.error = error instanceof Error ? error.message : String(error ?? '');
       } finally {

@@ -17,6 +17,7 @@ export type DuckDbInstance = {
 export type ResultState = {
   columns: string[];
   rows: string[][];
+  targetColumn: number[];
   error: string;
   isLoading: boolean;
 }
