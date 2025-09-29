@@ -157,19 +157,8 @@ export function createResultApp(
 
   const handle: ResultAppHandle = {
     async runQuery(searchCondition: SearchCondition) {
-      const source = '';
-      const statement =  '';
-
-      if (!source) {
+      if (!searchCondition?.parquetUrls?.length) {
         state.error = 'Select a parquet file to query.';
-        state.columns = [];
-        state.rows = [];
-        state.isLoading = false;
-        return;
-      }
-
-      if (!statement) {
-        state.error = 'Enter a SQL statement.';
         state.columns = [];
         state.rows = [];
         state.isLoading = false;

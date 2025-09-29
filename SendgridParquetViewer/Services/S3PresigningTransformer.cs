@@ -20,7 +20,7 @@ public sealed class S3PresigningTransformer(S3StorageService storageService) : I
     /// Proxy として利用するパスのプレフィックス
     /// S3 の BUCKETNAME と同じになっているとURLをコピーして作業しやすい
     /// </summary>
-    private const string PathPrefix = "/sendgrid-events";
+    public const string PathPrefix = "/sendgrid-events";
     
     public void ValidateRoute(TransformRouteValidationContext context)
     {

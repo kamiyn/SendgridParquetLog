@@ -2,6 +2,7 @@
 @rendermode InteractiveServer
 @attribute [Authorize]
 @using SendgridParquetViewer.Models
+@using SendgridParquetViewer.Services
 @using ZLogger
 @inject TimeProvider TimeProvider
 @inject ILogger<Search> Logger
@@ -191,8 +192,10 @@
     {
         var ct = _cts.Token;
         var ymd = new YearMonthDayOptional(_selectedDate?.Year, _selectedDate?.Month, _selectedDate?.Day, SelectedHour);
-        var prefix = SendGridPathUtility.GetS3CompactionPrefix(ymd.Year, ymd.Month, ymd.Day, ymd.Hour);
-        return await S3StorageService.ListFilesAsync(prefix, ct);
+        var s3CompactionPrefix = SendGridPathUtility.GetS3CompactionPrefix(ymd.Year, ymd.Month, ymd.Day, ymd.Hour);
+        var keys = await S3StorageService.ListFilesAsync(s3CompactionPrefix, ct);
+        var pathPrefix = S3PresigningTransformer.PathPrefix;
+        return keys.Select(x => $"{pathPrefix}/{x}").ToArray();
     }
 
     public async ValueTask DisposeAsync()
