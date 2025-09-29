@@ -49,11 +49,7 @@ public sealed class S3PresigningTransformer(S3StorageService storageService) : I
 
             if (transformContext.HttpContext.User.Identity?.IsAuthenticated != true)
             {
-<<<<<<< HEAD
                 throw new UnauthorizedAccessException("Not Authenticated");
-=======
-                throw new NotSupportedException("Authentication required");
->>>>>>> 0658351ea6df1cfcb3bc578353f0e182d216a621
             }
 
             string s3ObjectKey = GetS3ObjectKey(transformContext.HttpContext.Request);
