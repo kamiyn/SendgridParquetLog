@@ -10,7 +10,7 @@ ARG GITHUB_SHA
 COPY . .
 RUN dotnet restore
 
-# 将来的には /DuckDbBundle で npm run build した結果を取り込む マルチステージビルドにしたい
+# In the future, use a multi-stage build to include the result of 'npm run build' in /DuckDbBundle
 # Install Node.js/npm for DuckDB WASM asset build
 RUN apt-get update \
  && apt-get install -y --no-install-recommends nodejs npm \
