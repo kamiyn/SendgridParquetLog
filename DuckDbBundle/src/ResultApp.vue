@@ -126,55 +126,7 @@ const closeRowDialog = () => {
     </div>
   </div>
 </template>
-
+<!-- StyleSheet は Blazor 側 SendgridParquetViewer/wwwroot/app.css で指定する
 <style scoped>
-.result-app {
-  width: 100%;
-}
-
-.clickable-row {
-  cursor: pointer;
-}
-
-.clickable-row:focus {
-  outline: 2px solid var(--bs-primary, #0d6efd);
-  outline-offset: -2px;
-}
-
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background-color: rgba(0, 0, 0, 0.5);
-  padding: 1rem;
-  z-index: 1050;
-}
-
-.modal-content {
-  width: min(640px, 100%);
-  max-height: min(540px, 100%);
-  display: flex;
-  flex-direction: column;
-  background-color: var(--bs-body-bg, #fff);
-  border-radius: 0.5rem;
-  box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
-  overflow: hidden;
-}
-
-.modal-header,
-.modal-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.75rem 1rem;
-  border: 0;
-}
-
-.modal-body {
-  padding: 0.75rem 1rem 1rem;
-  overflow-y: auto;
-}
-
 </style>
+-->
