@@ -106,11 +106,7 @@ builder.Services.AddControllersWithViews()
 // Add Fluent UI
 builder.Services.AddFluentUIComponents();
 
-// 1. ローカライゼーションサービスをDIコンテナに登録します。
 builder.Services.AddLocalization(options => options.ResourcesPath = "Resources");
-
-// Add DuckDB service
-builder.Services.AddTransient<DuckDbService>();
 
 // Add S3 storage service
 builder.Services.AddHttpClient<S3StorageService>();
@@ -147,8 +143,6 @@ var localizationOptions = new RequestLocalizationOptions
     SupportedUICultures = supportedCultures
 };
 
-// 4. ローカライゼーションミドルウェアをパイプラインに追加します。
-// これにより、すべてのリクエストでカルチャが設定されるようになります。
 app.UseRequestLocalization(localizationOptions);
 
 // Configure the HTTP request pipeline.

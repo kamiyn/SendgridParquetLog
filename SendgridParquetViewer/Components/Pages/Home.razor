@@ -3,10 +3,12 @@
 @attribute [Authorize]
 @using SendgridParquetViewer.Models
 @using SendgridParquetViewer.Services
-@inject DuckDbService DuckDbService
+@using ZLogger
 @inject TimeProvider TimeProvider
-@inject S3StorageService S3StorageService
 @inject ILogger<Home> Logger
+@inject IJSRuntime JsRuntime
+@inject S3StorageService S3StorageService
+@implements IAsyncDisposable
 
 <PageTitle>SendGrid Events Viewer</PageTitle>
 
@@ -20,7 +22,7 @@
 
         <!-- Email Address Field -->
         <div style="min-width: 250px;">
-            <FluentTextField @bind-Value="_selectedEmail" @oninput="OnInputChange" Label="email（LIKE句）" Style="width: 100%;" Placeholder="example@domain.com" />
+            <FluentTextField @bind-Value="_selectedEmail" @oninput="OnInputChange" @onkeydown="OnEmailKeyDown" Label="email（LIKE句）" Style="width: 100%;" Placeholder="example@domain.com" />
         </div>
 
         <!-- SG Template ID Field -->
@@ -38,19 +40,6 @@
                 }
             </FluentSelect>
         </div>
-
-        @* 2025年9月5日現在: 次のエラーが発生するため無効にしています
-        Error querying events by s3://sendgrid-events/v3raw/2025/09/* /* Invalid Error: Payload value bigger than allowed. Corrupted file?
-        <!-- Date Selection Mode -->
-        <div style="min-width: 250px;">
-            <FluentLabel>日付の扱い</FluentLabel>
-            <FluentRadioGroup @bind-Value="_dateSelectionMode" @onchange="OnDateSelectionModeChange" Style="margin-top: 5px;">
-                <FluentRadio Value="@DateSelectionMode.YearMonth">年月のみ使用（日付は無視）</FluentRadio>
-                <FluentRadio Value="@DateSelectionMode.YearMonthDay">年月日すべて使用</FluentRadio>
-            </FluentRadioGroup>
-        </div> *@
-
-        <!-- Date Picker - Always Visible -->
         <div style="min-width: 200px;">
             <FluentDatePicker @bind-Value="_selectedDate" @oninput="OnInputChange" Label="日付選択" Style="width: 100%;" />
             @if (_dateSelectionMode == DateSelectionMode.YearMonth)
@@ -63,7 +52,7 @@
         {
             <!-- Hour Selection (Optional) -->
             <div style="min-width: 150px;">
-                <FluentLabel>時間（オプション）</FluentLabel>
+                <FluentLabel>時間</FluentLabel>
                 <FluentSelect TOption="string" @bind-Value="_selectedHourString" @onchange="OnHourSelectionChange" Style="width: 100%; margin-top: 5px;">
                     <FluentOption TOption="string" Value="">全時間</FluentOption>
                     @for (int i = 0; i < 24; i++)
@@ -77,165 +66,16 @@
 
         <!-- Search Button -->
         <div style="margin-top: 25px;">
-            <FluentButton Appearance="Appearance.Accent" OnClick="SearchAsync">検索</FluentButton>
+            <FluentButton Appearance="Appearance.Accent" OnClick="RunQueryAsync" disabled="@_isExecuting">
+                @(_isExecuting ? "Running..." : "検索")
+            </FluentButton>
         </div>
 
     </FluentStack>
 </div>
 
-@if (!string.IsNullOrEmpty(_errorMessage))
-{
-    <FluentMessageBar Intent="MessageIntent.Error" Style="margin-bottom: 20px;">
-        <div>
-            <strong>エラー:</strong> @_errorMessage
-        </div>
-    </FluentMessageBar>
-}
-
-@if (_isLoading)
-{
-    <FluentProgress />
-    <p>データを検索中...</p>
-}
-else if (_sendGridEvents.Any())
-{
-    <div style="margin-top: 10px;">
-        <p>検索結果: @_sendGridEvents.Count() 件</p>
-
-        <FluentDataGrid Items="@_sendGridEvents" Pagination="@_pagination">
-            <TemplateColumn Title="詳細" Style="width: 40px;">
-                <FluentButton Appearance="Appearance.Lightweight" @onclick="() => ShowEventDetails(context)">表示</FluentButton>
-            </TemplateColumn>
-            <PropertyColumn Property="@(e => FromUnixTimeSecondsJst(e.Timestamp))" Title="タイムスタンプ" Format="yyyy-MM-dd HH:mm:ss JST" Sortable="true" Style="width: 200px;" />
-            <PropertyColumn Property="@(e => e.Email)" Title="メールアドレス" Sortable="true" Style="width: 250px;" />
-            <PropertyColumn Property="@(e => e.Event)" Title="イベント" Sortable="true" />
-            <PropertyColumn Property="@(e => e.Category)" Title="カテゴリ" Sortable="true" />
-            <PropertyColumn Property="@(e => e.Reason)" Title="理由" />
-            <PropertyColumn Property="@(e => e.Status)" Title="ステータス" />
-            <PropertyColumn Property="@(e => e.Response)" Title="レスポンス" />
-            <PropertyColumn Property="@(e => e.MarketingCampaignName)" Title="キャンペーン名" Sortable="true" />
-            <PropertyColumn Property="@(e => e.Url)" Title="URL" />
-        </FluentDataGrid>
-
-        <FluentPaginator State="@_pagination" />
-    </div>
-}
-else if (_hasSearched)
-{
-    <p>検索結果が見つかりませんでした。</p>
-}
-
-<!-- Event Details Dialog -->
-<FluentDialog Hidden="@(!ShowEventDetailsDialog)" Modal="true" TrapFocus="true">
-    <FluentDialogHeader>
-        <FluentStack VerticalAlignment="VerticalAlignment.Center">
-            <FluentLabel Typo="Typography.Header">イベント詳細</FluentLabel>
-        </FluentStack>
-    </FluentDialogHeader>
-    <FluentDialogBody>
-        @if (_selectedEvent != null)
-        {
-            <div style="max-height: 500px; overflow-y: auto;">
-                <FluentStack Orientation="Orientation.Vertical" Style="gap: 10px;">
-                    <div><strong>Email:</strong> @_selectedEvent.Email</div>
-                    <div><strong>Timestamp:</strong> @FromUnixTimeSecondsJst(_selectedEvent.Timestamp).ToString("yyyy-MM-dd HH:mm:ss")</div>
-                    <div><strong>Event:</strong> @_selectedEvent.Event</div>
-                    @if (_selectedEvent.SendAt.HasValue)
-                    {
-                        <div><strong>Send At:</strong> @FromUnixTimeSecondsJst(_selectedEvent.SendAt.Value).ToString("yyyy-MM-dd HH:mm:ss")</div>
-                    }
-                    @if (!string.IsNullOrEmpty(_selectedEvent.Category))
-                    {
-                        <div><strong>Category:</strong> @_selectedEvent.Category</div>
-                    }
-                    @if (!string.IsNullOrEmpty(_selectedEvent.SgEventId))
-                    {
-                        <div><strong>SG Event ID:</strong> @_selectedEvent.SgEventId</div>
-                    }
-                    @if (!string.IsNullOrEmpty(_selectedEvent.SgMessageId))
-                    {
-                        <div><strong>SG Message ID:</strong> @_selectedEvent.SgMessageId</div>
-                    }
-                    @if (!string.IsNullOrEmpty(_selectedEvent.SgTemplateId))
-                    {
-                        <div><strong>SG Template ID:</strong> @_selectedEvent.SgTemplateId</div>
-                    }
-                    @* @if (!string.IsNullOrEmpty(_selectedEvent.SmtpId))
-                    {
-                        <div><strong>SMTP ID:</strong> @_selectedEvent.SmtpId</div>
-                    } *@
-                    @if (!string.IsNullOrEmpty(_selectedEvent.UserAgent))
-                    {
-                        <div><strong>User Agent:</strong> @_selectedEvent.UserAgent</div>
-                    }
-                    @if (!string.IsNullOrEmpty(_selectedEvent.Ip))
-                    {
-                        <div><strong>IP Address:</strong> @_selectedEvent.Ip</div>
-                    }
-                    @if (!string.IsNullOrEmpty(_selectedEvent.Url))
-                    {
-                        <div><strong>URL:</strong> <a href="@_selectedEvent.Url" target="_blank">@_selectedEvent.Url</a></div>
-                    }
-                    @if (!string.IsNullOrEmpty(_selectedEvent.Reason))
-                    {
-                        <div><strong>Reason:</strong> @_selectedEvent.Reason</div>
-                    }
-                    @if (!string.IsNullOrEmpty(_selectedEvent.Status))
-                    {
-                        <div><strong>Status:</strong> @_selectedEvent.Status</div>
-                    }
-                    @if (!string.IsNullOrEmpty(_selectedEvent.Response))
-                    {
-                        <div><strong>Response:</strong> @_selectedEvent.Response</div>
-                    }
-                    @* @if (_selectedEvent.Tls.HasValue)
-                    {
-                        <div><strong>TLS:</strong> @_selectedEvent.Tls</div>
-                    } *@
-                    @if (!string.IsNullOrEmpty(_selectedEvent.Attempt))
-                    {
-                        <div><strong>Attempt:</strong> @_selectedEvent.Attempt</div>
-                    }
-                    @if (!string.IsNullOrEmpty(_selectedEvent.Type))
-                    {
-                        <div><strong>Type:</strong> @_selectedEvent.Type</div>
-                    }
-                    @if (!string.IsNullOrEmpty(_selectedEvent.BounceClassification))
-                    {
-                        <div><strong>Bounce Classification:</strong> @_selectedEvent.BounceClassification</div>
-                    }
-                    @if (_selectedEvent.AsmGroupId.HasValue)
-                    {
-                        <div><strong>ASM Group ID:</strong> @_selectedEvent.AsmGroupId</div>
-                    }
-                    @* @if (_selectedEvent.UniqueArgs != null && _selectedEvent.UniqueArgs.Any())
-                    {
-                        <div><strong>Unique Args:</strong> @JsonSerializer.Serialize(_selectedEvent.UniqueArgs)</div>
-                    }
-                    @if (_selectedEvent.MarketingCampaignId.HasValue)
-                    {
-                        <div><strong>Marketing Campaign ID:</strong> @_selectedEvent.MarketingCampaignId</div>
-                    } *@
-                    @if (!string.IsNullOrEmpty(_selectedEvent.MarketingCampaignName))
-                    {
-                        <div><strong>Marketing Campaign Name:</strong> @_selectedEvent.MarketingCampaignName</div>
-                    }
-                    @* @if (!string.IsNullOrEmpty(_selectedEvent.PoolName))
-                    {
-                        <div><strong>Pool Name:</strong> @_selectedEvent.PoolName</div>
-                    } *@
-                    @if (_selectedEvent.PoolId.HasValue)
-                    {
-                        <div><strong>Pool ID:</strong> @_selectedEvent.PoolId</div>
-                    }
-                </FluentStack>
-            </div>
-        }
-    </FluentDialogBody>
-    <FluentDialogFooter>
-        <FluentButton Appearance="Appearance.Neutral" @onclick="CloseEventDetailsDialog">閉じる</FluentButton>
-    </FluentDialogFooter>
-</FluentDialog>
+@* 検索結果 *@
+<div class="mt-3" @ref="_resultHost"></div>
 
 @code {
     // Enum for date selection mode
@@ -245,25 +85,21 @@ else if (_hasSearched)
         YearMonthDay
     }
 
-    private IQueryable<SendGridEventParquet> _sendGridEvents = Array.Empty<SendGridEventParquet>().AsQueryable();
-    private bool _isLoading;
-    private bool _hasSearched;
-    private string _errorMessage = "";
+    private CancellationTokenSource _cts = new CancellationTokenSource();
+    private bool _isExecuting;
+    private ElementReference _resultHost;
+    private IJSObjectReference? _resultModule;
+    private IJSObjectReference? _resultApp;
 
     // Search parameters
-    private string _selectedEmail = "";
-    private string _selectedEventType = SendGridEventTypes.Delivered;
-    private string _selectedSgTemplateId = "";
     private DateSelectionMode _dateSelectionMode = DateSelectionMode.YearMonthDay;
     private DateTime? _selectedDate = DateTime.UnixEpoch; // FluentDatePicker に bind するときは nullable でなければならない
     private string _selectedHourString = "";
     private int? SelectedHour => int.TryParse(_selectedHourString, out int v) ? v : null;
 
-    // Dialog
-    private SendGridEventParquet? _selectedEvent;
-    private bool ShowEventDetailsDialog => _selectedEvent != null;
-
-    private readonly PaginationState _pagination = new() { ItemsPerPage = 50 };
+    private string _selectedEmail = "";
+    private string _selectedEventType = SendGridEventTypes.Delivered;
+    private string _selectedSgTemplateId = "";
 
     protected override async Task OnInitializedAsync()
     {
@@ -274,131 +110,173 @@ else if (_hasSearched)
     private void OnInputChange()
     {
         // Reset search state when any input changes
-        _hasSearched = false;
-        _errorMessage = "";
     }
 
-    private void OnDateSelectionModeChange()
+    private void OnHourSelectionChange() => OnInputChange();
+
+    private void OnEventTypeChange() => OnInputChange();
+
+    private async Task OnEmailKeyDown(KeyboardEventArgs args)
     {
-        // Reset search state when date selection mode changes
-        OnInputChange();
+        if (!string.Equals(args.Key, "Enter", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        if (_isExecuting)
+        {
+            return;
+        }
+
+        await RunQueryAsync();
     }
 
-    private void OnHourSelectionChange()
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        // Reset search state when hour selection changes
-        OnInputChange();
+        if (firstRender)
+        {
+            await EnsureResultAppAsync();
+        }
     }
 
-    private void OnEventTypeChange()
+    private async ValueTask<IJSObjectReference?> EnsureResultAppAsync()
     {
-        // Reset search state when event type selection changes
-        OnInputChange();
+        if (_resultApp is not null)
+        {
+            return _resultApp;
+        }
+
+        if (_resultModule is null)
+        {
+            Logger.ZLogDebug($"JsRuntime.InvokeAsync import ./duckdb/duckdb-browser-bundle.js");
+            _resultModule = await JsRuntime.InvokeAsync<IJSObjectReference>("import", "./duckdb/duckdb-browser-bundle.js");
+        }
+
+        var options = new DuckDbWasmOptions();
+        var config = new
+        {
+            bundleBasePath = options.BundleBasePath,
+            mainModule = options.MainModule,
+            mainWorker = options.MainWorker,
+            moduleLoader = options.ModuleLoader,
+            pthreadWorker = string.IsNullOrWhiteSpace(options.PthreadWorker) ? null : options.PthreadWorker
+        };
+
+        Logger.ZLogDebug($"JsRuntime.InvokeAsync createResultApp");
+        _resultApp = await _resultModule.InvokeAsync<IJSObjectReference>("createResultApp", _resultHost, config);
+        return _resultApp;
     }
 
-    private async Task SearchAsync()
+    private CancellationToken RenewCancellationToken()
     {
-        _errorMessage = "";
-        _isLoading = true;
-        _sendGridEvents = Array.Empty<SendGridEventParquet>().AsQueryable();
+        var previous = _cts;
+        _cts = new CancellationTokenSource();
+
         try
         {
-            var ymd = _dateSelectionMode switch
-            {
-                DateSelectionMode.YearMonth => new YearMonthDayOptional(_selectedDate?.Year, _selectedDate?.Month, null, null),
-                DateSelectionMode.YearMonthDay => new YearMonthDayOptional(_selectedDate?.Year, _selectedDate?.Month, _selectedDate?.Day, SelectedHour),
-                _ => throw new ArgumentOutOfRangeException()
-            };
-            _sendGridEvents = (await ExecuteSearchAsync(ymd, CancellationToken.None)).AsQueryable();
-        }
-        catch (Exception ex)
-        {
-            _errorMessage = $"検索中にエラーが発生しました: {ex.Message}";
+            previous.Cancel();
         }
         finally
         {
-            _isLoading = false;
-            _hasSearched = true;
-            StateHasChanged(); // Force UI update
+            previous.Dispose();
+        }
+
+        return _cts.Token;
+    }
+
+    private async Task RunQueryAsync()
+    {
+        var resultApp = await EnsureResultAppAsync();
+        if (resultApp is null)
+        {
+            return;
+        }
+
+        _isExecuting = true;
+        StateHasChanged();
+
+        var cancellationToken = RenewCancellationToken();
+
+        IReadOnlyCollection<string> parquetUrls;
+        try
+        {
+            parquetUrls = await GetParquetUrlsAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        var condition = new SearchCondition
+        {
+            Email = _selectedEmail,
+            EventType = _selectedEventType,
+            SgTemplateId = _selectedSgTemplateId,
+            ParquetUrls = parquetUrls,
+        };
+
+        try
+        {
+            if (!cancellationToken.IsCancellationRequested)
+            {
+                await resultApp.InvokeVoidAsync("runQuery", cancellationToken, condition);
+            }
+        }
+        finally
+        {
+            _isExecuting = false;
         }
     }
 
     record struct YearMonthDayOptional(int? Year, int? Month, int? Day, int? Hour);
 
-    private async Task<IEnumerable<SendGridEventParquet>> ExecuteSearchAsync(YearMonthDayOptional ymd, CancellationToken ct)
-    {
-        const int limit = 1000;
-        async ValueTask<IList<SendGridEventParquet>> GetFromCompactionFolder()
-        {
-            var prefix = SendGridPathUtility.GetS3CompactionPrefix(ymd.Year, ymd.Month, ymd.Day, ymd.Hour);
-            if (await ExistsAsync(prefix, ct))
-            {
-                var folder = SendGridPathUtility.GetS3CompactionWildcard(ymd.Year, ymd.Month, ymd.Day, ymd.Hour);
-                var condition = CreateSearchCondition();
-                var events = await DuckDbService.GetEventsByDateAsync(folder, condition, limit, ct);
-                Logger.LogDebug("Compaction count: {count}", events.Count);
-                return events;
-            }
-            return [];
-        }
-        async ValueTask<IList<SendGridEventParquet>> GetFromNonCompactionFolder()
-        {
-            var prefix = SendGridPathUtility.GetS3NonCompactionPrefix(ymd.Year, ymd.Month, ymd.Day);
-            if (await ExistsAsync(prefix, ct))
-            {
-                var folder = SendGridPathUtility.GetS3NonCompactionWildcard(ymd.Year, ymd.Month, ymd.Day);
-                var condition = CreateSearchCondition();
-                var events = await DuckDbService.GetEventsByDateAsync(folder, condition, limit, ct);
-                Logger.LogDebug("NonCompaction count: {count}", events.Count);
-                return events;
-            }
-            return [];
-        }
-
-        return (await GetFromCompactionFolder()).Concat(await GetFromNonCompactionFolder());
-    }
-
     /// <summary>
-    /// ディレクトリ または ファイルが存在すれば true
+    /// 対象日・時間にあるファイル一覧の取得
     /// </summary>
-    private async Task<bool> ExistsAsync(string prefix, CancellationToken ct)
+    /// <returns></returns>
+    private async Task<IReadOnlyCollection<string>> GetParquetUrlsAsync(CancellationToken ct)
     {
-        var directories = await S3StorageService.ListDirectoriesAsync(prefix, ct);
-        if (directories.Any())
+        var ymd = new YearMonthDayOptional(_selectedDate?.Year, _selectedDate?.Month, _selectedDate?.Day, SelectedHour);
+        var s3CompactionPrefix = SendGridPathUtility.GetS3CompactionPrefix(ymd.Year, ymd.Month, ymd.Day, ymd.Hour);
+        var keys = await S3StorageService.ListFilesAsync(s3CompactionPrefix, ct);
+        var pathPrefix = S3PresigningTransformer.PathPrefix;
+        return keys.Select(x => $"{pathPrefix}/{x}").ToArray();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (!_cts.IsCancellationRequested)
         {
-            return true;
+            _cts.Cancel();
         }
-        var files= await S3StorageService.ListFilesAsync(prefix, ct);
-        if (files.Any())
+        _cts.Dispose();
+
+        if (_resultApp is not null)
         {
-            return true;
+            try
+            {
+                await _resultApp.InvokeVoidAsync("unmount");
+            }
+            catch (OperationCanceledException) { }
+            catch (JSDisconnectedException) { }
+
+            try
+            {
+                await _resultApp.DisposeAsync();
+            }
+            catch (OperationCanceledException) { }
+            catch (JSDisconnectedException) { }
         }
-        return false;
-    }
 
-    /// <summary>
-    /// Create search condition from current UI state
-    /// </summary>
-    /// <returns>Search condition object</returns>
-    private SendGridSearchCondition CreateSearchCondition() => 
-    new SendGridSearchCondition
+        if (_resultModule is not null)
         {
-            Email = string.IsNullOrWhiteSpace(_selectedEmail) ? null : _selectedEmail,
-            Event = string.IsNullOrWhiteSpace(_selectedEventType) ? null : _selectedEventType,
-            SgTemplateId = string.IsNullOrWhiteSpace(_selectedSgTemplateId) ? null : _selectedSgTemplateId
-        };
-
-    private void ShowEventDetails(SendGridEventParquet sendGridEvent)
-    {
-        _selectedEvent = sendGridEvent;
-        StateHasChanged();
+            try
+            {
+                await _resultModule.DisposeAsync();
+            }
+            catch (OperationCanceledException) { }
+            catch (JSDisconnectedException) { }
+        }
     }
-
-    private void CloseEventDetailsDialog()
-    {
-        _selectedEvent = null;
-        StateHasChanged();
-    }
-
-    DateTimeOffset FromUnixTimeSecondsJst(long u) => JstExtension.FromUnixTimeSecondsJst(u);
 }
