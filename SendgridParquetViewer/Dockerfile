@@ -23,6 +23,7 @@ ARG GITHUB_RUN_NUMBER
 ARG GITHUB_SHA
 
 COPY . .
+# The source path '/duckdb-dist/' must match the value of DUCKDB_OUTPUT_DIRECTORY set in stage 1 above.
 COPY --from=duckdb-bundle /duckdb-dist/ SendgridParquetViewer/wwwroot/duckdb/
 
 RUN dotnet restore
