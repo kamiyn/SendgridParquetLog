@@ -91,7 +91,6 @@ public sealed class S3PresigningTransformer(S3StorageService storageService) : I
             ClusterId = ClusterId,
             Match = new RouteMatch { Path = $"{PathPrefix}/{{**s3Key}}" },
             //AuthorizationPolicy = AuthorizationPolicies.ViewerRole, // Apply() で認証済みかチェックするので不要
-            //OutputCachePolicy = "",
         }
     ];
 
