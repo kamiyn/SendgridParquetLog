@@ -1,23 +1,28 @@
-# Build stage
+# Stage 1: Build DuckDB WASM bundle with Node.js
+FROM node:20-slim AS duckdb-bundle
+WORKDIR /workspace/DuckDbBundle
+
+# Install dependencies
+COPY DuckDbBundle/package*.json ./
+RUN npm install --include=dev
+
+# Build bundle assets
+COPY DuckDbBundle/ ./
+ENV DUCKDB_OUTPUT_DIRECTORY=/duckdb-dist
+RUN npm run build
+
+# Stage 2: Build and publish the ASP.NET Core app
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
-# Accept build-time variables from CI
 ARG VERSION=0.0.0
 ARG GITHUB_RUN_NUMBER
 ARG GITHUB_SHA
 
 COPY . .
-RUN dotnet restore
+COPY --from=duckdb-bundle /duckdb-dist/ SendgridParquetViewer/wwwroot/duckdb/
 
-# In the future, use a multi-stage build to include the result of 'npm run build' in /DuckDbBundle
-# Install Node.js/npm for DuckDB WASM asset build
-RUN apt-get update \
- && apt-get install -y --no-install-recommends nodejs npm \
- && npm --version \
- && node --version \
- && apt-get clean \
- && rm -rf /var/lib/apt/lists/*
+RUN dotnet restore
 
 WORKDIR /src/SendgridParquetViewer
 # dotnet publish passes build metadata properties (-p:VERSION, etc.) to the imported targets
@@ -30,6 +35,7 @@ RUN dotnet publish -c Release -r linux-x64 \
  -p:GITHUB_SHA=${GITHUB_SHA} \
  -o /app/publish
 
+# Stage 3: Runtime image
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled AS runtime
 WORKDIR /app
 
