@@ -11,7 +11,6 @@ import type {
   ResultState,
   SearchCondition
 } from './resultTypes';
-import { DuckDBDataProtocol } from '@duckdb/duckdb-wasm';
 
 const {
   AsyncDuckDB,
@@ -206,37 +205,54 @@ export async function executeQuery(
     throw new Error('DuckDB configuration is required.');
   }
 
-  const parquetUrl = searchCondition.parquetUrls[0];
-  if (!parquetUrl) {
-    throw new Error('A parquet URL must be provided.');
-  }
-
   const { db } = await loadDuckDb(config);
   const connection = await db.connect();
 
   try {
     await ensureHttpFs(connection);
-    const resolvedParquetUrl = resolveParquetUrl(parquetUrl);
-    await db.registerFileURL('remote.parquet', resolvedParquetUrl, DuckDBDataProtocol.HTTP, false /* direct IO */);
 
-    try {
-      await connection.query(`CREATE OR REPLACE TEMP VIEW parquet_source AS SELECT * FROM read_parquet('remote.parquet');`);
-      const result = await connection.query("SELECT * FROM parquet_source LIMIT 1000;");
-      const columns = Array.isArray(result?.schema?.fields)
-        ? result.schema.fields.map(field => field.name ?? '').filter(name => Boolean(name))
-        : [];
-
-      const rowValues = result.toArray().map(row => columns.map(column => toDisplayValue(row[column])));
-
-      closeArrowTable(result);
-
-      return {
-        columns,
-        rows: rowValues.map(values => ({ values }))
-      } satisfies DuckDbQueryPayload;
-    } finally {
-      await connection.query('DROP VIEW IF EXISTS parquet_source;');
+    const virtualFileNames = [];
+    // 2. 各URLをループで登録
+    for (const parquetUrl of searchCondition.parquetUrls) {
+      const resolvedParquetUrl = resolveParquetUrl(parquetUrl);
+      // URLからファイル名を取得して仮想ファイル名として使用
+      const virtualName = resolvedParquetUrl.split('/').pop(); // スラッシュで区切った末尾のファイル名
+      if (!virtualName) {
+        continue;
+      }
+      virtualFileNames.push(virtualName);
+      await db.registerFileURL(
+        virtualName,        // 仮想ファイル名
+        resolvedParquetUrl, // 対応するURL
+        duckdb.DuckDBDataProtocol.HTTP, // プロトコル
+        false               // ファイル全体をキャッシュするかどうか
+      );
     }
+
+    // 3. UNION ALL クエリ でテーブルを結合
+    const unionClauses = virtualFileNames.map(name => `SELECT * FROM '${name}'`);
+    const fullQuery = `
+        SELECT 
+            *
+        FROM (
+            ${unionClauses.join(' UNION ALL ')}
+        ) AS all_records
+        LIMIT 1000;
+    `;
+
+    const result = await connection.query(fullQuery);
+    const columns = Array.isArray(result?.schema?.fields)
+      ? result.schema.fields.map(field => field.name ?? '').filter(name => Boolean(name))
+      : [];
+
+    const rowValues = result.toArray().map(row => columns.map(column => toDisplayValue(row[column])));
+
+    closeArrowTable(result);
+
+    return {
+      columns,
+      rows: rowValues.map(values => ({ values }))
+    } satisfies DuckDbQueryPayload;
   } finally {
     await connection.close();
   }
@@ -259,5 +275,4 @@ export {
   selectBundle
 };
 
-export type { DuckDbBundleConfig, DuckDbInstance, DuckDbQueryPayload, ResultAppHandle, ResultState } from './resultTypes';
-// export * from '@duckdb/duckdb-wasm';
+// export type { DuckDbBundleConfig, DuckDbInstance, DuckDbQueryPayload, ResultAppHandle, ResultState } from './resultTypes';
