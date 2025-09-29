@@ -11,6 +11,7 @@ import type {
   ResultState,
   SearchCondition
 } from './resultTypes';
+import { DuckDBDataProtocol } from '@duckdb/duckdb-wasm';
 
 const {
   AsyncDuckDB,
@@ -171,7 +172,7 @@ export function createResultApp(
       state.isLoading = true;
 
       try {
-        const result = await executeQuery(resolvedConfig, source, statement);
+        const result = await executeQuery(resolvedConfig, searchCondition);
         state.columns = Array.isArray(result.columns) ? [...result.columns] : [];
         state.rows = cloneRowValues(result.rows);
       } catch (error) {
@@ -199,13 +200,13 @@ export function createResultApp(
 
 export async function executeQuery(
   config: DuckDbBundleConfig,
-  parquetUrl: string,
-  sql: string
+  searchCondition: SearchCondition
 ): Promise<DuckDbQueryPayload> {
   if (!config) {
     throw new Error('DuckDB configuration is required.');
   }
 
+  const parquetUrl = searchCondition.parquetUrls[0];
   if (!parquetUrl) {
     throw new Error('A parquet URL must be provided.');
   }
@@ -216,11 +217,11 @@ export async function executeQuery(
   try {
     await ensureHttpFs(connection);
     const resolvedParquetUrl = resolveParquetUrl(parquetUrl);
-    const sourceLiteral = JSON.stringify(resolvedParquetUrl);
+    await db.registerFileURL('remote.parquet', resolvedParquetUrl, DuckDBDataProtocol.HTTP, false /* direct IO */);
 
     try {
-      await connection.query(`CREATE OR REPLACE TEMP VIEW parquet_source AS SELECT * FROM read_parquet(${sourceLiteral});`);
-      const result = await connection.query(sql);
+      await connection.query(`CREATE OR REPLACE TEMP VIEW parquet_source AS SELECT * FROM read_parquet('remote.parquet');`);
+      const result = await connection.query("SELECT * FROM parquet_source LIMIT 1000;");
       const columns = Array.isArray(result?.schema?.fields)
         ? result.schema.fields.map(field => field.name ?? '').filter(name => Boolean(name))
         : [];
