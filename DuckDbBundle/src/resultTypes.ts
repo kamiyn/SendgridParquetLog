@@ -1,6 +1,6 @@
 import type * as duckdb from '@duckdb/duckdb-wasm';
 
-export interface DuckDbBundleConfig {
+export type DuckDbBundleConfig = {
   bundleBasePath: string;
   mainModule: string;
   mainWorker: string;
@@ -8,26 +8,33 @@ export interface DuckDbBundleConfig {
   pthreadWorker?: string | null;
 }
 
-export interface DuckDbInstance {
+export type DuckDbInstance = {
   loader: typeof duckdb;
   db: duckdb.AsyncDuckDB;
   worker: Worker;
 }
 
-export interface ResultState {
+export type ResultState = {
   columns: string[];
   rows: string[][];
   error: string;
   isLoading: boolean;
 }
 
-export interface DuckDbQueryPayload {
+export type DuckDbQueryPayload = {
   columns: string[];
   rows: Array<{ values: string[] }>;
 }
 
-export interface ResultAppHandle {
-  runQuery(parquetUrl: string, sql: string): Promise<void>;
+export type ResultAppHandle = {
+  runQuery(searchCondition: SearchCondition): Promise<void>;
   reset(): void;
   unmount(): void;
 }
+
+export type SearchCondition = {
+  parquetUrls: string[];
+  email: string;
+  eventType: string;
+  sgTemplateId: string;
+};

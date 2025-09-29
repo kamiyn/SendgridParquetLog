@@ -8,7 +8,8 @@ import type {
   DuckDbInstance,
   DuckDbQueryPayload,
   ResultAppHandle,
-  ResultState
+  ResultState,
+  SearchCondition
 } from './resultTypes';
 
 const {
@@ -155,9 +156,9 @@ export function createResultApp(
   app.mount(host);
 
   const handle: ResultAppHandle = {
-    async runQuery(parquetUrl: string, sql: string) {
-      const source = typeof parquetUrl === 'string' ? parquetUrl.trim() : '';
-      const statement = typeof sql === 'string' ? sql.trim() : '';
+    async runQuery(searchCondition: SearchCondition) {
+      const source = '';
+      const statement =  '';
 
       if (!source) {
         state.error = 'Select a parquet file to query.';
