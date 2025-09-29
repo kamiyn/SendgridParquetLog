@@ -1,3 +1,14 @@
+<script setup lang="ts">
+/**
+ * DuckDB のクエリ結果を表示する Vue3 app
+ */
+import type { ResultState } from './resultTypes';
+
+const props = defineProps<{ state: ResultState }>();
+
+const state = props.state;
+</script>
+
 <template>
   <div class="result-app">
     <div
@@ -52,14 +63,6 @@
     </div>
   </div>
 </template>
-
-<script setup lang="ts">
-import type { ResultState } from './resultTypes';
-
-const props = defineProps<{ state: ResultState }>();
-
-const state = props.state;
-</script>
 
 <style scoped>
 .result-app {

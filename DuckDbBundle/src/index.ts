@@ -175,23 +175,12 @@ async function executeQuery(
       : [];
     // columns の順番に合わせて row を作る
     const rowValues = result.toArray().map(row => columns.map(column => toDisplayValue(column, row[column])));
-
-    closeArrowTable(result);
-
     return {
       columns,
       rows: rowValues,
     } satisfies DuckDbQueryPayload;
   } finally {
     await connection.close();
-  }
-}
-
-function closeArrowTable(result: any) {
-  if (typeof result.close === 'function') {
-    result.close();
-  } else if (typeof result.release === 'function') {
-    result.release();
   }
 }
 
