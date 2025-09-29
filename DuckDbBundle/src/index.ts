@@ -217,12 +217,16 @@ async function executeQuery(
         continue;
       }
       virtualFileNames.push(virtualName);
-      await db.registerFileURL(
-        virtualName, // 仮想ファイル名
-        parquetUrl, // 対応するURL
-        duckdb.DuckDBDataProtocol.HTTP, // プロトコル
-        false // ファイル全体をキャッシュするかどうか
-      );
+      try {
+        await db.registerFileURL(
+          virtualName, // 仮想ファイル名
+          parquetUrl, // 対応するURL
+          duckdb.DuckDBDataProtocol.HTTP, // プロトコル
+          false // ファイル全体をキャッシュするかどうか
+        );
+      } catch (ex) {
+        console.error(ex);
+      }
     }
 
     // UNION ALL クエリ でテーブルを結合してクエリを実施する
