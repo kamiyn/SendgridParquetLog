@@ -40,7 +40,7 @@ RUN dotnet publish -c Release -r linux-x64 \
  -o /app/publish
 
 # Stage 3: Runtime image
-# -chiseled is not support ICS. do not use -chiseled
+# -chiseled does not support ICS. do not use -chiseled
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble AS runtime
 WORKDIR /app
 
