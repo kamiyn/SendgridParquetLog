@@ -234,6 +234,7 @@ FROM (
     ${unionClauses.join(' UNION ALL ')}
 ) AS all_records
 ${whereClause(searchCondition)}
+ORDER BY timestamp
 LIMIT 1000;
     `;
 
