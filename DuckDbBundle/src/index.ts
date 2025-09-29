@@ -1,7 +1,6 @@
 import type { App } from 'vue';
 import { createApp, reactive } from 'vue';
 import * as duckdb from '@duckdb/duckdb-wasm';
-import * as arrow from 'apache-arrow';
 import ResultApp from './ResultApp.vue';
 import type {
   DuckDbBundleConfig,
@@ -11,13 +10,6 @@ import type {
   ResultState,
   SearchCondition
 } from './resultTypes';
-
-const {
-  AsyncDuckDB,
-  AsyncDuckDBConnection,
-  ConsoleLogger,
-  selectBundle
-} = duckdb;
 
 const duckDbState: {
   duckDbPromise: Promise<DuckDbInstance> | null;
@@ -53,26 +45,6 @@ async function loadDuckDb(config: DuckDbBundleConfig): Promise<DuckDbInstance> {
   }
 
   return duckDbState.duckDbPromise;
-}
-
-async function ensureHttpFs(connection: duckdb.AsyncDuckDBConnection): Promise<void> {
-  if (duckDbState.httpFsInitialized) {
-    return;
-  }
-
-  try {
-    await connection.query("INSTALL 'httpfs';");
-  } catch (error) {
-    const message = typeof (error as { message?: unknown })?.message === 'string'
-      ? (error as { message: string }).message
-      : String(error ?? '');
-    if (!message.includes('already installed')) {
-      throw error;
-    }
-  }
-
-  await connection.query("LOAD 'httpfs';");
-  duckDbState.httpFsInitialized = true;
 }
 
 function toDisplayValue(value: unknown): string {
@@ -209,8 +181,6 @@ export async function executeQuery(
   const connection = await db.connect();
 
   try {
-    await ensureHttpFs(connection);
-
     const virtualFileNames = [];
     // 2. 各URLをループで登録
     for (const parquetUrl of searchCondition.parquetUrls) {
@@ -266,13 +236,14 @@ function closeArrowTable(result: any) {
   }
 }
 
+const {
+  AsyncDuckDB,
+  AsyncDuckDBConnection,
+  ConsoleLogger
+} = duckdb;
+
 export {
   AsyncDuckDB,
   AsyncDuckDBConnection,
   ConsoleLogger,
-  arrow,
-  loadDuckDb,
-  selectBundle
 };
-
-// export type { DuckDbBundleConfig, DuckDbInstance, DuckDbQueryPayload, ResultAppHandle, ResultState } from './resultTypes';
