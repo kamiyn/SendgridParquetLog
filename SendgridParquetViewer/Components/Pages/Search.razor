@@ -153,6 +153,23 @@
         return _resultApp;
     }
 
+    private CancellationToken RenewCancellationToken()
+    {
+        var previous = _cts;
+        _cts = new CancellationTokenSource();
+
+        try
+        {
+            previous.Cancel();
+        }
+        finally
+        {
+            previous.Dispose();
+        }
+
+        return _cts.Token;
+    }
+
     private async Task RunQueryAsync()
     {
         var resultApp = await EnsureResultAppAsync();
@@ -164,17 +181,32 @@
         _isExecuting = true;
         StateHasChanged();
 
+        var cancellationToken = RenewCancellationToken();
+
+        IReadOnlyCollection<string> parquetUrls;
+        try
+        {
+            parquetUrls = await GetParquetUrlsAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
         var condition = new SearchCondition
         {
             Email = _selectedEmail,
             EventType = _selectedEventType,
             SgTemplateId = _selectedSgTemplateId,
-            ParquetUrls = await GetParquetUrls(),
+            ParquetUrls = parquetUrls,
         };
 
         try
         {
-            await resultApp.InvokeVoidAsync("runQuery", condition);
+            if (!cancellationToken.IsCancellationRequested)
+            {
+                await resultApp.InvokeVoidAsync("runQuery", cancellationToken, condition);
+            }
         }
         finally
         {
@@ -188,9 +220,8 @@
     /// 対象日・時間にあるファイル一覧の取得
     /// </summary>
     /// <returns></returns>
-    private async Task<IReadOnlyCollection<string>> GetParquetUrls()
+    private async Task<IReadOnlyCollection<string>> GetParquetUrlsAsync(CancellationToken ct)
     {
-        var ct = _cts.Token;
         var ymd = new YearMonthDayOptional(_selectedDate?.Year, _selectedDate?.Month, _selectedDate?.Day, SelectedHour);
         var s3CompactionPrefix = SendGridPathUtility.GetS3CompactionPrefix(ymd.Year, ymd.Month, ymd.Day, ymd.Hour);
         var keys = await S3StorageService.ListFilesAsync(s3CompactionPrefix, ct);
@@ -200,6 +231,12 @@
 
     public async ValueTask DisposeAsync()
     {
+        if (!_cts.IsCancellationRequested)
+        {
+            _cts.Cancel();
+        }
+        _cts.Dispose();
+
         if (_resultApp is not null)
         {
             try
