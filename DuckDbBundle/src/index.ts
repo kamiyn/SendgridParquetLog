@@ -1,5 +1,6 @@
 import type { App } from 'vue';
 import { createApp, reactive } from 'vue';
+import { formatISO9075 } from 'date-fns';
 import * as duckdb from '@duckdb/duckdb-wasm';
 import ResultApp from './ResultApp.vue';
 import type {
@@ -50,6 +51,12 @@ async function loadDuckDb(config: DuckDbBundleConfig): Promise<DuckDbInstance> {
 function toDisplayValue(column: string, value: unknown): string {
   if (value === null || value === undefined) {
     return '';
+  }
+
+  console.log("toDisplayValue", column, value);
+  switch (column) {
+    case "timestamp":
+      return formatISO9075(new Date(Number(value) * 1000))
   }
 
   if (typeof value === 'object') {
