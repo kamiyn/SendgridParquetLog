@@ -1,6 +1,7 @@
 ﻿@page "/search"
 @rendermode InteractiveServer
 @attribute [Authorize]
+@using Microsoft.AspNetCore.Components.Web
 @using SendgridParquetViewer.Models
 @using SendgridParquetViewer.Services
 @using ZLogger
@@ -22,7 +23,7 @@
 
         <!-- Email Address Field -->
         <div style="min-width: 250px;">
-            <FluentTextField @bind-Value="_selectedEmail" @oninput="OnInputChange" Label="email（LIKE句）" Style="width: 100%;" Placeholder="example@domain.com" />
+            <FluentTextField @bind-Value="_selectedEmail" @oninput="OnInputChange" @onkeydown="OnEmailKeyDown" Label="email（LIKE句）" Style="width: 100%;" Placeholder="example@domain.com" />
         </div>
 
         <!-- SG Template ID Field -->
@@ -115,6 +116,21 @@
     private void OnHourSelectionChange() => OnInputChange();
 
     private void OnEventTypeChange() => OnInputChange();
+
+    private async Task OnEmailKeyDown(KeyboardEventArgs args)
+    {
+        if (!string.Equals(args.Key, "Enter", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        if (_isExecuting)
+        {
+            return;
+        }
+
+        await RunQueryAsync();
+    }
 
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
