@@ -10,6 +10,15 @@ ARG GITHUB_SHA
 COPY . .
 RUN dotnet restore
 
+# 将来的には /DuckDbBundle で npm run build した結果を取り込む マルチステージビルドにしたい
+# Install Node.js/npm for DuckDB WASM asset build
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends nodejs npm \
+ && npm --version \
+ && node --version \
+ && apt-get clean \
+ && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /src/SendgridParquetViewer
 # dotnet publish passes build metadata properties (-p:VERSION, etc.) to the imported targets
 
