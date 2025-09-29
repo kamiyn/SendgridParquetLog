@@ -1,5 +1,8 @@
-﻿using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+﻿using System.Globalization;
+
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Localization;
 using Microsoft.FluentUI.AspNetCore.Components;
 using Microsoft.Identity.Web;
 using Microsoft.Identity.Web.UI;
@@ -103,6 +106,9 @@ builder.Services.AddControllersWithViews()
 // Add Fluent UI
 builder.Services.AddFluentUIComponents();
 
+// 1. ローカライゼーションサービスをDIコンテナに登録します。
+builder.Services.AddLocalization(options => options.ResourcesPath = "Resources");
+
 // Add DuckDB service
 builder.Services.AddTransient<DuckDbService>();
 
@@ -128,6 +134,22 @@ builder.Services.AddReverseProxy()
     .LoadFromMemory(s3Routes, s3Clusters);
 
 var app = builder.Build();
+
+var supportedCultures = new[]
+{
+    new CultureInfo("ja-JP")
+};
+
+var localizationOptions = new RequestLocalizationOptions
+{
+    DefaultRequestCulture = new RequestCulture("ja-JP"),
+    SupportedCultures = supportedCultures,
+    SupportedUICultures = supportedCultures
+};
+
+// 4. ローカライゼーションミドルウェアをパイプラインに追加します。
+// これにより、すべてのリクエストでカルチャが設定されるようになります。
+app.UseRequestLocalization(localizationOptions);
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
