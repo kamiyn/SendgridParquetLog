@@ -61,6 +61,13 @@ public sealed class S3PresigningTransformer(S3StorageService storageService) : I
     /// </summary>
     private static string GetS3ObjectKey(HttpRequest request)
     {
+        if (request.RouteValues.TryGetValue("s3Key", out var routeValue)
+            && routeValue is string routeKey
+            && routeKey.Length > 0)
+        {
+            return routeKey + request.QueryString.Value;
+        }
+
         var path = $"{request.PathBase.Value}{request.Path.Value}{request.QueryString.Value}";
         var bucketIndex = path.IndexOf('/', 1 /* 最初のスラッシュをスキップ */);
         if (bucketIndex < 0)
