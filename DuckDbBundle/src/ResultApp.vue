@@ -2,7 +2,7 @@
 /**
  * DuckDB のクエリ結果を表示する Vue3 app
  */
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, ref, onMounted, onUnmounted } from 'vue';
 import type { ResultState } from './resultTypes';
 
 const props = defineProps<{ state: ResultState }>();
@@ -24,8 +24,8 @@ const closeRowDialog = () => {
   selectedRowIndex.value = null;
 };
 
-// ESC キーでダイアログを閉じる
-const handleKeydown = (e: KeyboardEvent) => {
+// Handle ESC key to close dialog when open
+const onKeyDown = (e: KeyboardEvent) => {
   if (e.key === 'Escape' && selectedRowIndex.value !== null) {
     e.preventDefault();
     closeRowDialog();
@@ -33,11 +33,11 @@ const handleKeydown = (e: KeyboardEvent) => {
 };
 
 onMounted(() => {
-  window.addEventListener('keydown', handleKeydown);
+  window.addEventListener('keydown', onKeyDown);
 });
 
-onBeforeUnmount(() => {
-  window.removeEventListener('keydown', handleKeydown);
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKeyDown);
 });
 </script>
 
