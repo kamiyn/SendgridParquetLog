@@ -236,6 +236,15 @@ async function executeQuery(
       }
     }
 
+    // 有効なファイルがない場合は空の結果を返す
+    if (virtualFileNames.length === 0) {
+      return {
+        columns: [],
+        rows: [],
+        sql: '-- No valid parquet files to query',
+      };
+    }
+
     // read_parquet で複数ファイルを一括読み込み
     const fileList = virtualFileNames.map(name => `'${name}'`).join(',');
     const fullQuery = `
