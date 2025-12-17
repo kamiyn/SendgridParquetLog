@@ -18,7 +18,7 @@ public sealed class CompactionStartupHostedService(
     {
         if (options.Value.PeriodicRunEnabled == false)
         {
-            logger.ZLogInformation($"Compaction is disabled in configuration. Skipping compaction timer.");
+            logger.ZLogInformation($"Compaction periodic run is disabled");
             return Task.CompletedTask;
         }
 
