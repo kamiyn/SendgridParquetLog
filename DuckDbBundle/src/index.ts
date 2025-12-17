@@ -236,14 +236,11 @@ async function executeQuery(
       }
     }
 
-    // UNION ALL クエリ でテーブルを結合してクエリを実施する
-    const unionClauses = virtualFileNames.map(name => `SELECT * FROM '${name}'`);
+    // read_parquet で複数ファイルを一括読み込み
+    const fileList = virtualFileNames.map(name => `'${name}'`).join(',');
     const fullQuery = `
-SELECT 
-    *
-FROM (
-    ${unionClauses.join(' UNION ALL ')}
-) AS all_records
+SELECT *
+FROM read_parquet([${fileList}])
 ${whereClause(searchCondition)}
 ORDER BY timestamp
 LIMIT 1000;
