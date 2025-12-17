@@ -246,7 +246,10 @@ async function executeQuery(
     }
 
     // read_parquet で複数ファイルを一括読み込み
-    const fileList = virtualFileNames.map(name => `'${name}'`).join(',');
+    const sanitizedFileNames = virtualFileNames.map(
+      name => `'${name.replace(/'/g, "''")}'`
+    );
+    const fileList = sanitizedFileNames.join(',');
     const fullQuery = `
 SELECT *
 FROM read_parquet([${fileList}])
