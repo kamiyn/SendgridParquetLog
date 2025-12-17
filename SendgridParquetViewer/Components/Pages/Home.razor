@@ -40,12 +40,13 @@
                 }
             </FluentSelect>
         </div>
+
         <div style="min-width: 200px;">
             <FluentDatePicker @bind-Value="_selectedDate" @oninput="OnInputChange" Label="日付選択" Style="width: 100%;" />
-            @if (_dateSelectionMode == DateSelectionMode.YearMonth)
-            {
-                <small style="color: #666; margin-top: 5px; display: block;">※ 日付部分は検索で無視されます</small>
-            }
+            <FluentRadioGroup @bind-Value="_dateSelectionMode" Style="margin-top: 5px;">
+                <FluentRadio Value="@DateSelectionMode.YearMonth">年月のみ使用（日付は無視）</FluentRadio>
+                <FluentRadio Value="@DateSelectionMode.YearMonthDay">年月日すべて使用</FluentRadio>
+            </FluentRadioGroup>
         </div>
 
         @if (_dateSelectionMode == DateSelectionMode.YearMonthDay)
@@ -114,6 +115,7 @@
             return;
         }
 
+        await Task.Delay(0);
         // await RunQueryAsync(); // 自動的に検索することはしない
     }
 
@@ -242,7 +244,12 @@
     /// <returns></returns>
     private async Task<IReadOnlyCollection<string>> GetParquetUrlsAsync(CancellationToken ct)
     {
-        var ymd = new YearMonthDayOptional(_selectedDate?.Year, _selectedDate?.Month, _selectedDate?.Day, SelectedHour);
+        var ymd = _dateSelectionMode switch
+        {
+            DateSelectionMode.YearMonthDay => new YearMonthDayOptional(_selectedDate?.Year, _selectedDate?.Month, _selectedDate?.Day, SelectedHour),
+            DateSelectionMode.YearMonth => new YearMonthDayOptional(_selectedDate?.Year, _selectedDate?.Month, null, null),
+            _ => throw new ArgumentOutOfRangeException()
+        };
         var s3CompactionPrefix = SendGridPathUtility.GetS3CompactionPrefix(ymd.Year, ymd.Month, ymd.Day, ymd.Hour);
         var keys = await S3StorageService.ListFilesAsync(s3CompactionPrefix, ct);
         var pathPrefix = S3PresigningTransformer.PathPrefix;
