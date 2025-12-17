@@ -236,14 +236,23 @@ async function executeQuery(
       }
     }
 
-    // UNION ALL クエリ でテーブルを結合してクエリを実施する
-    const unionClauses = virtualFileNames.map(name => `SELECT * FROM '${name}'`);
+    // 有効なファイルがない場合は空の結果を返す
+    if (virtualFileNames.length === 0) {
+      return {
+        columns: [],
+        rows: [],
+        sql: '-- No valid parquet files to query',
+      };
+    }
+
+    // read_parquet で複数ファイルを一括読み込み
+    const sanitizedFileNames = virtualFileNames.map(
+      name => `'${name.replace(/'/g, "''")}'`
+    );
+    const fileList = sanitizedFileNames.join(',');
     const fullQuery = `
-SELECT 
-    *
-FROM (
-    ${unionClauses.join(' UNION ALL ')}
-) AS all_records
+SELECT *
+FROM read_parquet([${fileList}])
 ${whereClause(searchCondition)}
 ORDER BY timestamp
 LIMIT 1000;

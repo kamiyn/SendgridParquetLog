@@ -5,6 +5,11 @@ public class CompactionOptions
     public const string SectionName = "Compaction";
 
     /// <summary>
+    /// Compaction処理の定期実行を有効にするかどうか (デフォルト: true)
+    /// </summary>
+    public bool PeriodicRunEnabled { get; set; } = true;
+
+    /// <summary>
     /// 最大読み込みバイト数 (デフォルト: 512MB)
     /// </summary>
     public long MaxBatchSizeBytes { get; set; } = 512 * 1024 * 1024;

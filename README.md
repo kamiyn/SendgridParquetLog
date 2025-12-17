@@ -114,14 +114,20 @@ ASP.NET Core のOptions パターンを使用して設定を管理します。
 
 ## セットアップ
 
-### 1. リポジトリのクローン
+### リポジトリのクローン
 
 ```bash
 git clone <repository-url>
 cd SendgridParquetLog
 ```
 
-### 2. Dockerイメージのビルドと実行
+### DuckDbBundle ファイルの生成
+
+```bash
+(cd DuckDbBundle; npm run build) 
+```
+
+### Dockerイメージのビルドと実行
 
 [Docker Compose V2](https://docs.docker.jp/compose/)
 
