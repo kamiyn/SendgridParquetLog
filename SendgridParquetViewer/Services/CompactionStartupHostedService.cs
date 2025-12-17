@@ -16,7 +16,7 @@ public sealed class CompactionStartupHostedService(
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (options.Value.PeriodicRunEnabled == false)
+        if (!options.Value.PeriodicRunEnabled)
         {
             logger.ZLogInformation($"Compaction periodic run is disabled");
             return Task.CompletedTask;
