@@ -155,6 +155,7 @@ else if (_template != null)
                 <h2>HTML プレビュー</h2>
                 <div class="template-preview-container">
                     <div class="template-preview-header">HTML Content</div>
+                    @* Security note: The iframe sandbox intentionally only includes 'allow-same-origin' so that scripts/forms inside template HTML do not execute or submit, preventing XSS or data exfiltration in this preview view. *@
                     <iframe class="template-preview-iframe" srcdoc="@_activeVersion.Html_Content" sandbox="allow-same-origin"></iframe>
                 </div>
             </section>
