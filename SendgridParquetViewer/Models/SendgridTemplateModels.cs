@@ -1,4 +1,4 @@
-namespace SendgridParquetViewer.Models;
+﻿namespace SendgridParquetViewer.Models;
 
 /// <summary>
 /// SendGrid API /v3/templates/{templateId} のレスポンス
