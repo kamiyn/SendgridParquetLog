@@ -135,6 +135,7 @@ jobs:
           S3__SECRETKEY: ${{ secrets.S3__SECRETKEY }}
           S3__BUCKETNAME: ${{ vars.S3__BUCKETNAME }}
           SENDGRID__VERIFICATIONKEY: ${{ secrets.SENDGRID__VERIFICATIONKEY }}
+          SENDGRID__APIKEY: ${{ secrets.SENDGRID__APIKEY }}
           AzureAD__Domain: ${{ vars.AZUREAD__DOMAIN }} # GitHub 側の設定は 大文字
           AzureAD__TenantId: ${{ vars.AZUREAD__TENANTID }}
           AzureAD__ClientId: ${{ vars.AZUREAD__CLIENTID }}
