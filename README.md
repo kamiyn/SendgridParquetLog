@@ -85,6 +85,7 @@ ASP.NET Core のOptions パターンを使用して設定を管理します。
 | SENDGRID__VERIFICATIONKEY | SendGrid Event Webhook 検証用公開鍵 (PEM または Base64(SPKI)) | -----BEGIN PUBLIC KEY----- ... |
 | SENDGRID__MAXBODYBYTES | Webhook リクエストボディ上限 (バイト) | 1048576 |
 | SENDGRID__ALLOWEDSKEW | タイムスタンプ許容スキュー (TimeSpan.Parse 形式) | 00:05:00 |
+| SENDGRID__APIKEY | SendGrid API キー (Viewer でのテンプレート取得用) | SG.xxxxxx... |
 | OTEL_EXPORTER_OTLP_ENDPOINT | OpenTelemetry OTLP エンドポイントURL | http://localhost:4318 |
 | OTEL_EXPORTER_OTLP_PROTOCOL | OTLP プロトコル (`grpc`/`http/protobuf`) | http/protobuf |
 | OTEL_EXPORTER_OTLP_HEADERS | OTLP 追加ヘッダー（`k=v,k2=v2` 形式） | x-api-key=xxxxx |
@@ -447,6 +448,7 @@ GitHub リポジトリの Settings > Secrets and variables > Actions > Secrets �
 | SAKURACLOUD_ACCESS_TOKEN_SECRET | さくらのクラウドAPIシークレット |
 | S3__SECRETKEY | S3互換ストレージのシークレットキー |
 | SENDGRID__VERIFICATIONKEY | SendGrid Event Webhook 検証用公開鍵 (PEM または Base64(SPKI)) |
+| SENDGRID__APIKEY | SendGrid API キー (Viewer でのテンプレート取得用、Dynamic Template 読取権限が必要) |
 
 ### 設定手順
 

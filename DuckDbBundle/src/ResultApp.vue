@@ -18,6 +18,14 @@ const selectedRow = computed<ReadonlyArray<string> | null>(() => {
   return typeof index === 'number' ? state.rows[index] : null;
 });
 
+const isSgTemplateIdColumn = (columnIndex: number): boolean => {
+  return state.columns[columnIndex] === 'sg_template_id';
+};
+
+const getSgTemplateIdLink = (value: string): string => {
+  return `/sg_template_id/${encodeURIComponent(value)}`;
+};
+
 const handleRowClick = (rowIndex: number) => {
   selectedRowIndex.value = rowIndex;
 };
@@ -30,6 +38,11 @@ const closeRowDialog = () => {
 const handleEditMode = () => {
   editableSql.value = state.sql;
   isEditingMode.value = true;
+};
+
+// 編集モードを終了
+const handleExitEditMode = () => {
+  isEditingMode.value = false;
 };
 
 // SQL 実行ハンドラー
@@ -105,7 +118,14 @@ onUnmounted(() => {
               :key="columnIndex"
               class="text-nowrap"
             >
-              {{ row[columnIndex] }}
+              <a
+                v-if="isSgTemplateIdColumn(columnIndex) && row[columnIndex]"
+                :href="getSgTemplateIdLink(row[columnIndex])"
+                target="_blank"
+                rel="noopener noreferrer"
+                @click.stop
+              >{{ row[columnIndex] }}</a>
+              <span v-else>{{ row[columnIndex] }}</span>
             </td>
           </tr>
         </tbody>
@@ -148,7 +168,15 @@ onUnmounted(() => {
                 >
                   {{ columnName }}
                 </th>
-                <td>{{ selectedRow[columnIndex] }}</td>
+                <td>
+                  <a
+                    v-if="columnName === 'sg_template_id' && selectedRow[columnIndex]"
+                    :href="getSgTemplateIdLink(selectedRow[columnIndex])"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >{{ selectedRow[columnIndex] }}</a>
+                  <span v-else>{{ selectedRow[columnIndex] }}</span>
+                </td>
               </tr>
             </tbody>
           </table>
@@ -196,7 +224,7 @@ onUnmounted(() => {
             :disabled="state.isLoading"
           />
         </div>
-        <div>
+        <div class="d-flex gap-2">
           <button
             type="button"
             class="btn btn-primary"
@@ -210,6 +238,14 @@ onUnmounted(() => {
               aria-hidden="true"
             />
             {{ state.isLoading ? '検索中...' : '検索' }}
+          </button>
+          <button
+            type="button"
+            class="btn btn-secondary"
+            :disabled="state.isLoading"
+            @click="handleExitEditMode"
+          >
+            編集モードをやめる
           </button>
         </div>
       </div>
