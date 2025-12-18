@@ -7,7 +7,9 @@
       "WebFetch(domain:manual.sakura.ad.jp)",
       "Bash(dotnet add:*)",
       "Bash(dotnet format:*)",
-      "Bash(dotnet build)"
+      "Bash(dotnet build)",
+      "Bash(git merge-base:*)",
+      "Bash(git rev-list:*)"
     ],
     "deny": [],
     "ask": []

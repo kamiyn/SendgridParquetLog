@@ -24,11 +24,14 @@ function quantizeTo125(value: number): number {
   let quantized: number;
   if (normalized <= 1) {
     quantized = 1;
-  } else if (normalized <= 2) {
+  }
+  else if (normalized <= 2) {
     quantized = 2;
-  } else if (normalized <= 5) {
+  }
+  else if (normalized <= 5) {
     quantized = 5;
-  } else {
+  }
+  else {
     quantized = 10;
   }
 
@@ -50,14 +53,14 @@ const getBarHeight = (count: number): number => {
 
 // 時間帯によって色を変える（白背景でも十分なコントラストがあり、色覚多様性にも配慮した配色）
 const getBarColor = (hour: number): string => {
-  if (hour >= 6 && hour < 12) return '#1B9E77';   // 朝: 緑系
-  if (hour >= 12 && hour < 18) return '#D95F02';  // 昼: オレンジ系
-  if (hour >= 18 && hour < 22) return '#7570B3';  // 夕方: 青紫系
-  return '#E7298A';                               // 夜: マゼンタ系
+  if (hour >= 6 && hour < 12) return '#1B9E77'; // 朝: 緑系
+  if (hour >= 12 && hour < 18) return '#D95F02'; // 昼: オレンジ系
+  if (hour >= 18 && hour < 22) return '#7570B3'; // 夕方: 青紫系
+  return '#E7298A'; // 夜: マゼンタ系
 };
 
 // ツールチップテキスト
-const getTooltip = (bar: { day: number; hour: number; count: number }): string => {
+const getTooltip = (bar: { day: number, hour: number, count: number }): string => {
   if (state.mode === 'day') {
     return `${bar.hour.toString().padStart(2, '0')}:00 - ${bar.hour.toString().padStart(2, '0')}:59\n${bar.count.toLocaleString()} 件`;
   }
@@ -68,7 +71,7 @@ const getTooltip = (bar: { day: number; hour: number; count: number }): string =
 const labelInterval = computed(() => state.mode === 'month' ? 24 : 1);
 
 // X軸ラベルのテキスト
-const getLabelText = (bar: { day: number; hour: number }): string => {
+const getLabelText = (bar: { day: number, hour: number }): string => {
   return state.mode === 'month' ? `${bar.day}日` : `${bar.hour}時`;
 };
 
@@ -81,7 +84,7 @@ const histogramWidth = computed(() => state.bars.length * state.barWidth);
 // 日ごとの集計データ（月モード用）
 const dailySummary = computed(() => {
   if (state.mode !== 'month') return [];
-  const summary: { day: number; total: number }[] = [];
+  const summary: { day: number, total: number }[] = [];
   const grouped = new Map<number, number>();
   for (const bar of state.bars) {
     grouped.set(bar.day, (grouped.get(bar.day) ?? 0) + bar.count);
@@ -188,7 +191,9 @@ const dailySummary = computed(() => {
               display: 'flex'
             }"
           >
-            <template v-for="(bar, index) in state.bars" :key="index">
+            <template v-for="(bar, index) in state.bars"
+                      :key="index"
+            >
               <span
                 v-if="index % labelInterval === 0"
                 :style="{
@@ -211,17 +216,25 @@ const dailySummary = computed(() => {
 
         <!-- 日モード: 時間ごとの件数 -->
         <div v-if="state.mode === 'day'">
-          <table class="table table-sm table-bordered" style="width: auto;">
+          <table class="table table-sm table-bordered"
+                 style="width: auto;"
+          >
             <thead>
               <tr>
                 <th>時間</th>
-                <th class="text-end">件数</th>
+                <th class="text-end">
+                  件数
+                </th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="bar in state.bars" :key="bar.hour">
+              <tr v-for="bar in state.bars"
+                  :key="bar.hour"
+              >
                 <td>{{ bar.hour }}時</td>
-                <td class="text-end">{{ bar.count.toLocaleString() }}</td>
+                <td class="text-end">
+                  {{ bar.count.toLocaleString() }}
+                </td>
               </tr>
             </tbody>
           </table>
@@ -229,17 +242,25 @@ const dailySummary = computed(() => {
 
         <!-- 月モード: 日ごとの件数 -->
         <div v-else>
-          <table class="table table-sm table-bordered" style="width: auto;">
+          <table class="table table-sm table-bordered"
+                 style="width: auto;"
+          >
             <thead>
               <tr>
                 <th>日</th>
-                <th class="text-end">件数</th>
+                <th class="text-end">
+                  件数
+                </th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="item in dailySummary" :key="item.day">
+              <tr v-for="item in dailySummary"
+                  :key="item.day"
+              >
                 <td>{{ item.day }}日</td>
-                <td class="text-end">{{ item.total.toLocaleString() }}</td>
+                <td class="text-end">
+                  {{ item.total.toLocaleString() }}
+                </td>
               </tr>
             </tbody>
           </table>
