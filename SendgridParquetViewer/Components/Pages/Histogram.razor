@@ -184,10 +184,11 @@
             };
 
             var mode = _dateSelectionMode == DateSelectionMode.YearMonthDay ? "day" : "month";
+            var now = TimeProvider.GetUtcNow().ToJst();
             var targetDate = new
             {
-                year = _selectedDate?.Year ?? DateTime.Now.Year,
-                month = _selectedDate?.Month ?? DateTime.Now.Month,
+                year = _selectedDate?.Year ?? now.Year,
+                month = _selectedDate?.Month ?? now.Month,
                 day = _dateSelectionMode == DateSelectionMode.YearMonthDay ? _selectedDate?.Day : null
             };
 
