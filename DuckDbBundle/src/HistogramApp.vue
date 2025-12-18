@@ -1,0 +1,277 @@
+<script setup lang="ts">
+/**
+ * 1時間ごとのヒストグラムを表示する Vue3 app
+ */
+import { computed } from 'vue';
+import type { HistogramState } from './resultTypes';
+
+const props = defineProps<{ state: HistogramState }>();
+
+const state = props.state;
+
+const HISTOGRAM_HEIGHT = 500;
+
+// 1-2-5系列で量子化
+function quantizeTo125(value: number): number {
+  if (value <= 1) return 1;
+
+  // 10のべき乗を計算
+  const exponent = Math.floor(Math.log10(value));
+  const base = Math.pow(10, exponent);
+  const normalized = value / base;
+
+  // 1, 2, 5 のどれに切り上げるか
+  let quantized: number;
+  if (normalized <= 1) {
+    quantized = 1;
+  }
+  else if (normalized <= 2) {
+    quantized = 2;
+  }
+  else if (normalized <= 5) {
+    quantized = 5;
+  }
+  else {
+    quantized = 10;
+  }
+
+  return quantized * base;
+}
+
+// スケーリング係数の計算（1-2-5系列で量子化）
+const scaleFactor = computed(() => {
+  if (state.maxCount <= 0) return 1;
+  const rawScale = state.maxCount / HISTOGRAM_HEIGHT;
+  return quantizeTo125(rawScale);
+});
+
+// バーの高さを計算
+const getBarHeight = (count: number): number => {
+  if (state.maxCount <= 0) return 0;
+  return Math.round(count / scaleFactor.value);
+};
+
+// 時間帯によって色を変える（白背景でも十分なコントラストがあり、色覚多様性にも配慮した配色）
+const getBarColor = (hour: number): string => {
+  if (hour >= 6 && hour < 12) return '#1B9E77'; // 朝: 緑系
+  if (hour >= 12 && hour < 18) return '#D95F02'; // 昼: オレンジ系
+  if (hour >= 18 && hour < 22) return '#7570B3'; // 夕方: 青紫系
+  return '#E7298A'; // 夜: マゼンタ系
+};
+
+// ツールチップテキスト
+const getTooltip = (bar: { day: number, hour: number, count: number }): string => {
+  if (state.mode === 'day') {
+    return `${bar.hour.toString().padStart(2, '0')}:00 - ${bar.hour.toString().padStart(2, '0')}:59\n${bar.count.toLocaleString()} 件`;
+  }
+  return `${bar.day}日 ${bar.hour.toString().padStart(2, '0')}:00 - ${bar.hour.toString().padStart(2, '0')}:59\n${bar.count.toLocaleString()} 件`;
+};
+
+// X軸ラベルの間隔
+const labelInterval = computed(() => state.mode === 'month' ? 24 : 1);
+
+// X軸ラベルのテキスト
+const getLabelText = (bar: { day: number, hour: number }): string => {
+  return state.mode === 'month' ? `${bar.day}日` : `${bar.hour}時`;
+};
+
+// 総件数
+const totalCount = computed(() => state.bars.reduce((sum, bar) => sum + bar.count, 0));
+
+// ヒストグラムの幅
+const histogramWidth = computed(() => state.bars.length * state.barWidth);
+
+// 日ごとの集計データ（月モード用）
+const dailySummary = computed(() => {
+  if (state.mode !== 'month') return [];
+  const summary: { day: number, total: number }[] = [];
+  const grouped = new Map<number, number>();
+  for (const bar of state.bars) {
+    grouped.set(bar.day, (grouped.get(bar.day) ?? 0) + bar.count);
+  }
+  for (const [day, total] of grouped) {
+    summary.push({ day, total });
+  }
+  return summary.sort((a, b) => a.day - b.day);
+});
+</script>
+
+<template>
+  <div class="histogram-app">
+    <div
+      v-if="state.error"
+      class="alert alert-danger mt-3"
+      role="alert"
+    >
+      {{ state.error }}
+    </div>
+    <div
+      v-else-if="state.isLoading"
+      class="mt-3 d-flex align-items-center gap-2 text-muted"
+    >
+      <span
+        class="spinner-border spinner-border-sm"
+        role="status"
+        aria-hidden="true"
+      />
+      <span>Running query... {{ state.currentRegisteringUrl }}</span>
+    </div>
+    <div
+      v-else-if="state.bars.length > 0"
+      class="mt-4"
+    >
+      <p class="mb-3">
+        <strong style="font-size: 1.2em;">スケーリング係数: 1px = {{ scaleFactor }} 件</strong>
+        <span class="ms-4">（総件数: {{ totalCount.toLocaleString() }} 件、最大: {{ state.maxCount.toLocaleString() }} 件/時）</span>
+      </p>
+
+      <div style="overflow-x: auto;">
+        <div
+          :style="{
+            position: 'relative',
+            height: (HISTOGRAM_HEIGHT + 60) + 'px',
+            minWidth: histogramWidth + 60 + 'px'
+          }"
+        >
+          <!-- Y軸ラベル -->
+          <div
+            :style="{
+              position: 'absolute',
+              left: 0,
+              top: 0,
+              width: '50px',
+              height: HISTOGRAM_HEIGHT + 'px',
+              borderRight: '1px solid #ccc'
+            }"
+          >
+            <span style="position: absolute; top: 0; right: 5px; font-size: 11px;">{{ state.maxCount }}</span>
+            <span style="position: absolute; top: 50%; right: 5px; font-size: 11px; transform: translateY(-50%);">{{ Math.floor(state.maxCount / 2) }}</span>
+            <span style="position: absolute; bottom: 0; right: 5px; font-size: 11px;">0</span>
+          </div>
+
+          <!-- ヒストグラムバー -->
+          <div
+            :style="{
+              position: 'absolute',
+              left: '55px',
+              top: 0,
+              display: 'flex',
+              alignItems: 'flex-end',
+              height: HISTOGRAM_HEIGHT + 'px'
+            }"
+          >
+            <div
+              v-for="(bar, index) in state.bars"
+              :key="index"
+              :style="{
+                width: state.barWidth + 'px',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center'
+              }"
+            >
+              <div
+                :style="{
+                  width: Math.max(1, state.barWidth - 1) + 'px',
+                  height: getBarHeight(bar.count) + 'px',
+                  backgroundColor: getBarColor(bar.hour),
+                  border: '1px solid rgba(0,0,0,0.2)'
+                }"
+                :title="getTooltip(bar)"
+              />
+            </div>
+          </div>
+
+          <!-- X軸ラベル -->
+          <div
+            :style="{
+              position: 'absolute',
+              left: '55px',
+              top: (HISTOGRAM_HEIGHT + 5) + 'px',
+              display: 'flex'
+            }"
+          >
+            <template v-for="(bar, index) in state.bars"
+                      :key="index"
+            >
+              <span
+                v-if="index % labelInterval === 0"
+                :style="{
+                  position: 'absolute',
+                  left: (index * state.barWidth) + 'px',
+                  fontSize: '10px',
+                  whiteSpace: 'nowrap',
+                  transform: 'rotate(-45deg)',
+                  transformOrigin: 'top left'
+                }"
+              >{{ getLabelText(bar) }}</span>
+            </template>
+          </div>
+        </div>
+      </div>
+
+      <!-- 数値テーブル -->
+      <div class="mt-4">
+        <h5>数値データ</h5>
+
+        <!-- 日モード: 時間ごとの件数 -->
+        <div v-if="state.mode === 'day'">
+          <table class="table table-sm table-bordered"
+                 style="width: auto;"
+          >
+            <thead>
+              <tr>
+                <th>時間</th>
+                <th class="text-end">
+                  件数
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="bar in state.bars"
+                  :key="bar.hour"
+              >
+                <td>{{ bar.hour }}時</td>
+                <td class="text-end">
+                  {{ bar.count.toLocaleString() }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- 月モード: 日ごとの件数 -->
+        <div v-else>
+          <table class="table table-sm table-bordered"
+                 style="width: auto;"
+          >
+            <thead>
+              <tr>
+                <th>日</th>
+                <th class="text-end">
+                  件数
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="item in dailySummary"
+                  :key="item.day"
+              >
+                <td>{{ item.day }}日</td>
+                <td class="text-end">
+                  {{ item.total.toLocaleString() }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div
+      v-else-if="state.searchExecuted"
+      class="alert alert-warning mt-3"
+    >
+      データが見つかりませんでした。
+    </div>
+  </div>
+</template>
