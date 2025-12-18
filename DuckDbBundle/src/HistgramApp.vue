@@ -11,10 +11,36 @@ const state = props.state;
 
 const HISTOGRAM_HEIGHT = 500;
 
-// スケーリング係数の計算
+// 1-2-5系列で量子化
+function quantizeTo125(value: number): number {
+  if (value <= 0) return 1;
+  if (value <= 1) return 1;
+
+  // 10のべき乗を計算
+  const exponent = Math.floor(Math.log10(value));
+  const base = Math.pow(10, exponent);
+  const normalized = value / base;
+
+  // 1, 2, 5 のどれに切り上げるか
+  let quantized: number;
+  if (normalized <= 1) {
+    quantized = 1;
+  } else if (normalized <= 2) {
+    quantized = 2;
+  } else if (normalized <= 5) {
+    quantized = 5;
+  } else {
+    quantized = 10;
+  }
+
+  return quantized * base;
+}
+
+// スケーリング係数の計算（1-2-5系列で量子化）
 const scaleFactor = computed(() => {
   if (state.maxCount <= 0) return 1;
-  return state.maxCount / HISTOGRAM_HEIGHT;
+  const rawScale = state.maxCount / HISTOGRAM_HEIGHT;
+  return quantizeTo125(rawScale);
 });
 
 // バーの高さを計算
