@@ -3,9 +3,9 @@
  * 1時間ごとのヒストグラムを表示する Vue3 app
  */
 import { computed } from 'vue';
-import type { HistgramState } from './resultTypes';
+import type { HistogramState } from './resultTypes';
 
-const props = defineProps<{ state: HistgramState }>();
+const props = defineProps<{ state: HistogramState }>();
 
 const state = props.state;
 
@@ -92,16 +92,10 @@ const dailySummary = computed(() => {
   }
   return summary.sort((a, b) => a.day - b.day);
 });
-
-// 時間ごとのデータ（日モード用）
-const hourlyData = computed(() => {
-  if (state.mode !== 'day') return [];
-  return state.bars;
-});
 </script>
 
 <template>
-  <div class="histgram-app">
+  <div class="histogram-app">
     <div
       v-if="state.error"
       class="alert alert-danger mt-3"
@@ -226,7 +220,7 @@ const hourlyData = computed(() => {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="bar in hourlyData" :key="bar.hour">
+              <tr v-for="bar in state.bars" :key="bar.hour">
                 <td>{{ bar.hour }}時</td>
                 <td class="text-end">{{ bar.count.toLocaleString() }}</td>
               </tr>

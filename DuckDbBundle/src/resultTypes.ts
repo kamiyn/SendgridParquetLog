@@ -45,14 +45,14 @@ export type SearchCondition = {
 };
 
 // Histogram types
-export type HistgramBar = {
+export type HistogramBar = {
   day: number;
   hour: number;
   count: number;
 };
 
-export type HistgramState = {
-  bars: HistgramBar[];
+export type HistogramState = {
+  bars: HistogramBar[];
   maxCount: number;
   barWidth: number;
   mode: 'day' | 'month';
@@ -62,7 +62,7 @@ export type HistgramState = {
   currentRegisteringUrl?: string;
 };
 
-export type HistgramAppHandle = {
+export type HistogramAppHandle = {
   runQuery(searchCondition: SearchCondition, mode: 'day' | 'month', targetDate: { year: number; month: number; day?: number }): Promise<void>;
   reset(): void;
   unmount(): void;

@@ -3,7 +3,7 @@ import { createApp, reactive } from 'vue';
 import { formatISO9075 } from 'date-fns';
 import * as duckdb from '@duckdb/duckdb-wasm';
 import ResultApp from './ResultApp.vue';
-import HistgramApp from './HistgramApp.vue';
+import HistogramApp from './HistogramApp.vue';
 import type {
   DuckDbBundleConfig,
   DuckDbInstance,
@@ -11,9 +11,9 @@ import type {
   ResultAppHandle,
   ResultState,
   SearchCondition,
-  HistgramState,
-  HistgramAppHandle,
-  HistgramBar
+  HistogramState,
+  HistogramAppHandle,
+  HistogramBar
 } from './resultTypes';
 
 const duckDbState: {
@@ -336,19 +336,19 @@ async function executeCustomSqlQuery(
   }
 }
 
-const histgramAppRegistry = new WeakMap<Element, { app: App<Element>; handle: HistgramAppHandle }>();
+const histogramAppRegistry = new WeakMap<Element, { app: App<Element>; handle: HistogramAppHandle }>();
 
-export function createHistgramApp(
+export function createHistogramApp(
   element: Element | null | undefined,
   config: DuckDbBundleConfig
-): HistgramAppHandle {
+): HistogramAppHandle {
   if (!config || typeof config.bundleBasePath !== 'string') {
     throw new Error('DuckDB configuration is required.');
   }
   if (!element) {
-    throw new Error('A host element is required to mount the histgram application.');
+    throw new Error('A host element is required to mount the histogram application.');
   }
-  const existing = histgramAppRegistry.get(element);
+  const existing = histogramAppRegistry.get(element);
   if (existing) {
     return existing.handle;
   }
@@ -362,7 +362,7 @@ export function createHistgramApp(
     pthreadWorker: config.pthreadWorker ?? null
   };
 
-  const state = reactive<HistgramState>({
+  const state = reactive<HistogramState>({
     bars: [],
     maxCount: 0,
     barWidth: 15,
@@ -373,7 +373,7 @@ export function createHistgramApp(
     currentRegisteringUrl: undefined
   });
 
-  const handle: HistgramAppHandle = {
+  const handle: HistogramAppHandle = {
     async runQuery(searchCondition: SearchCondition, mode: 'day' | 'month', targetDate: { year: number; month: number; day?: number }) {
       if (!searchCondition?.parquetUrls?.length) {
         state.error = 'Select a parquet file to query.';
@@ -391,14 +391,14 @@ export function createHistgramApp(
       state.barWidth = mode === 'day' ? 15 : 1;
 
       try {
-        const result = await executeHistgramQuery(
+        const result = await executeHistogramQuery(
           resolvedConfig,
           searchCondition,
           (url) => { state.currentRegisteringUrl = url; }
         );
 
         // Build histogram bars
-        const bars = buildHistgramBars(result, mode, targetDate);
+        const bars = buildHistogramBars(result, mode, targetDate);
         state.bars = bars;
         state.maxCount = bars.length > 0 ? Math.max(...bars.map(b => b.count)) : 0;
         state.searchExecuted = true;
@@ -420,22 +420,22 @@ export function createHistgramApp(
     unmount() {
       app.unmount();
       element.innerHTML = '';
-      histgramAppRegistry.delete(element);
+      histogramAppRegistry.delete(element);
     }
   };
 
-  const app = createApp(HistgramApp, { state });
+  const app = createApp(HistogramApp, { state });
   app.mount(element);
-  histgramAppRegistry.set(element, { app, handle });
+  histogramAppRegistry.set(element, { app, handle });
   return handle;
 }
 
-function buildHistgramBars(
+function buildHistogramBars(
   queryResult: { day: number; hour: number; count: number }[],
   mode: 'day' | 'month',
   targetDate: { year: number; month: number; day?: number }
-): HistgramBar[] {
-  const bars: HistgramBar[] = [];
+): HistogramBar[] {
+  const bars: HistogramBar[] = [];
 
   if (mode === 'day') {
     // 1日分: 24時間
@@ -465,7 +465,7 @@ function buildHistgramBars(
   return bars;
 }
 
-async function executeHistgramQuery(
+async function executeHistogramQuery(
   config: DuckDbBundleConfig,
   searchCondition: SearchCondition,
   displayRegisterFileURL?: (url: string | undefined) => void
