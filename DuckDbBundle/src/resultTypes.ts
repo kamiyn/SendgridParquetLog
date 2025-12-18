@@ -43,3 +43,27 @@ export type SearchCondition = {
   eventType: string;
   sgTemplateId: string;
 };
+
+// Histogram types
+export type HistgramBar = {
+  day: number;
+  hour: number;
+  count: number;
+};
+
+export type HistgramState = {
+  bars: HistgramBar[];
+  maxCount: number;
+  barWidth: number;
+  mode: 'day' | 'month';
+  error: string;
+  isLoading: boolean;
+  searchExecuted: boolean;
+  currentRegisteringUrl?: string;
+};
+
+export type HistgramAppHandle = {
+  runQuery(searchCondition: SearchCondition, mode: 'day' | 'month', targetDate: { year: number; month: number; day?: number }): Promise<void>;
+  reset(): void;
+  unmount(): void;
+};

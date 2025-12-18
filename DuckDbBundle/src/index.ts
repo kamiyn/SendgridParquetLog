@@ -3,13 +3,17 @@ import { createApp, reactive } from 'vue';
 import { formatISO9075 } from 'date-fns';
 import * as duckdb from '@duckdb/duckdb-wasm';
 import ResultApp from './ResultApp.vue';
+import HistgramApp from './HistgramApp.vue';
 import type {
   DuckDbBundleConfig,
   DuckDbInstance,
   DuckDbQueryPayload,
   ResultAppHandle,
   ResultState,
-  SearchCondition
+  SearchCondition,
+  HistgramState,
+  HistgramAppHandle,
+  HistgramBar
 } from './resultTypes';
 
 const duckDbState: {
@@ -327,6 +331,201 @@ async function executeCustomSqlQuery(
       rows: rowValues,
       sql,
     } satisfies DuckDbQueryPayload;
+  } finally {
+    await connection.close();
+  }
+}
+
+const histgramAppRegistry = new WeakMap<Element, { app: App<Element>; handle: HistgramAppHandle }>();
+
+export function createHistgramApp(
+  element: Element | null | undefined,
+  config: DuckDbBundleConfig
+): HistgramAppHandle {
+  if (!config || typeof config.bundleBasePath !== 'string') {
+    throw new Error('DuckDB configuration is required.');
+  }
+  if (!element) {
+    throw new Error('A host element is required to mount the histgram application.');
+  }
+  const existing = histgramAppRegistry.get(element);
+  if (existing) {
+    return existing.handle;
+  }
+  element.innerHTML = '';
+
+  const resolvedConfig: DuckDbBundleConfig = {
+    bundleBasePath: config.bundleBasePath,
+    mainModule: config.mainModule,
+    mainWorker: config.mainWorker,
+    moduleLoader: config.moduleLoader,
+    pthreadWorker: config.pthreadWorker ?? null
+  };
+
+  const state = reactive<HistgramState>({
+    bars: [],
+    maxCount: 0,
+    barWidth: 15,
+    mode: 'day',
+    error: '',
+    isLoading: false,
+    searchExecuted: false,
+    currentRegisteringUrl: undefined
+  });
+
+  const handle: HistgramAppHandle = {
+    async runQuery(searchCondition: SearchCondition, mode: 'day' | 'month', targetDate: { year: number; month: number; day?: number }) {
+      if (!searchCondition?.parquetUrls?.length) {
+        state.error = 'Select a parquet file to query.';
+        state.bars = [];
+        state.isLoading = false;
+        state.searchExecuted = true;
+        return;
+      }
+
+      state.error = '';
+      state.bars = [];
+      state.isLoading = true;
+      state.searchExecuted = false;
+      state.mode = mode;
+      state.barWidth = mode === 'day' ? 15 : 1;
+
+      try {
+        const result = await executeHistgramQuery(
+          resolvedConfig,
+          searchCondition,
+          (url) => { state.currentRegisteringUrl = url; }
+        );
+
+        // Build histogram bars
+        const bars = buildHistgramBars(result, mode, targetDate);
+        state.bars = bars;
+        state.maxCount = bars.length > 0 ? Math.max(...bars.map(b => b.count)) : 0;
+        state.searchExecuted = true;
+      } catch (error) {
+        state.error = error instanceof Error ? error.message : String(error ?? '');
+        state.searchExecuted = true;
+      } finally {
+        state.currentRegisteringUrl = undefined;
+        state.isLoading = false;
+      }
+    },
+    reset() {
+      state.error = '';
+      state.bars = [];
+      state.maxCount = 0;
+      state.isLoading = false;
+      state.searchExecuted = false;
+    },
+    unmount() {
+      app.unmount();
+      element.innerHTML = '';
+      histgramAppRegistry.delete(element);
+    }
+  };
+
+  const app = createApp(HistgramApp, { state });
+  app.mount(element);
+  histgramAppRegistry.set(element, { app, handle });
+  return handle;
+}
+
+function buildHistgramBars(
+  queryResult: { day: number; hour: number; count: number }[],
+  mode: 'day' | 'month',
+  targetDate: { year: number; month: number; day?: number }
+): HistgramBar[] {
+  const bars: HistgramBar[] = [];
+
+  if (mode === 'day') {
+    // 1日分: 24時間
+    for (let hour = 0; hour < 24; hour++) {
+      const result = queryResult.find(r => r.hour === hour);
+      bars.push({
+        day: targetDate.day ?? 1,
+        hour,
+        count: result?.count ?? 0
+      });
+    }
+  } else {
+    // 1か月分: 日数 × 24時間
+    const daysInMonth = new Date(targetDate.year, targetDate.month, 0).getDate();
+    for (let day = 1; day <= daysInMonth; day++) {
+      for (let hour = 0; hour < 24; hour++) {
+        const result = queryResult.find(r => r.day === day && r.hour === hour);
+        bars.push({
+          day,
+          hour,
+          count: result?.count ?? 0
+        });
+      }
+    }
+  }
+
+  return bars;
+}
+
+async function executeHistgramQuery(
+  config: DuckDbBundleConfig,
+  searchCondition: SearchCondition,
+  displayRegisterFileURL?: (url: string | undefined) => void
+): Promise<{ day: number; hour: number; count: number }[]> {
+  const { db } = await loadDuckDb(config);
+  const connection = await db.connect();
+  try {
+    const virtualFileNames = [];
+    for (const parquetUrl of searchCondition.parquetUrls) {
+      const virtualName = parquetUrl.split('/').pop();
+      if (!virtualName) {
+        continue;
+      }
+      virtualFileNames.push(virtualName);
+      try {
+        displayRegisterFileURL?.(parquetUrl);
+        await db.registerFileURL(
+          virtualName,
+          parquetUrl,
+          duckdb.DuckDBDataProtocol.HTTP,
+          false
+        );
+      } catch (ex) {
+        if (((<DuckDBException>ex).message?.startsWith("File already registered:"))) {
+          // 同一名称の登録によるエラーは抑制する
+        } else {
+          console.error(ex);
+        }
+      }
+    }
+
+    if (virtualFileNames.length === 0) {
+      return [];
+    }
+
+    const sanitizedFileNames = virtualFileNames.map(
+      name => `'${name.replace(/'/g, "''")}'`
+    );
+    const fileList = sanitizedFileNames.join(',');
+
+    // timestampはUnix秒なので、日本時間(UTC+9)に変換して日と時間を抽出
+    const fullQuery = `
+SELECT
+  EXTRACT(DAY FROM to_timestamp(timestamp) AT TIME ZONE 'Asia/Tokyo') AS day,
+  EXTRACT(HOUR FROM to_timestamp(timestamp) AT TIME ZONE 'Asia/Tokyo') AS hour,
+  COUNT(*) AS count
+FROM read_parquet([${fileList}])
+${whereClause(searchCondition)}
+GROUP BY day, hour
+ORDER BY day, hour;
+    `;
+
+    console.log('Histogram query:', fullQuery);
+
+    const result = await connection.query(fullQuery);
+    return result.toArray().map(row => ({
+      day: Number(row.day),
+      hour: Number(row.hour),
+      count: Number(row.count)
+    }));
   } finally {
     await connection.close();
   }
