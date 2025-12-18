@@ -49,12 +49,12 @@ const getBarHeight = (count: number): number => {
   return Math.round(count / scaleFactor.value);
 };
 
-// 時間帯によって色を変える
+// 時間帯によって色を変える（白背景でも十分なコントラストがあり、色覚多様性にも配慮した配色）
 const getBarColor = (hour: number): string => {
-  if (hour >= 6 && hour < 12) return '#4CAF50';   // 朝: 緑
-  if (hour >= 12 && hour < 18) return '#2196F3';  // 昼: 青
-  if (hour >= 18 && hour < 22) return '#FF9800';  // 夕方: オレンジ
-  return '#9C27B0';                                // 夜: 紫
+  if (hour >= 6 && hour < 12) return '#1B9E77';   // 朝: 緑系
+  if (hour >= 12 && hour < 18) return '#D95F02';  // 昼: オレンジ系
+  if (hour >= 18 && hour < 22) return '#7570B3';  // 夕方: 青紫系
+  return '#E7298A';                               // 夜: マゼンタ系
 };
 
 // ツールチップテキスト
