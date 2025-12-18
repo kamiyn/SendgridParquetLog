@@ -124,7 +124,9 @@ cd SendgridParquetLog
 ### DuckDbBundle ファイルの生成
 
 ```bash
-(cd DuckDbBundle; npm run build) 
+(cd DuckDbBundle; npm run build)
+または
+(cd DuckDbBundle; npm run build:dev) # .map ファイルを生成する
 ```
 
 ### Dockerイメージのビルドと実行
