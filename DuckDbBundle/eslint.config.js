@@ -55,7 +55,7 @@ export default tseslint.config(
   {
     rules: {
       'no-debugger': 'error',
-      'quotes': ['error', 'double'],
+      'quotes': ['error', 'single'],
       'no-console': 'warn',
       '@stylistic/semi': 'off',
       'semi': ['error', 'always'],

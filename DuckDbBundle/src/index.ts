@@ -9,18 +9,18 @@ import type {
   DuckDbQueryPayload,
   ResultAppHandle,
   ResultState,
-  SearchCondition
+  SearchCondition,
 } from './resultTypes';
 
 const duckDbState: {
-  duckDbPromise: Promise<DuckDbInstance> | null;
-  httpFsInitialized: boolean;
+  duckDbPromise: Promise<DuckDbInstance> | null
+  httpFsInitialized: boolean
 } = {
   duckDbPromise: null,
-  httpFsInitialized: false
+  httpFsInitialized: false,
 };
 
-const resultAppRegistry = new WeakMap<Element, { app: App<Element>; handle: ResultAppHandle }>();
+const resultAppRegistry = new WeakMap<Element, { app: App<Element>, handle: ResultAppHandle }>();
 
 async function loadDuckDb(config: DuckDbBundleConfig): Promise<DuckDbInstance> {
   if (!duckDbState.duckDbPromise) {
@@ -55,8 +55,8 @@ function toDisplayValue(column: string, value: unknown): string {
 
   // console.log("toDisplayValue", column, value);
   switch (column) {
-    case "timestamp":
-      return formatISO9075(new Date(Number(value) * 1000))
+    case 'timestamp':
+      return formatISO9075(new Date(Number(value) * 1000));
   }
 
   if (typeof value === 'object') {
@@ -71,15 +71,15 @@ function toDisplayValue(column: string, value: unknown): string {
  */
 function CalcTargetColumn(columns: string[]): number[] {
   const showColumns = [
-    "timestamp",
-    "email",
-    "event",
-    "category",
+    'timestamp',
+    'email',
+    'event',
+    'category',
     // "reason",
     // "status",
-    "response",
-    "sg_template_id",
-    "marketing_campaign_name",
+    'response',
+    'sg_template_id',
+    'marketing_campaign_name',
   ];
 
   const targetColumn: number[] = [];
@@ -93,10 +93,9 @@ function CalcTargetColumn(columns: string[]): number[] {
   return targetColumn;
 }
 
-
 export function createResultApp(
   element: Element | null | undefined,
-  config: DuckDbBundleConfig
+  config: DuckDbBundleConfig,
 ): ResultAppHandle {
   if (!config || typeof config.bundleBasePath !== 'string') {
     throw new Error('DuckDB configuration is required.');
@@ -115,7 +114,7 @@ export function createResultApp(
     mainModule: config.mainModule,
     mainWorker: config.mainWorker,
     moduleLoader: config.moduleLoader,
-    pthreadWorker: config.pthreadWorker ?? null
+    pthreadWorker: config.pthreadWorker ?? null,
   };
 
   const state = reactive<ResultState>({
@@ -126,7 +125,7 @@ export function createResultApp(
     sql: '',
     isLoading: false,
     currentRegisteringUrl: undefined,
-    executeCustomSql: undefined
+    executeCustomSql: undefined,
   });
 
   const handle: ResultAppHandle = {
@@ -149,15 +148,17 @@ export function createResultApp(
         const result = await executeQuery(
           resolvedConfig,
           searchCondition,
-          (url) => { state.currentRegisteringUrl = url; }
+          (url) => { state.currentRegisteringUrl = url; },
         );
         state.columns = result.columns;
         state.rows = result.rows;
         state.targetColumn = CalcTargetColumn(result.columns);
         state.sql = result.sql;
-      } catch (error) {
+      }
+      catch (error) {
         state.error = error instanceof Error ? error.message : String(error ?? '');
-      } finally {
+      }
+      finally {
         state.currentRegisteringUrl = undefined;
         state.isLoading = false;
       }
@@ -172,7 +173,7 @@ export function createResultApp(
       app.unmount();
       element.innerHTML = '';
       resultAppRegistry.delete(element);
-    }
+    },
   };
 
   // executeCustomSql の実装を state に追加
@@ -191,9 +192,11 @@ export function createResultApp(
       state.rows = result.rows;
       state.targetColumn = CalcTargetColumn(result.columns);
       state.sql = sql;
-    } catch (error) {
+    }
+    catch (error) {
       state.error = error instanceof Error ? error.message : String(error ?? '');
-    } finally {
+    }
+    finally {
       state.isLoading = false;
     }
   };
@@ -212,24 +215,24 @@ function whereClause(searchCondition: SearchCondition): string {
   const conditions = [];
   if (searchCondition.email) {
     // Escape single quotes to prevent SQL injection
-    const emailEscaped = searchCondition.email.replace("'", "''");
-    conditions.push(`email ILIKE '${emailEscaped}'`)
+    const emailEscaped = searchCondition.email.replace('\'', '\'\'');
+    conditions.push(`email ILIKE '${emailEscaped}'`);
   }
   if (searchCondition.eventType) {
     // Escape single quotes to prevent SQL injection
-    const eventEscaped = searchCondition.eventType.replace("'", "''");
+    const eventEscaped = searchCondition.eventType.replace('\'', '\'\'');
     conditions.push(`event = '${eventEscaped}'`);
   }
   if (searchCondition.sgTemplateId) {
     // Escape single quotes to prevent SQL injection
-    const sgTemplateIdEscaped = searchCondition.sgTemplateId.replace("'", "''");
+    const sgTemplateIdEscaped = searchCondition.sgTemplateId.replace('\'', '\'\'');
     conditions.push(`sg_template_id = '${sgTemplateIdEscaped}'`);
   }
 
   if (conditions.length == 0) {
-    return "";
+    return '';
   }
-  return "WHERE " + conditions.join(" AND ");
+  return 'WHERE ' + conditions.join(' AND ');
 }
 
 type DuckDBException = {
@@ -239,7 +242,7 @@ type DuckDBException = {
 async function executeQuery(
   config: DuckDbBundleConfig,
   searchCondition: SearchCondition,
-  displayRegisterFileURL?: (url: string | undefined) => void
+  displayRegisterFileURL?: (url: string | undefined) => void,
 ): Promise<DuckDbQueryPayload> {
   const { db } = await loadDuckDb(config);
   const connection = await db.connect();
@@ -257,12 +260,14 @@ async function executeQuery(
           virtualName, // 仮想ファイル名
           parquetUrl, // 対応するURL
           duckdb.DuckDBDataProtocol.HTTP, // プロトコル
-          false // ファイル全体をキャッシュするかどうか
+          false, // ファイル全体をキャッシュするかどうか
         );
-      } catch (ex) {
-        if (((<DuckDBException>ex).message?.startsWith("File already registered:"))) {
+      }
+      catch (ex) {
+        if (((<DuckDBException>ex).message?.startsWith('File already registered:'))) {
           // 同一名称の登録によるエラーは抑制する
-        } else {
+        }
+        else {
           console.error(ex);
         }
       }
@@ -279,7 +284,7 @@ async function executeQuery(
 
     // read_parquet で複数ファイルを一括読み込み
     const sanitizedFileNames = virtualFileNames.map(
-      name => `'${name.replace(/'/g, "''")}'`
+      name => `'${name.replace(/'/g, '\'\'')}'`,
     );
     const fileList = sanitizedFileNames.join(',');
     const fullQuery = `
@@ -301,7 +306,8 @@ LIMIT 1000;
       rows: rowValues,
       sql: fullQuery,
     } satisfies DuckDbQueryPayload;
-  } finally {
+  }
+  finally {
     await connection.close();
   }
 }
@@ -311,7 +317,7 @@ LIMIT 1000;
  */
 async function executeCustomSqlQuery(
   config: DuckDbBundleConfig,
-  sql: string
+  sql: string,
 ): Promise<DuckDbQueryPayload> {
   const { db } = await loadDuckDb(config);
   const connection = await db.connect();
@@ -327,7 +333,8 @@ async function executeCustomSqlQuery(
       rows: rowValues,
       sql,
     } satisfies DuckDbQueryPayload;
-  } finally {
+  }
+  finally {
     await connection.close();
   }
 }
@@ -335,7 +342,7 @@ async function executeCustomSqlQuery(
 const {
   AsyncDuckDB,
   AsyncDuckDBConnection,
-  ConsoleLogger
+  ConsoleLogger,
 } = duckdb;
 
 export {

@@ -51,7 +51,7 @@ const duckDbAssetFiles = Object.freeze([
   'duckdb-browser.mjs',
   'duckdb-eh.wasm',
   'duckdb-browser-eh.worker.js',
-  'duckdb-browser-coi.pthread.worker.js'
+  'duckdb-browser-coi.pthread.worker.js',
 ]);
 
 async function downloadDuckDbAssets() {
@@ -59,7 +59,8 @@ async function downloadDuckDbAssets() {
   try {
     const packageJsonContent = await readFile(duckDbPackageJsonPath, 'utf8');
     packageJson = JSON.parse(packageJsonContent);
-  } catch (err) {
+  }
+  catch (err) {
     throw new Error(`Failed to read or parse ${duckDbPackageJsonPath}: ${err.message}`);
   }
   const baseUrl = new URL(`https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@${packageJson.version}/dist/`);
@@ -108,7 +109,7 @@ function downloadDuckDbAssetsPlugin() {
     apply: 'build',
     async buildStart() {
       await downloadDuckDbAssets();
-    }
+    },
   };
 }
 
@@ -118,7 +119,7 @@ function copySourcesPlugin() {
     apply: 'build',
     async closeBundle() {
       await ensureSourceCopies();
-    }
+    },
   };
 }
 
@@ -132,26 +133,26 @@ export default defineConfig(({ mode }) => {
       lib: {
         entry: resolve(currentDir, 'src/index.ts'),
         formats: ['es'],
-        fileName: () => 'duckdb-browser-bundle.js'
+        fileName: () => 'duckdb-browser-bundle.js',
       },
       sourcemap: isDevelopment,
       minify: !isDevelopment,
       rollupOptions: {
         external: [],
         output: {
-          manualChunks: undefined
-        }
-      }
+          manualChunks: undefined,
+        },
+      },
     },
     esbuild: {
       minifyIdentifiers: true,
       minifySyntax: true,
-      minifyWhitespace: true
+      minifyWhitespace: true,
     },
     define: {
       // ライブラリ内で 'process.env.NODE_ENV' などを参照している箇所を、
       // ビルド時に空のオブジェクトに置き換えることでエラーを回避します。
-      'process.env': {}
-    }
+      'process.env': {},
+    },
   };
 });
