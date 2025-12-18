@@ -124,7 +124,8 @@ export function createResultApp(
     targetColumn: [],
     error: '',
     sql: '',
-    isLoading: false
+    isLoading: false,
+    executeCustomSql: undefined
   });
 
   const handle: ResultAppHandle = {
@@ -165,6 +166,29 @@ export function createResultApp(
       app.unmount();
       element.innerHTML = '';
       resultAppRegistry.delete(element);
+    }
+  };
+
+  // executeCustomSql の実装を state に追加
+  state.executeCustomSql = async (sql: string) => {
+    if (!sql || !sql.trim()) {
+      state.error = 'SQL query is empty.';
+      return;
+    }
+
+    state.error = '';
+    state.isLoading = true;
+
+    try {
+      const result = await executeCustomSqlQuery(resolvedConfig, sql);
+      state.columns = result.columns;
+      state.rows = result.rows;
+      state.targetColumn = CalcTargetColumn(result.columns);
+      state.sql = sql;
+    } catch (error) {
+      state.error = error instanceof Error ? error.message : String(error ?? '');
+    } finally {
+      state.isLoading = false;
     }
   };
 
@@ -268,6 +292,32 @@ LIMIT 1000;
       columns,
       rows: rowValues,
       sql: fullQuery,
+    } satisfies DuckDbQueryPayload;
+  } finally {
+    await connection.close();
+  }
+}
+
+/**
+ * カスタム SQL を実行する（ファイル登録は行わない）
+ */
+async function executeCustomSqlQuery(
+  config: DuckDbBundleConfig,
+  sql: string
+): Promise<DuckDbQueryPayload> {
+  const { db } = await loadDuckDb(config);
+  const connection = await db.connect();
+  try {
+    const result = await connection.query(sql);
+    const columns = Array.isArray(result?.schema?.fields)
+      ? result.schema.fields.map(field => field.name ?? '').filter(name => Boolean(name))
+      : [];
+    // columns の順番に合わせて row を作る
+    const rowValues = result.toArray().map(row => columns.map(column => toDisplayValue(column, row[column])));
+    return {
+      columns,
+      rows: rowValues,
+      sql,
     } satisfies DuckDbQueryPayload;
   } finally {
     await connection.close();

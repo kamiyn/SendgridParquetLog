@@ -21,6 +21,7 @@ export type ResultState = {
   error: string;
   sql:string;
   isLoading: boolean;
+  executeCustomSql?: (sql: string) => Promise<void>;
 }
 
 export type DuckDbQueryPayload = {

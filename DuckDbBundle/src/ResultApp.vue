@@ -10,6 +10,8 @@ const props = defineProps<{ state: ResultState }>();
 const state = props.state;
 
 const selectedRowIndex = ref<number | null>(null);
+const editableSql = ref<string>('');
+const isEditingMode = ref<boolean>(false);
 
 const selectedRow = computed<ReadonlyArray<string> | null>(() => {
   const index = selectedRowIndex.value;
@@ -22,6 +24,20 @@ const handleRowClick = (rowIndex: number) => {
 
 const closeRowDialog = () => {
   selectedRowIndex.value = null;
+};
+
+// 編集モードに切り替え
+const handleEditMode = () => {
+  editableSql.value = state.sql;
+  isEditingMode.value = true;
+};
+
+// SQL 実行ハンドラー
+const handleExecuteSql = async () => {
+  if (state.executeCustomSql && editableSql.value.trim()) {
+    await state.executeCustomSql(editableSql.value);
+  }
+  isEditingMode.value = false;
 };
 
 // Handle ESC key to close dialog when open
@@ -150,10 +166,55 @@ onUnmounted(() => {
         </footer>
       </div>
     </div>
-    <div class="mt-3">
-      <pre style="width: 960px; overflow-x: scroll;">
-      {{ state.sql }}
-      </pre>
+    <div
+      v-if="state.sql"
+      class="mt-4"
+    >
+      <h5 class="mb-2">
+        SQL Query
+      </h5>
+      <!-- 読み取り専用モード -->
+      <div v-if="!isEditingMode">
+        <pre
+          class="border rounded p-2 bg-light"
+          style="width: 100%; max-width: 960px; overflow-x: auto; font-size: 0.875rem;"
+        >{{ state.sql }}</pre>
+        <button
+          type="button"
+          class="btn btn-secondary mt-2"
+          @click="handleEditMode"
+        >
+          編集
+        </button>
+      </div>
+      <!-- 編集モード -->
+      <div v-else>
+        <div class="mb-2">
+          <textarea
+            v-model="editableSql"
+            class="form-control font-monospace"
+            rows="10"
+            style="width: 100%; max-width: 960px; font-size: 0.875rem;"
+            :disabled="state.isLoading"
+          />
+        </div>
+        <div>
+          <button
+            type="button"
+            class="btn btn-primary"
+            :disabled="state.isLoading || !editableSql.trim()"
+            @click="handleExecuteSql"
+          >
+            <span
+              v-if="state.isLoading"
+              class="spinner-border spinner-border-sm me-1"
+              role="status"
+              aria-hidden="true"
+            />
+            {{ state.isLoading ? '検索中...' : '検索' }}
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
