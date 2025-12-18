@@ -37,9 +37,7 @@ const handleExecuteSql = async () => {
   if (state.executeCustomSql && editableSql.value.trim()) {
     await state.executeCustomSql(editableSql.value);
   }
-  isEditingMode.value = false;
 };
-
 // Handle ESC key to close dialog when open
 const onKeyDown = (e: KeyboardEvent) => {
   if (e.key === 'Escape' && selectedRowIndex.value !== null) {
