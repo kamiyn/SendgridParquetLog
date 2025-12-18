@@ -23,7 +23,7 @@ public class SendgridTemplateService(
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
     };
 
     public async Task<SendgridTemplateItemResult?> GetSendgridTemplateItemAsync(string templateId, CancellationToken ct)
