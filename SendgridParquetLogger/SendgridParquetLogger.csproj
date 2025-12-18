@@ -14,8 +14,8 @@
   </ItemGroup>
   <!-- Swagger UI はデバッグビルドのみ有効 -->
   <ItemGroup Condition="'$(Configuration)' == 'Debug'">
-    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.*" />
-    <PackageReference Include="Swashbuckle.AspNetCore.SwaggerUI" Version="9.0.4" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.1" />
+    <PackageReference Include="Swashbuckle.AspNetCore.SwaggerUI" Version="10.0.1" />
     <!-- Aspire はデバッグビルドのみ有効 -->
     <ProjectReference Include="../SendgridParquetLog.ServiceDefaults/SendgridParquetLog.ServiceDefaults.csproj" />
   </ItemGroup>
