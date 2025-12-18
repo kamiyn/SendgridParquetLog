@@ -259,7 +259,6 @@ async function executeQuery(
       }
       virtualFileNames.push(virtualName);
       try {
-        displayRegisterFileURL?.(parquetUrl);
         await db.registerFileURL(
           virtualName, // 仮想ファイル名
           parquetUrl, // 対応するURL
@@ -268,7 +267,9 @@ async function executeQuery(
         );
         // 登録後、実際にDuckDBに読み込ませるためにCOUNTクエリを実行
         const sanitizedName = virtualName.replace(/'/g, '\'\'');
-        await connection.query(`SELECT COUNT(*) FROM read_parquet('${sanitizedName}')`);
+        const countResult = await connection.query(`SELECT COUNT(*) AS cnt FROM read_parquet('${sanitizedName}')`);
+        const count = countResult.toArray()[0]?.cnt ?? 0;
+        displayRegisterFileURL?.(`${parquetUrl} (${count} rows)`);
       }
       catch (ex) {
         if (((<DuckDBException>ex).message?.startsWith('File already registered:'))) {
@@ -496,13 +497,17 @@ async function executeHistogramQuery(
       }
       virtualFileNames.push(virtualName);
       try {
-        displayRegisterFileURL?.(parquetUrl);
         await db.registerFileURL(
           virtualName,
           parquetUrl,
           duckdb.DuckDBDataProtocol.HTTP,
           false,
         );
+        // 登録後、実際にDuckDBに読み込ませるためにCOUNTクエリを実行
+        const sanitizedName = virtualName.replace(/'/g, '\'\'');
+        const countResult = await connection.query(`SELECT COUNT(*) AS cnt FROM read_parquet('${sanitizedName}')`);
+        const count = countResult.toArray()[0]?.cnt ?? 0;
+        displayRegisterFileURL?.(`${parquetUrl} (${count} rows)`);
       }
       catch (ex) {
         if (((<DuckDBException>ex).message?.startsWith('File already registered:'))) {
