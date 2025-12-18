@@ -168,40 +168,37 @@
         _isExecuting = true;
         StateHasChanged();
 
-        var cancellationToken = RenewCancellationToken();
-
-        IReadOnlyCollection<string> parquetUrls;
         try
         {
+            var cancellationToken = RenewCancellationToken();
+
+            IReadOnlyCollection<string> parquetUrls;
             parquetUrls = await GetParquetUrlsAsync(cancellationToken);
-        }
-        catch (OperationCanceledException)
-        {
-            return;
-        }
 
-        var condition = new SearchCondition
-        {
-            Email = _selectedEmail,
-            EventType = _selectedEventType,
-            SgTemplateId = _selectedSgTemplateId,
-            ParquetUrls = parquetUrls,
-        };
+            var condition = new SearchCondition
+            {
+                Email = _selectedEmail,
+                EventType = _selectedEventType,
+                SgTemplateId = _selectedSgTemplateId,
+                ParquetUrls = parquetUrls,
+            };
 
-        var mode = _dateSelectionMode == DateSelectionMode.YearMonthDay ? "day" : "month";
-        var targetDate = new
-        {
-            year = _selectedDate?.Year ?? DateTime.Now.Year,
-            month = _selectedDate?.Month ?? DateTime.Now.Month,
-            day = _dateSelectionMode == DateSelectionMode.YearMonthDay ? _selectedDate?.Day : null
-        };
+            var mode = _dateSelectionMode == DateSelectionMode.YearMonthDay ? "day" : "month";
+            var targetDate = new
+            {
+                year = _selectedDate?.Year ?? DateTime.Now.Year,
+                month = _selectedDate?.Month ?? DateTime.Now.Month,
+                day = _dateSelectionMode == DateSelectionMode.YearMonthDay ? _selectedDate?.Day : null
+            };
 
-        try
-        {
             if (!cancellationToken.IsCancellationRequested)
             {
                 await histogramApp.InvokeVoidAsync("runQuery", cancellationToken, condition, mode, targetDate);
             }
+        }
+        catch (OperationCanceledException)
+        {
+            return;
         }
         finally
         {
