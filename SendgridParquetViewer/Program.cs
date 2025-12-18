@@ -83,6 +83,12 @@ builder.Services.AddOptions<CompactionOptions>()
     .ValidateDataAnnotations()
     .ValidateOnStart();
 
+// Configure SendGrid options
+builder.Services.AddOptions<SendgridOptions>()
+    .Bind(builder.Configuration.GetSection(SendgridOptions.SectionName))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+
 //builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddOptions<TimeProviderOptions>()
     .Configure(options =>
@@ -111,6 +117,9 @@ builder.Services.AddLocalization(options => options.ResourcesPath = "Resources")
 // Add S3 storage service
 builder.Services.AddHttpClient<S3StorageService>();
 builder.Services.AddSingleton<IS3LockService, S3LockService>();
+
+// Add SendGrid template service
+builder.Services.AddHttpClient<ISendgridTemplateService, SendgridTemplateService>();
 
 // Add Parquet service
 builder.Services.AddSingleton<ParquetService>(); // 無状態のため AddSingleton

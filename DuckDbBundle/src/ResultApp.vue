@@ -18,6 +18,14 @@ const selectedRow = computed<ReadonlyArray<string> | null>(() => {
   return typeof index === 'number' ? state.rows[index] : null;
 });
 
+const isSgTemplateIdColumn = (columnIndex: number): boolean => {
+  return state.columns[columnIndex] === 'sg_template_id';
+};
+
+const getSgTemplateIdLink = (value: string): string => {
+  return `/sg_template_id/${encodeURIComponent(value)}`;
+};
+
 const handleRowClick = (rowIndex: number) => {
   selectedRowIndex.value = rowIndex;
 };
@@ -105,7 +113,12 @@ onUnmounted(() => {
               :key="columnIndex"
               class="text-nowrap"
             >
-              {{ row[columnIndex] }}
+              <a
+                v-if="isSgTemplateIdColumn(columnIndex) && row[columnIndex]"
+                :href="getSgTemplateIdLink(row[columnIndex])"
+                @click.stop
+              >{{ row[columnIndex] }}</a>
+              <span v-else>{{ row[columnIndex] }}</span>
             </td>
           </tr>
         </tbody>
@@ -148,7 +161,13 @@ onUnmounted(() => {
                 >
                   {{ columnName }}
                 </th>
-                <td>{{ selectedRow[columnIndex] }}</td>
+                <td>
+                  <a
+                    v-if="columnName === 'sg_template_id' && selectedRow[columnIndex]"
+                    :href="getSgTemplateIdLink(selectedRow[columnIndex])"
+                  >{{ selectedRow[columnIndex] }}</a>
+                  <span v-else>{{ selectedRow[columnIndex] }}</span>
+                </td>
               </tr>
             </tbody>
           </table>
