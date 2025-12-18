@@ -9,8 +9,7 @@
       "Bash(dotnet format:*)",
       "Bash(dotnet build)",
       "Bash(git merge-base:*)",
-      "Bash(git rev-list:*)",
-      "Bash(git rev-parse:*)"
+      "Bash(git rev-list:*)"
     ],
     "deny": [],
     "ask": []
