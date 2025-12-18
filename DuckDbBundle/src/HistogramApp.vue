@@ -13,7 +13,6 @@ const HISTOGRAM_HEIGHT = 500;
 
 // 1-2-5系列で量子化
 function quantizeTo125(value: number): number {
-  if (value <= 0) return 1;
   if (value <= 1) return 1;
 
   // 10のべき乗を計算
