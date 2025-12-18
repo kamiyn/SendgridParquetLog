@@ -57,8 +57,7 @@ export default tseslint.config(
       'no-debugger': 'error',
       'quotes': ['error', 'single'],
       'no-console': 'warn',
-      '@stylistic/semi': 'off',
-      'semi': ['error', 'always'],
+      '@stylistic/semi': ['error', 'always'],
       'vue/first-attribute-linebreak': ['error', {
         singleline: 'beside',
         multiline: 'ignore',
