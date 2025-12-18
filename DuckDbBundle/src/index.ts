@@ -449,6 +449,8 @@ function buildHistogramBars(
     }
   } else {
     // 1か月分: 日数 × 24時間
+    // NOTE: targetDate.month is 1-indexed (1–12) from C#; JavaScript Date expects 0-indexed months (0–11).
+    // Passing day = 0 returns the last day of the previous month, which gives the number of days in targetDate.month.
     const daysInMonth = new Date(targetDate.year, targetDate.month, 0).getDate();
     for (let day = 1; day <= daysInMonth; day++) {
       for (let hour = 0; hour < 24; hour++) {
