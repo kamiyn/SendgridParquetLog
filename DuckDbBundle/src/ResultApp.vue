@@ -121,6 +121,8 @@ onUnmounted(() => {
               <a
                 v-if="isSgTemplateIdColumn(columnIndex) && row[columnIndex]"
                 :href="getSgTemplateIdLink(row[columnIndex])"
+                target="_blank"
+                rel="noopener noreferrer"
                 @click.stop
               >{{ row[columnIndex] }}</a>
               <span v-else>{{ row[columnIndex] }}</span>
@@ -170,6 +172,8 @@ onUnmounted(() => {
                   <a
                     v-if="columnName === 'sg_template_id' && selectedRow[columnIndex]"
                     :href="getSgTemplateIdLink(selectedRow[columnIndex])"
+                    target="_blank"
+                    rel="noopener noreferrer"
                   >{{ selectedRow[columnIndex] }}</a>
                   <span v-else>{{ selectedRow[columnIndex] }}</span>
                 </td>
