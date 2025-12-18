@@ -532,8 +532,6 @@ GROUP BY day, hour
 ORDER BY day, hour;
     `;
 
-    // console.log('Histogram query:', fullQuery);
-
     const result = await connection.query(fullQuery);
     return result.toArray().map(row => ({
       day: Number(row.day),
