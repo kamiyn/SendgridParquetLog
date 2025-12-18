@@ -41,10 +41,15 @@ public class SendgridTemplateService(
 
             return result;
         }
+        catch (JsonException ex)
+        {
+            logger.LogError(ex, "Error deserializing SendGrid template item response: {TemplateId}", templateId);
+            return null;
+        }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error getting SendGrid template item: {TemplateId}", templateId);
-            return null;
+            throw;
         }
     }
 }
