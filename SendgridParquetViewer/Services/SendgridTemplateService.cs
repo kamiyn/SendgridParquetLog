@@ -30,7 +30,7 @@ public class SendgridTemplateService(
     {
         try
         {
-            var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.sendgrid.com/v3/templates/{templateId}");
+            using var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.sendgrid.com/v3/templates/{templateId}");
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _sendgridOptions.ApiKey);
 
             var response = await httpClient.SendAsync(request, ct);
