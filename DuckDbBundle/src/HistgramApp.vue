@@ -78,6 +78,26 @@ const totalCount = computed(() => state.bars.reduce((sum, bar) => sum + bar.coun
 
 // ヒストグラムの幅
 const histogramWidth = computed(() => state.bars.length * state.barWidth);
+
+// 日ごとの集計データ（月モード用）
+const dailySummary = computed(() => {
+  if (state.mode !== 'month') return [];
+  const summary: { day: number; total: number }[] = [];
+  const grouped = new Map<number, number>();
+  for (const bar of state.bars) {
+    grouped.set(bar.day, (grouped.get(bar.day) ?? 0) + bar.count);
+  }
+  for (const [day, total] of grouped) {
+    summary.push({ day, total });
+  }
+  return summary.sort((a, b) => a.day - b.day);
+});
+
+// 時間ごとのデータ（日モード用）
+const hourlyData = computed(() => {
+  if (state.mode !== 'day') return [];
+  return state.bars;
+});
 </script>
 
 <template>
@@ -105,7 +125,7 @@ const histogramWidth = computed(() => state.bars.length * state.barWidth);
       class="mt-4"
     >
       <p class="mb-3">
-        <strong style="font-size: 1.2em;">スケーリング係数: 1px = {{ scaleFactor.toFixed(2) }} 件</strong>
+        <strong style="font-size: 1.2em;">スケーリング係数: 1px = {{ scaleFactor }} 件</strong>
         <span class="ms-4">（総件数: {{ totalCount.toLocaleString() }} 件、最大: {{ state.maxCount.toLocaleString() }} 件/時）</span>
       </p>
 
@@ -189,6 +209,47 @@ const histogramWidth = computed(() => state.bars.length * state.barWidth);
               >{{ getLabelText(bar) }}</span>
             </template>
           </div>
+        </div>
+      </div>
+
+      <!-- 数値テーブル -->
+      <div class="mt-4">
+        <h5>数値データ</h5>
+
+        <!-- 日モード: 時間ごとの件数 -->
+        <div v-if="state.mode === 'day'">
+          <table class="table table-sm table-bordered" style="width: auto;">
+            <thead>
+              <tr>
+                <th>時間</th>
+                <th class="text-end">件数</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="bar in hourlyData" :key="bar.hour">
+                <td>{{ bar.hour }}時</td>
+                <td class="text-end">{{ bar.count.toLocaleString() }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- 月モード: 日ごとの件数 -->
+        <div v-else>
+          <table class="table table-sm table-bordered" style="width: auto;">
+            <thead>
+              <tr>
+                <th>日</th>
+                <th class="text-end">件数</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="item in dailySummary" :key="item.day">
+                <td>{{ item.day }}日</td>
+                <td class="text-end">{{ item.total.toLocaleString() }}</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
