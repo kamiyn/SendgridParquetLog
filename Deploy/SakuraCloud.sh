@@ -57,9 +57,7 @@ S3__BUCKETNAME=${S3__BUCKETNAME:-"sendgrid-events"}
 
 # Required SendGrid configuration environment variables
 : "${SENDGRID__VERIFICATIONKEY:?Environment variable SENDGRID__VERIFICATIONKEY is required}"
-
-# Optional SendGrid API key for Viewer template lookup
-SENDGRID__APIKEY=${SENDGRID__APIKEY:-}
+: "${SENDGRID__APIKEY:?Environment variable SENDGRID__APIKEY is required}"
 
 # Optional environment variables with defaults
 # APPRUN_PORT=${APPRUN_PORT:-8080} # 引数で渡される
