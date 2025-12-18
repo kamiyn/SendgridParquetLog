@@ -266,6 +266,9 @@ async function executeQuery(
           duckdb.DuckDBDataProtocol.HTTP, // プロトコル
           false, // ファイル全体をキャッシュするかどうか
         );
+        // 登録後、実際にDuckDBに読み込ませるためにCOUNTクエリを実行
+        const sanitizedName = virtualName.replace(/'/g, '\'\'');
+        await connection.query(`SELECT COUNT(*) FROM read_parquet('${sanitizedName}')`);
       }
       catch (ex) {
         if (((<DuckDBException>ex).message?.startsWith('File already registered:'))) {
