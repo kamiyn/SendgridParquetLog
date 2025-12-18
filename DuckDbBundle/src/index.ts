@@ -125,6 +125,7 @@ export function createResultApp(
     error: '',
     sql: '',
     isLoading: false,
+    currentRegisteringUrl: undefined,
     executeCustomSql: undefined
   });
 
@@ -145,7 +146,11 @@ export function createResultApp(
       state.isLoading = true;
 
       try {
-        const result = await executeQuery(resolvedConfig, searchCondition);
+        const result = await executeQuery(
+          resolvedConfig,
+          searchCondition,
+          (url) => { state.currentRegisteringUrl = url; }
+        );
         state.columns = result.columns;
         state.rows = result.rows;
         state.targetColumn = CalcTargetColumn(result.columns);
@@ -153,6 +158,7 @@ export function createResultApp(
       } catch (error) {
         state.error = error instanceof Error ? error.message : String(error ?? '');
       } finally {
+        state.currentRegisteringUrl = undefined;
         state.isLoading = false;
       }
     },
@@ -232,7 +238,8 @@ type DuckDBException = {
 
 async function executeQuery(
   config: DuckDbBundleConfig,
-  searchCondition: SearchCondition
+  searchCondition: SearchCondition,
+  displayRegisterFileURL?: (url: string | undefined) => void
 ): Promise<DuckDbQueryPayload> {
   const { db } = await loadDuckDb(config);
   const connection = await db.connect();
@@ -245,6 +252,7 @@ async function executeQuery(
       }
       virtualFileNames.push(virtualName);
       try {
+        displayRegisterFileURL?.(parquetUrl);
         await db.registerFileURL(
           virtualName, // 仮想ファイル名
           parquetUrl, // 対応するURL

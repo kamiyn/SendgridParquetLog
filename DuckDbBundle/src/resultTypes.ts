@@ -21,6 +21,7 @@ export type ResultState = {
   error: string;
   sql:string;
   isLoading: boolean;
+  currentRegisteringUrl?: string;
   executeCustomSql?: (sql: string) => Promise<void>;
 }
 

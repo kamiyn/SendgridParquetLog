@@ -75,7 +75,7 @@ onUnmounted(() => {
         role="status"
         aria-hidden="true"
       />
-      <span>Running query...</span>
+      <span>Running query<span v-if="state.currentRegisteringUrl"> {{ state.currentRegisteringUrl }}</span>...</span>
     </div>
     <div
       v-else-if="state.rows.length > 0 && state.columns.length > 0"
