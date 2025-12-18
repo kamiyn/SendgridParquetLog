@@ -40,6 +40,11 @@ const handleEditMode = () => {
   isEditingMode.value = true;
 };
 
+// 編集モードを終了
+const handleExitEditMode = () => {
+  isEditingMode.value = false;
+};
+
 // SQL 実行ハンドラー
 const handleExecuteSql = async () => {
   if (state.executeCustomSql && editableSql.value.trim()) {
@@ -215,7 +220,7 @@ onUnmounted(() => {
             :disabled="state.isLoading"
           />
         </div>
-        <div>
+        <div class="d-flex gap-2">
           <button
             type="button"
             class="btn btn-primary"
@@ -229,6 +234,14 @@ onUnmounted(() => {
               aria-hidden="true"
             />
             {{ state.isLoading ? '検索中...' : '検索' }}
+          </button>
+          <button
+            type="button"
+            class="btn btn-secondary"
+            :disabled="state.isLoading"
+            @click="handleExitEditMode"
+          >
+            編集モードをやめる
           </button>
         </div>
       </div>
