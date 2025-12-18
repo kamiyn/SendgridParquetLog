@@ -201,7 +201,7 @@ else if (_template != null)
         await LoadTemplateAsync();
     }
 
-    private async Task LoadTemplateAsync()
+    private async Task LoadTemplateAsync(CancellationToken ct = default)
     {
         _isLoading = true;
         _errorMessage = string.Empty;
@@ -214,7 +214,7 @@ else if (_template != null)
                 return;
             }
 
-            _template = await SendgridTemplateService.GetSendgridTemplateItemAsync(TemplateId, CancellationToken.None);
+            _template = await SendgridTemplateService.GetSendgridTemplateItemAsync(TemplateId, ct);
 
             if (_template == null)
             {
