@@ -29,7 +29,7 @@ public sealed class CompactionStartupHostedService(
             while (!stoppingToken.IsCancellationRequested)
             {
                 (DateTimeOffset nextRunJapan, TimeSpan delayUntilNextRun) = CalculateDelayUntilNextScheduledTime();
-                logger.ZLogInformation($"Next compaction scheduled in {nextRunJapan:O}");
+                logger.ZLogInformation($"Next compaction scheduled at {nextRunJapan:O}");
                 await Task.Delay(delayUntilNextRun, stoppingToken);
                 await Run(stoppingToken);
             }
