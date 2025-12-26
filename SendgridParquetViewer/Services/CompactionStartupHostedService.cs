@@ -28,15 +28,15 @@ public sealed class CompactionStartupHostedService(
             await Run(stoppingToken);
             while (!stoppingToken.IsCancellationRequested)
             {
-                TimeSpan delayUntilNextRun = CalculateDelayUntilNextScheduledTime();
-                logger.ZLogInformation($"Next compaction scheduled in {delayUntilNextRun}");
+                (DateTimeOffset nextRunJapan, TimeSpan delayUntilNextRun) = CalculateDelayUntilNextScheduledTime();
+                logger.ZLogInformation($"Next compaction scheduled in {nextRunJapan:O}");
                 await Task.Delay(delayUntilNextRun, stoppingToken);
                 await Run(stoppingToken);
             }
         }, stoppingToken).ContinueWith(_ => compactionService.StopCompactionAsync(CancellationToken.None), CancellationToken.None);
     }
 
-    private static TimeSpan CalculateDelayUntilNextScheduledTime()
+    private static (DateTimeOffset nextRunJapan, TimeSpan delayUntilNextRun) CalculateDelayUntilNextScheduledTime()
     {
         DateTimeOffset now = DateTimeOffset.UtcNow;
         DateTimeOffset japanNow = TimeZoneInfo.ConvertTime(now, s_japanTimeZone);
@@ -47,7 +47,7 @@ public sealed class CompactionStartupHostedService(
             nextRunJapan = nextRunJapan.AddDays(1);
         }
 
-        return nextRunJapan - now;
+        return (nextRunJapan, nextRunJapan - now);
     }
 
     private async Task Run(CancellationToken ct)
