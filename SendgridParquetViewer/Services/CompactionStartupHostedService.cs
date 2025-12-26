@@ -42,7 +42,7 @@ public sealed class CompactionStartupHostedService(
         DateTimeOffset japanNow = TimeZoneInfo.ConvertTime(now, s_japanTimeZone);
         DateTimeOffset nextRunJapan = new(japanNow.Date.AddHours(ScheduledHour), s_japanTimeZone.GetUtcOffset(japanNow));
 
-        if (japanNow >= nextRunJapan)
+        if (japanNow > nextRunJapan)
         {
             nextRunJapan = nextRunJapan.AddDays(1);
         }
