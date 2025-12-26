@@ -2,7 +2,7 @@
 /**
  * 1時間ごとのヒストグラムを表示する Vue3 app
  */
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import type { HistogramState } from './resultTypes';
 
 const props = defineProps<{ state: HistogramState }>();
@@ -11,45 +11,95 @@ const state = props.state;
 
 const HISTOGRAM_HEIGHT = 500;
 
-// 1-2-5系列で量子化
-function quantizeTo125(value: number): number {
-  if (value <= 1) return 1;
-
-  // 10のべき乗を計算
-  const exponent = Math.floor(Math.log10(value));
-  const base = Math.pow(10, exponent);
-  const normalized = value / base;
-
-  // 1, 2, 5 のどれに切り上げるか
-  let quantized: number;
-  if (normalized <= 1) {
-    quantized = 1;
+// 1-2-5系列のスケール値リストを生成（0.1から10000まで）
+function generate125ScaleList(): number[] {
+  const scales: number[] = [];
+  const bases = [1, 2, 5];
+  // 10^-1 から 10^4 まで
+  for (let exp = -1; exp <= 4; exp++) {
+    const multiplier = Math.pow(10, exp);
+    for (const base of bases) {
+      const value = base * multiplier;
+      if (value >= 0.1 && value <= 50000) {
+        scales.push(value);
+      }
+    }
   }
-  else if (normalized <= 2) {
-    quantized = 2;
-  }
-  else if (normalized <= 5) {
-    quantized = 5;
-  }
-  else {
-    quantized = 10;
-  }
-
-  return quantized * base;
+  return scales;
 }
 
-// スケーリング係数の計算（1-2-5系列で量子化）
-const scaleFactor = computed(() => {
-  if (state.maxCount <= 0) return 1;
-  const rawScale = state.maxCount / HISTOGRAM_HEIGHT;
-  return quantizeTo125(rawScale);
-});
+const scaleList = generate125ScaleList();
 
-// バーの高さを計算
-const getBarHeight = (count: number): number => {
+// 1-2-5系列で量子化（1未満も対応）
+function quantizeTo125(value: number): number {
+  if (value <= 0.1) return 0.1;
+
+  // scaleListから最も近い値を選択（切り上げ方向）
+  for (const scale of scaleList) {
+    if (scale >= value) return scale;
+  }
+  return scaleList[scaleList.length - 1];
+}
+
+// スライダーのインデックスから値を取得
+function scaleIndexToValue(index: number): number {
+  return scaleList[Math.max(0, Math.min(index, scaleList.length - 1))];
+}
+
+// 値からスライダーのインデックスを取得
+function valueToScaleIndex(value: number): number {
+  const index = scaleList.findIndex(s => s >= value);
+  return index >= 0 ? index : scaleList.length - 1;
+}
+
+// スケーリング係数（ref）
+const scaleFactor = ref(1);
+const scaleSliderIndex = ref(0);
+
+// スケールをリセット（検索結果が更新されたときに呼び出す）
+function resetScale() {
+  if (state.maxCount <= 0) {
+    scaleFactor.value = 1;
+    scaleSliderIndex.value = valueToScaleIndex(1);
+    return;
+  }
+  const rawScale = state.maxCount / HISTOGRAM_HEIGHT;
+  const initialScale = quantizeTo125(rawScale);
+  scaleFactor.value = initialScale;
+  scaleSliderIndex.value = valueToScaleIndex(initialScale);
+}
+
+defineExpose({ resetScale });
+
+// スライダー変更時のハンドラ
+function onScaleSliderChange(event: Event) {
+  const target = event.target as HTMLInputElement;
+  const index = parseInt(target.value, 10);
+  scaleSliderIndex.value = index;
+  scaleFactor.value = scaleIndexToValue(index);
+}
+
+// バーの生の高さを計算（クリッピングなし）
+const getRawBarHeight = (count: number): number => {
   if (state.maxCount <= 0) return 0;
   return Math.round(count / scaleFactor.value);
 };
+
+// バーの高さを計算（クリッピングあり）
+const getBarHeight = (count: number): number => {
+  const rawHeight = getRawBarHeight(count);
+  return Math.min(rawHeight, HISTOGRAM_HEIGHT);
+};
+
+// バーがオーバーフローしているか
+const isBarOverflow = (count: number): boolean => {
+  return getRawBarHeight(count) > HISTOGRAM_HEIGHT;
+};
+
+// いずれかのバーがオーバーフローしているか
+const hasOverflow = computed(() => {
+  return state.bars.some(bar => isBarOverflow(bar.count));
+});
 
 // 時間帯によって色を変える（白背景でも十分なコントラストがあり、色覚多様性にも配慮した配色）
 const getBarColor = (hour: number): string => {
@@ -120,10 +170,31 @@ const dailySummary = computed(() => {
       v-else-if="state.bars.length > 0"
       class="mt-4"
     >
-      <p class="mb-3">
-        <strong style="font-size: 1.2em;">スケーリング係数: 1px = {{ scaleFactor }} 件</strong>
-        <span class="ms-4">（総件数: {{ totalCount.toLocaleString() }} 件、最大: {{ state.maxCount.toLocaleString() }} 件/時）</span>
-      </p>
+      <div class="mb-3">
+        <div class="d-flex align-items-center gap-3 flex-wrap">
+          <strong style="font-size: 1.2em;">スケーリング係数: 1px = {{ scaleFactor }} 件</strong>
+          <div class="d-flex align-items-center gap-2">
+            <span style="font-size: 0.9em;">小</span>
+            <input
+              type="range"
+              :min="0"
+              :max="scaleList.length - 1"
+              :value="scaleSliderIndex"
+              style="width: 200px;"
+              @input="onScaleSliderChange"
+            >
+            <span style="font-size: 0.9em;">大</span>
+          </div>
+          <span class="text-muted">（総件数: {{ totalCount.toLocaleString() }} 件、最大: {{ state.maxCount.toLocaleString() }} 件/時）</span>
+        </div>
+        <div
+          v-if="hasOverflow"
+          class="alert alert-warning mt-2 py-1 px-2 d-inline-block"
+          style="font-size: 0.85em;"
+        >
+          一部のバーが表示領域を超えています。スケールを大きくすると全体が表示されます。
+        </div>
+      </div>
 
       <div style="overflow-x: auto;">
         <div
@@ -144,8 +215,8 @@ const dailySummary = computed(() => {
               borderRight: '1px solid #ccc'
             }"
           >
-            <span style="position: absolute; top: 0; right: 5px; font-size: 11px;">{{ state.maxCount }}</span>
-            <span style="position: absolute; top: 50%; right: 5px; font-size: 11px; transform: translateY(-50%);">{{ Math.floor(state.maxCount / 2) }}</span>
+            <span style="position: absolute; top: 0; right: 5px; font-size: 11px;">{{ Math.round(HISTOGRAM_HEIGHT * scaleFactor) }}</span>
+            <span style="position: absolute; top: 50%; right: 5px; font-size: 11px; transform: translateY(-50%);">{{ Math.round(HISTOGRAM_HEIGHT * scaleFactor / 2) }}</span>
             <span style="position: absolute; bottom: 0; right: 5px; font-size: 11px;">0</span>
           </div>
 
@@ -167,15 +238,33 @@ const dailySummary = computed(() => {
                 width: state.barWidth + 'px',
                 display: 'flex',
                 flexDirection: 'column',
-                alignItems: 'center'
+                alignItems: 'center',
+                position: 'relative'
               }"
             >
+              <!-- オーバーフローインジケーター -->
+              <div
+                v-if="isBarOverflow(bar.count)"
+                :style="{
+                  position: 'absolute',
+                  top: '-16px',
+                  width: Math.max(1, state.barWidth - 1) + 'px',
+                  textAlign: 'center',
+                  color: '#dc3545',
+                  fontSize: '12px',
+                  fontWeight: 'bold'
+                }"
+                :title="'表示領域を超えています: ' + bar.count.toLocaleString() + ' 件'"
+              >
+                ▲
+              </div>
               <div
                 :style="{
                   width: Math.max(1, state.barWidth - 1) + 'px',
                   height: getBarHeight(bar.count) + 'px',
                   backgroundColor: getBarColor(bar.hour),
-                  border: '1px solid rgba(0,0,0,0.2)'
+                  border: '1px solid rgba(0,0,0,0.2)',
+                  borderTop: isBarOverflow(bar.count) ? '3px solid #dc3545' : '1px solid rgba(0,0,0,0.2)'
                 }"
                 :title="getTooltip(bar)"
               />

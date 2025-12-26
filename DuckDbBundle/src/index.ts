@@ -384,6 +384,9 @@ export function createHistogramApp(
     currentRegisteringUrl: undefined,
   });
 
+  const app = createApp(HistogramApp, { state });
+  const componentInstance = app.mount(element) as { resetScale?: () => void };
+
   const handle: HistogramAppHandle = {
     async runQuery(searchCondition: SearchCondition, mode: 'day' | 'month', targetDate: { year: number, month: number, day?: number }) {
       if (!searchCondition?.parquetUrls?.length) {
@@ -413,6 +416,9 @@ export function createHistogramApp(
         state.bars = bars;
         state.maxCount = bars.length > 0 ? Math.max(...bars.map(b => b.count)) : 0;
         state.searchExecuted = true;
+
+        // Reset scale to fit new data
+        componentInstance.resetScale?.();
       }
       catch (error) {
         state.error = error instanceof Error ? error.message : String(error ?? '');
@@ -437,8 +443,6 @@ export function createHistogramApp(
     },
   };
 
-  const app = createApp(HistogramApp, { state });
-  app.mount(element);
   histogramAppRegistry.set(element, { app, handle });
   return handle;
 }
