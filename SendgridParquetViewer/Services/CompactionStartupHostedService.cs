@@ -12,7 +12,8 @@ public sealed class CompactionStartupHostedService(
     CompactionService compactionService
 ) : BackgroundService
 {
-    private readonly TimeSpan _periodicSpan = TimeSpan.FromDays(1);
+    private static readonly TimeZoneInfo s_japanTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Asia/Tokyo");
+    private const int ScheduledHour = 6; // 日本時間午前6時
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -25,12 +26,28 @@ public sealed class CompactionStartupHostedService(
         return Task.Run(async () =>
         {
             await Run(stoppingToken);
-            using PeriodicTimer timer = new(_periodicSpan);
-            while (await timer.WaitForNextTickAsync(stoppingToken))
+            while (!stoppingToken.IsCancellationRequested)
             {
+                (DateTimeOffset nextRunJapan, TimeSpan delayUntilNextRun) = CalculateDelayUntilNextScheduledTime();
+                logger.ZLogInformation($"Next compaction scheduled at {nextRunJapan:O}");
+                await Task.Delay(delayUntilNextRun, stoppingToken);
                 await Run(stoppingToken);
             }
         }, stoppingToken).ContinueWith(_ => compactionService.StopCompactionAsync(CancellationToken.None), CancellationToken.None);
+    }
+
+    private static (DateTimeOffset nextRunJapan, TimeSpan delayUntilNextRun) CalculateDelayUntilNextScheduledTime()
+    {
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        DateTimeOffset japanNow = TimeZoneInfo.ConvertTime(now, s_japanTimeZone);
+        DateTimeOffset nextRunJapan = new(japanNow.Date.AddHours(ScheduledHour), s_japanTimeZone.GetUtcOffset(japanNow));
+
+        if (japanNow > nextRunJapan)
+        {
+            nextRunJapan = nextRunJapan.AddDays(1);
+        }
+
+        return (nextRunJapan, nextRunJapan - now);
     }
 
     private async Task Run(CancellationToken ct)
