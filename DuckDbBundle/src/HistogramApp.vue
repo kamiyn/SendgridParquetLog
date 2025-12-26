@@ -53,8 +53,9 @@ function valueToScaleIndex(value: number): number {
 }
 
 // スケーリング係数（ref）
-const scaleFactor = ref(1);
-const scaleSliderIndex = ref(0);
+const scaleFactorInitialValue = 1;
+const scaleFactor = ref(scaleFactorInitialValue);
+const scaleSliderIndex = ref(valueToScaleIndex(scaleFactorInitialValue));
 
 // スケールをリセット（検索結果が更新されたときに呼び出す）
 function resetScale() {
