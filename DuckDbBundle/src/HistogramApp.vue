@@ -11,16 +11,16 @@ const state = props.state;
 
 const HISTOGRAM_HEIGHT = 500;
 
-// 1-2-5系列のスケール値リストを生成（0.1から10000まで）
+// 1-2-5系列のスケール値リストを生成（0.01から50000まで）
 function generate125ScaleList(): number[] {
   const scales: number[] = [];
   const bases = [1, 2, 5];
-  // 10^-1 から 10^4 まで
-  for (let exp = -1; exp <= 4; exp++) {
+  // 10^-2 から 10^4 まで
+  for (let exp = -2; exp <= 4; exp++) {
     const multiplier = Math.pow(10, exp);
     for (const base of bases) {
       const value = base * multiplier;
-      if (value >= 0.1 && value <= 50000) {
+      if (value >= 0.01 && value <= 50000) {
         scales.push(value);
       }
     }
@@ -32,7 +32,7 @@ const scaleList = generate125ScaleList();
 
 // 1-2-5系列で量子化（1未満も対応）
 function quantizeTo125(value: number): number {
-  if (value <= 0.1) return 0.1;
+  if (value <= 0.01) return 0.01;
 
   // scaleListから最も近い値を選択（切り上げ方向）
   for (const scale of scaleList) {
