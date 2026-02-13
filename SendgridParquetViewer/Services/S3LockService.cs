@@ -161,7 +161,14 @@ public class S3LockService(
     public async Task ForceDeleteLockAsync(CancellationToken ct)
     {
         var (_, lockPath) = SendGridPathUtility.GetS3CompactionRunFile();
-        await s3StorageService.DeleteObjectAsync(lockPath, ct);
-        logger.ZLogWarning($"Lock file force-deleted. lockPath:{lockPath}");
+        var deleted = await s3StorageService.DeleteObjectAsync(lockPath, ct);
+        if (deleted)
+        {
+            logger.ZLogWarning($"Lock file force-deleted. lockPath:{lockPath}");
+        }
+        else
+        {
+            logger.ZLogError($"Failed to force-delete lock file. lockPath:{lockPath}");
+        }
     }
 }
