@@ -38,6 +38,58 @@ public class CompactionService(
 
     internal R3.Subject<RunStatus> RunStatusSubject { get; } = new();
 
+    public bool IsCompactionRunningLocally =>
+        _compactionStartResult?.StartTask is { IsCompleted: false };
+
+    /// <summary>
+    /// 期限切れのロックをクリーンアップする。
+    /// ロックが有効期限内の場合は LockInfo を返す（呼び出し元が ExpiresAt まで待機に使う）。
+    /// ロックが存在しない、ローカルで実行中、または期限切れで処理完了した場合は null を返す。
+    /// </summary>
+    public async Task<LockInfo?> CleanupExpiredLockAsync(CancellationToken ct)
+    {
+        if (IsCompactionRunningLocally) return null;
+
+        var lockInfo = await s3LockService.GetLockInfoAsync(ct);
+        if (lockInfo == null) return null;
+
+        var now = timeProvider.GetUtcNow();
+        if (lockInfo.ExpiresAt > now)
+        {
+            return lockInfo; // まだ有効期限内 → 呼び出し元が待つ
+        }
+
+        // 期限切れ → run.json を異常終了マーク + ロック削除
+        logger.ZLogWarning($"Expired lock detected (ExpiresAt: {lockInfo.ExpiresAt:s}, Owner: {lockInfo.OwnerId}). Cleaning up.");
+
+        var runStatus = await GetRunStatusAsync(ct);
+        if (runStatus is { EndTime: null })
+        {
+            runStatus.EndTime = now;
+            runStatus.LastUpdated = now;
+            runStatus.AbnormalTermination = true;
+
+            try
+            {
+                var (runJsonPath, _) = SendGridPathUtility.GetS3CompactionRunFile();
+                await using var ms = new MemoryStream();
+                await JsonSerializer.SerializeAsync(ms, runStatus, AppJsonSerializerContext.Default.RunStatus, ct);
+                ms.Seek(0, SeekOrigin.Begin);
+                await s3StorageService.PutObjectAsync(ms, runJsonPath, ct);
+                logger.ZLogWarning($"Marked stalled run as abnormally terminated (started {runStatus.StartTime:s})");
+            }
+            catch (Exception ex)
+            {
+                logger.ZLogError(ex, $"Failed to persist abnormal termination status");
+            }
+
+            RunStatusSubject.OnNext(runStatus);
+        }
+
+        await s3LockService.ForceDeleteLockAsync(ct);
+        return null;
+    }
+
     public async Task<RunStatus?> GetRunStatusAsync(CancellationToken ct = default)
     {
         var (runJsonPath, _) = SendGridPathUtility.GetS3CompactionRunFile();

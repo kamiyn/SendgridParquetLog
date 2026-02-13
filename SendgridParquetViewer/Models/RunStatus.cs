@@ -63,6 +63,9 @@ public class RunStatus
     [JsonPropertyName("lastUpdated")]
     public DateTimeOffset LastUpdated { get; set; }
 
+    [JsonPropertyName("abnormalTermination")]
+    public bool AbnormalTermination { get; set; }
+
     [JsonIgnore]
     internal List<Exception> Errors { get; } = new();
 

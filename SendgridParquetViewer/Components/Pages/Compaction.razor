@@ -32,7 +32,14 @@
                         @if (_runStatus.EndTime.HasValue)
                         {
                             <div><strong>End Time:</strong> @_runStatus.EndTime.Value.ToString("s")</div>
-                            <div><strong>Status:</strong>Completed</div>
+                            @if (_runStatus.AbnormalTermination)
+                            {
+                                <div><strong>Status:</strong>Abnormally Terminated</div>
+                            }
+                            else
+                            {
+                                <div><strong>Status:</strong>Completed</div>
+                            }
                         }
                         else
                         {
@@ -106,6 +113,16 @@
                         </details>
                     }
                 }
+                else if (_isWaitingForLock)
+                {
+                    <FluentProgressRing />
+                    <p>他インスタンスのロックの有効期限切れを待機しています...
+                        @if (_lockExpiresAt.HasValue)
+                        {
+                            <br /><small>Lock ExpiresAt: @_lockExpiresAt.Value.ToString("s")</small>
+                        }
+                    </p>
+                }
                 else if (_isLoadingStatus)
                 {
                     <FluentProgressRing />
@@ -152,6 +169,8 @@
 	private RunStatus? _runStatus;
 	private bool _isLoadingStatus;
 	private bool _isStarting;
+	private bool _isWaitingForLock;
+	private DateTimeOffset? _lockExpiresAt;
 	private string _message = string.Empty;
 	private IDisposable? _runStatusSubjectSubscription;
 	private MessageIntent _messageIntent = MessageIntent.Info;
@@ -164,6 +183,13 @@
 	protected override async Task OnInitializedAsync()
 	{
 		await RefreshStatus();
+
+		// 自プロセスでスレッド進行中でなく、run.json が Running 状態の場合はロックの期限切れを確認する
+		if (_runStatus is { EndTime: null } && !CompactionService.IsCompactionRunningLocally)
+		{
+			await WaitForAndCleanupStalledLockAsync();
+		}
+
 		_runStatusSubjectSubscription = CompactionService.RunStatusSubject
 			.ObserveOnCurrentSynchronizationContext()
             .Subscribe(runStatus =>
@@ -172,6 +198,46 @@
                 _runStatus = runStatus;
                 StateHasChanged();
 			});
+	}
+
+	private async Task WaitForAndCleanupStalledLockAsync()
+	{
+		_isWaitingForLock = true;
+		StateHasChanged();
+		try
+		{
+			var lockInfo = await CompactionService.CleanupExpiredLockAsync(_cts.Token);
+			if (lockInfo != null)
+			{
+				// ロックが有効期限内 → ExpiresAt まで待機
+				var waitTime = lockInfo.ExpiresAt - DateTimeOffset.UtcNow;
+				if (waitTime > TimeSpan.Zero)
+				{
+					_lockExpiresAt = lockInfo.ExpiresAt;
+					StateHasChanged();
+					await Task.Delay(waitTime, _cts.Token);
+				}
+
+				// 待機後に再度クリーンアップ
+				await CompactionService.CleanupExpiredLockAsync(_cts.Token);
+			}
+
+			await RefreshStatus();
+		}
+		catch (OperationCanceledException)
+		{
+			// ページ離脱時のキャンセル
+		}
+		catch (Exception ex)
+		{
+			Logger.LogError(ex, "Error during stalled lock cleanup");
+			ShowMessage("ロックのクリーンアップに失敗しました。", MessageIntent.Error);
+		}
+		finally
+		{
+			_isWaitingForLock = false;
+			_lockExpiresAt = null;
+		}
 	}
 
 	private async Task RefreshStatus()

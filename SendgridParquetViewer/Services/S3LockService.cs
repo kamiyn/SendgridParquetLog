@@ -13,6 +13,8 @@ public interface IS3LockService
     Task<bool> TryAcquireLockAsync(string lockId, CancellationToken ct);
     Task ExtendLockExpirationAsync(string lockId, CancellationToken ct);
     Task ReleaseLockAsync(string lockId, CancellationToken ct);
+    Task<LockInfo?> GetLockInfoAsync(CancellationToken ct);
+    Task ForceDeleteLockAsync(CancellationToken ct);
 }
 
 public class S3LockService(
@@ -134,5 +136,32 @@ public class S3LockService(
                 logger.ZLogInformation($"Lock released successfully. Lock ID: {lockId} lockPath:{lockPath}");
             }
         }
+    }
+
+    public async Task<LockInfo?> GetLockInfoAsync(CancellationToken ct)
+    {
+        var (_, lockPath) = SendGridPathUtility.GetS3CompactionRunFile();
+        var existingLockJson = await s3StorageService.GetObjectAsByteArrayAsync(lockPath, ct);
+        if (!existingLockJson.Any())
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<LockInfo>(existingLockJson, AppJsonSerializerContext.Default.LockInfo);
+        }
+        catch (Exception ex)
+        {
+            logger.ZLogWarning(ex, $"Failed to deserialize lock info. lockPath:{lockPath}");
+            return null;
+        }
+    }
+
+    public async Task ForceDeleteLockAsync(CancellationToken ct)
+    {
+        var (_, lockPath) = SendGridPathUtility.GetS3CompactionRunFile();
+        await s3StorageService.DeleteObjectAsync(lockPath, ct);
+        logger.ZLogWarning($"Lock file force-deleted. lockPath:{lockPath}");
     }
 }
