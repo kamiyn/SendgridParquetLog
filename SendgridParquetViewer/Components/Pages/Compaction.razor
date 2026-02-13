@@ -127,15 +127,46 @@
                 <FluentHeader>
                     <FluentLabel Typo="Typography.Subject">Start New Compaction</FluentLabel>
                 </FluentHeader>
-                
+
                 <p>Start a new compaction process. This will process all available non-compacted Parquet files.</p>
 
-                <FluentButton Appearance="Appearance.Accent" 
-                             OnClick="StartCompaction" 
+                <FluentButton Appearance="Appearance.Accent"
+                             OnClick="StartCompaction"
                              Loading="_isStarting"
                              Disabled="@(_runStatus?.EndTime == null && _runStatus != null)">
                     Start Compaction
                 </FluentButton>
+            </FluentCard>
+        </FluentGridItem>
+
+        <FluentGridItem xs="12" md="6">
+            <FluentCard>
+                <FluentHeader>
+                    <FluentLabel Typo="Typography.Subject">Force Delete Lock</FluentLabel>
+                </FluentHeader>
+
+                <p>Compaction が停止してしまった場合に S3 上のロックファイル (run.lock) を強制削除します。</p>
+
+                <FluentButton Appearance="Appearance.Lightweight"
+                             OnClick="ForceDeleteLock"
+                             Loading="_isDeletingLock"
+                             Disabled="@IsForceDeleteDisabled()">
+                    Delete run.lock
+                </FluentButton>
+
+                @if (IsForceDeleteDisabled())
+                {
+                    <p><small>
+                        @if (CompactionService.IsCompactionRunningLocally)
+                        {
+                            <text>このインスタンスで Compaction スレッドが実行中のため削除できません。</text>
+                        }
+                        else if (_runStatus is { EndTime: null } && (DateTimeOffset.UtcNow - _runStatus.StartTime).TotalHours < 24)
+                        {
+                            <text>Start Time から24時間経過していないため削除できません。(Start Time: @_runStatus.StartTime.ToString("s"))</text>
+                        }
+                    </small></p>
+                }
             </FluentCard>
         </FluentGridItem>
     </FluentGrid>
@@ -152,6 +183,7 @@
 	private RunStatus? _runStatus;
 	private bool _isLoadingStatus;
 	private bool _isStarting;
+	private bool _isDeletingLock;
 	private string _message = string.Empty;
 	private IDisposable? _runStatusSubjectSubscription;
 	private MessageIntent _messageIntent = MessageIntent.Info;
@@ -217,6 +249,37 @@
         finally
         {
             _isStarting = false;
+        }
+    }
+
+    private bool IsForceDeleteDisabled()
+    {
+        if (CompactionService.IsCompactionRunningLocally)
+            return true;
+
+        if (_runStatus is { EndTime: null } && (DateTimeOffset.UtcNow - _runStatus.StartTime).TotalHours < 24)
+            return true;
+
+        return false;
+    }
+
+    private async Task ForceDeleteLock()
+    {
+        _isDeletingLock = true;
+        try
+        {
+            await CompactionService.ForceDeleteLockFileAsync(_cts.Token);
+            ShowMessage("ロックファイル (run.lock) を削除しました。", MessageIntent.Success);
+            await RefreshStatus();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error force-deleting lock file");
+            ShowMessage("ロックファイルの削除に失敗しました。", MessageIntent.Error);
+        }
+        finally
+        {
+            _isDeletingLock = false;
         }
     }
 

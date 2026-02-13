@@ -38,6 +38,14 @@ public class CompactionService(
 
     internal R3.Subject<RunStatus> RunStatusSubject { get; } = new();
 
+    public bool IsCompactionRunningLocally =>
+        _compactionStartResult?.StartTask is { IsCompleted: false };
+
+    public async Task ForceDeleteLockFileAsync(CancellationToken ct)
+    {
+        await s3LockService.ForceDeleteLockAsync(ct);
+    }
+
     public async Task<RunStatus?> GetRunStatusAsync(CancellationToken ct = default)
     {
         var (runJsonPath, _) = SendGridPathUtility.GetS3CompactionRunFile();
