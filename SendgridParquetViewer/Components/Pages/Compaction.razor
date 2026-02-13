@@ -194,7 +194,7 @@
 		}
 
 		// 自プロセスでスレッド進行中でなく、run.json が Running 状態または取得できない場合はロックの期限切れを確認する
-		if (!_runStatus?.EndTime.HasValue && !CompactionService.IsCompactionRunningLocally)
+		if (_runStatus?.EndTime.HasValue != true && !CompactionService.IsCompactionRunningLocally)
 		{
 			await WaitForAndCleanupStalledLockAsync();
 		}
@@ -311,6 +311,7 @@
 
     public void Dispose()
     {
+        _cts.Cancel();
         _cts.Dispose();
 		_runStatusSubjectSubscription?.Dispose();
     }
