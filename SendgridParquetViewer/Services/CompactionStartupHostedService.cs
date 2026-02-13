@@ -37,15 +37,17 @@ public sealed class CompactionStartupHostedService(
                 var lockInfo = await compactionService.CleanupExpiredLockAsync(stoppingToken);
                 if (lockInfo != null)
                 {
-                    logger.ZLogInformation($"Lock is still valid (ExpiresAt: {lockInfo.ExpiresAt:s}). Another instance may be running.");
+                    logger.ZLogInformation($"Lock is still valid (ExpiresAt: {lockInfo.ExpiresAt:s}). Another instance may be running. Skipping initial run.");
+                }
+                else
+                {
+                    await Run(stoppingToken);
                 }
             }
             catch (Exception ex)
             {
                 logger.ZLogError(ex, $"Error during initial lock cleanup");
             }
-
-            await Run(stoppingToken);
             while (!stoppingToken.IsCancellationRequested)
             {
                 (DateTimeOffset nextRunJapan, TimeSpan delayUntilNextRun) = CalculateDelayUntilNextScheduledTime(timeProvider);
