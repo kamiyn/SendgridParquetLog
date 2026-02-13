@@ -63,9 +63,9 @@ public class CompactionService(
         logger.ZLogWarning($"Expired lock detected (ExpiresAt: {lockInfo.ExpiresAt:s}, Owner: {lockInfo.OwnerId}). Cleaning up.");
 
         var (runJsonPath, _) = SendGridPathUtility.GetS3CompactionRunFile();
-        byte[] existingRunJson = await s3StorageService.GetObjectAsByteArrayAsync(runJsonPath, ct);
-        RunStatus? runStatus = existingRunJson.Any()
-            ? JsonSerializer.Deserialize(existingRunJson, AppJsonSerializerContext.Default.RunStatus)
+        var result = await s3StorageService.GetObjectWithETagAsync(runJsonPath, ct);
+        RunStatus? runStatus = result.Content.Length > 0
+            ? JsonSerializer.Deserialize(result.Content, AppJsonSerializerContext.Default.RunStatus)
             : null;
 
         if (runStatus is { EndTime: null })
@@ -77,7 +77,7 @@ public class CompactionService(
             try
             {
                 byte[] updatedRunJson = JsonSerializer.SerializeToUtf8Bytes(runStatus, AppJsonSerializerContext.Default.RunStatus);
-                bool written = await s3StorageService.PutObjectWithConditionAsync(runJsonPath, updatedRunJson, existingRunJson, ct);
+                bool written = await s3StorageService.PutObjectWithConditionAsync(runJsonPath, updatedRunJson, result.ETag, ct);
                 if (!written)
                 {
                     logger.ZLogInformation($"run.json was already updated by another instance. Proceeding to lock deletion.");
