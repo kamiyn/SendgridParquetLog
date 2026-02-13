@@ -215,15 +215,15 @@ public class S3LockService(
     public async Task<LockInfo?> GetLockInfoAsync(CancellationToken ct)
     {
         var (_, lockPath) = SendGridPathUtility.GetS3CompactionRunFile();
-        var existingLockJson = await s3StorageService.GetObjectAsByteArrayAsync(lockPath, ct);
-        if (!existingLockJson.Any())
+        var result = await s3StorageService.GetObjectWithETagAsync(lockPath, ct);
+        if (result.Content.Length == 0)
         {
             return null;
         }
 
         try
         {
-            return JsonSerializer.Deserialize<LockInfo>(existingLockJson, AppJsonSerializerContext.Default.LockInfo);
+            return JsonSerializer.Deserialize<LockInfo>(result.Content, AppJsonSerializerContext.Default.LockInfo);
         }
         catch (Exception ex)
         {
