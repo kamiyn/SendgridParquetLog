@@ -1,5 +1,6 @@
 ﻿@page "/compaction"
 @rendermode InteractiveServer
+@using SendgridParquet.Shared
 @using SendgridParquetViewer.Models
 @using SendgridParquetViewer.Services
 @using R3
@@ -152,12 +153,32 @@
                 
                 <p>Start a new compaction process. This will process all available non-compacted Parquet files.</p>
 
-                <FluentButton Appearance="Appearance.Accent" 
-                             OnClick="StartCompaction" 
+                <FluentButton Appearance="Appearance.Accent"
+                             OnClick="StartCompaction"
                              Loading="_isStarting"
                              Disabled="@(_runStatus?.EndTime == null && _runStatus != null)">
                     Start Compaction
                 </FluentButton>
+
+                @if (_lockInfo != null)
+                {
+                    var now = TimeProvider.GetUtcNow();
+                    var remaining = _lockInfo.ExpiresAt - now;
+                    <div style="margin-top: 1em; padding: 0.5em; border: 1px solid var(--neutral-stroke-rest); border-radius: 4px;">
+                        <div><strong>run.lock</strong></div>
+                        <div><small>Owner: @_lockInfo.HostName (@_lockInfo.OwnerId)</small></div>
+                        <div><small>AcquiredAt: @_lockInfo.AcquiredAt.ToJst().ToString("yyyy/MM/dd HH:mm:ss")</small></div>
+                        <div><small>ExpiresAt: @_lockInfo.ExpiresAt.ToJst().ToString("yyyy/MM/dd HH:mm:ss")</small></div>
+                        @if (remaining > TimeSpan.Zero)
+                        {
+                            <div><small><strong>残り時間: @FormatRemainingTime(remaining)</strong></small></div>
+                        }
+                        else
+                        {
+                            <div><small>Status: 期限切れ</small></div>
+                        }
+                    </div>
+                }
             </FluentCard>
         </FluentGridItem>
     </FluentGrid>
@@ -173,6 +194,7 @@
 @code {
 	private static readonly TimeSpan LockExpiryClockSkewMargin = TimeSpan.FromSeconds(60);
 	private RunStatus? _runStatus;
+	private LockInfo? _lockInfo;
 	private bool _isLoadingStatus;
 	private bool _isStarting;
 	private bool _isWaitingForLock;
@@ -185,6 +207,15 @@
 	string GetRunStatusJson() => _runStatus != null
         ? JsonSerializer.Serialize(_runStatus, new JsonSerializerOptions { WriteIndented = true })
         : "{}";
+
+	static string FormatRemainingTime(TimeSpan remaining)
+	{
+		if (remaining.TotalHours >= 1)
+			return $"{(int)remaining.TotalHours}時間{remaining.Minutes:D2}分{remaining.Seconds:D2}秒";
+		if (remaining.TotalMinutes >= 1)
+			return $"{remaining.Minutes}分{remaining.Seconds:D2}秒";
+		return $"{remaining.Seconds}秒";
+	}
 
 	protected override async Task OnInitializedAsync()
 	{
@@ -291,6 +322,7 @@
 		try
 		{
             _runStatus = await CompactionService.GetRunStatusAsync();
+            _lockInfo = await CompactionService.GetLockInfoAsync();
         }
         catch (Exception ex)
         {
