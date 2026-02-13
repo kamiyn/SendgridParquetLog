@@ -97,7 +97,12 @@ public class CompactionService(
             RunStatusSubject.OnNext(runStatus);
         }
 
-        await s3LockService.ForceDeleteLockAsync(ct);
+        bool invalidated = await s3LockService.TryInvalidateExpiredLockAsync(lockInfo, ct);
+        if (!invalidated)
+        {
+            logger.ZLogInformation($"Skip invalidating expired lock because lock state changed concurrently.");
+        }
+
         return null;
     }
 
@@ -275,11 +280,17 @@ public class CompactionService(
 
         try
         {
-            await s3LockService.ReleaseLockAsync(stalledStatus.LockId, CancellationToken.None);
+            LockInfo? currentLock = await s3LockService.GetLockInfoAsync(CancellationToken.None);
+            if (currentLock != null
+                && string.Equals(currentLock.LockId, stalledStatus.LockId, StringComparison.Ordinal)
+                && currentLock.ExpiresAt <= nowUtc)
+            {
+                await s3LockService.TryInvalidateExpiredLockAsync(currentLock, CancellationToken.None);
+            }
         }
         catch (Exception ex)
         {
-            logger.ZLogError(ex, $"Failed to release stale compaction lock");
+            logger.ZLogError(ex, $"Failed to invalidate stale compaction lock");
         }
 
         stalledStatus.EndTime = nowUtc;
