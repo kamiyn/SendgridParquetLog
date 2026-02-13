@@ -37,7 +37,7 @@ public class RequestValidatorTest
         // Prepare payload and timestamp
         string payloadJson = "[{\"email\":\"test@example.com\",\"timestamp\":1513299569,\"event\":\"delivered\"}]";
         byte[] payloadBytes = Encoding.UTF8.GetBytes(payloadJson);
-        long ts = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        long ts = TimeProvider.System.GetUtcNow().ToUnixTimeSeconds();
         string tsString = ts.ToString();
 
         // Create key and signature

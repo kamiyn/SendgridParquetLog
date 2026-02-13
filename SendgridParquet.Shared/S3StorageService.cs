@@ -17,6 +17,7 @@ using ZLogger;
 
 namespace SendgridParquet.Shared;
 
+public record S3GetObjectResult(byte[] Content, string? ETag);
 
 public class S3StorageService(
     ILogger<S3StorageService> logger,
@@ -180,6 +181,45 @@ public class S3StorageService(
         }
     }
 
+    /// <summary>
+    /// Object を取得し、Content と ETag を返す。
+    /// 見つからない場合は Content = [], ETag = null を返す。
+    /// </summary>
+    public async ValueTask<S3GetObjectResult> GetObjectWithETagAsync(string key, CancellationToken ct)
+    {
+        using HttpResponseMessage response = await GetObjectAsync(key, ct);
+        try
+        {
+            byte[] content = await response.Content.ReadAsByteArrayAsync(ct);
+
+            if (response.IsSuccessStatusCode)
+            {
+                string? etag = response.Headers.ETag?.Tag;
+                if (string.IsNullOrEmpty(etag))
+                {
+                    logger.ZLogError($"Successful GET for object {key} from S3 is missing ETag header.");
+                    throw new InvalidOperationException("ETag is missing for successful GET object response.");
+                }
+
+                return new S3GetObjectResult(content, etag);
+            }
+
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                return new S3GetObjectResult([], null);
+            }
+
+            string responseContent = Encoding.UTF8.GetString(content);
+            logger.ZLogError($"Error getting object {key} from S3. Status: {response.StatusCode}, Response: {ErrorContent(responseContent)}");
+            throw new InvalidOperationException($"Failed to get object: {response.StatusCode}");
+        }
+        catch (Exception ex)
+        {
+            logger.ZLogError(ex, $"Error getting object {key} from S3");
+            throw;
+        }
+    }
+
     public async ValueTask<bool> DeleteObjectAsync(string key, CancellationToken ct)
     {
         var uri = GetObjectUri(key);
@@ -212,35 +252,22 @@ public class S3StorageService(
         }
     }
 
-    public async ValueTask<bool> PutObjectWithConditionAsync(string key, byte[] content, byte[] expectExists, CancellationToken ct)
+    public async ValueTask<bool> PutObjectWithConditionAsync(string key, byte[] content, string? expectedETag, CancellationToken ct)
     {
         var uri = GetObjectUri(key);
         try
         {
-            // First, get the current ETag if object exists
-            string? currentETag = null;
-            if (expectExists.Any())
-            {
-                currentETag = await GetCurrentEtagAsync(uri, ct);
-                // Expected content but no current object - should fail
-                if (string.IsNullOrEmpty(currentETag))
-                {
-                    return false;
-                }
-            }
-
-            // Now do conditional PUT
             using var request = new HttpRequestMessage(HttpMethod.Put, uri);
             using var stream = new MemoryStream(content);
 
-            // Add conditional header if we have an expected ETag
-            if (!string.IsNullOrEmpty(currentETag))
+            if (expectedETag != null)
             {
-                request.Headers.TryAddWithoutValidation("If-Match", currentETag);
+                // オブジェクトが存在し、GET 時の ETag と一致する場合のみ上書き
+                request.Headers.TryAddWithoutValidation("If-Match", expectedETag);
             }
             else
             {
-                // No expected content - only create if doesn't exist
+                // オブジェクトが存在しない場合のみ作成
                 request.Headers.TryAddWithoutValidation("If-None-Match", "*");
             }
 
@@ -274,17 +301,6 @@ public class S3StorageService(
             logger.ZLogError(ex, $"Error uploading object {uri} to S3");
             return false;
         }
-    }
-
-    /// <summary>
-    /// HEAD リクエストを送り、ETag ヘッダーを取得する
-    /// </summary>
-    private async ValueTask<string?> GetCurrentEtagAsync(Uri uri, CancellationToken ct)
-    {
-        using var headRequest = new HttpRequestMessage(HttpMethod.Head, uri);
-        AddAwsSignatureHeaders(headRequest, null);
-        using HttpResponseMessage headResponse = await httpClient.SendAsync(headRequest, HttpCompletionOption.ResponseHeadersRead, ct);
-        return headResponse.IsSuccessStatusCode ? headResponse.Headers.ETag?.Tag : null;
     }
 
     /// <summary>
