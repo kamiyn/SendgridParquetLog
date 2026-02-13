@@ -6,6 +6,7 @@
 @implements IDisposable
 @inject ILogger<Compaction> Logger
 @inject CompactionService CompactionService
+@inject TimeProvider TimeProvider
 
 <PageTitle>Compaction Management</PageTitle>
 
@@ -224,7 +225,7 @@
 			{
 				// ロックが有効期限内 → ExpiresAt まで待機
 				// 他インスタンスとの時計のずれを考慮し余裕を持たせる
-			var waitTime = lockInfo.ExpiresAt - DateTimeOffset.UtcNow + LockExpiryClockSkewMargin;
+			var waitTime = lockInfo.ExpiresAt - TimeProvider.GetUtcNow() + LockExpiryClockSkewMargin;
 				if (waitTime > TimeSpan.Zero)
 				{
 					_lockExpiresAt = lockInfo.ExpiresAt;

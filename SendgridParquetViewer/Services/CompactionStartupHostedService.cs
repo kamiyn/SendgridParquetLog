@@ -9,7 +9,8 @@ namespace SendgridParquetViewer.Services;
 public sealed class CompactionStartupHostedService(
     ILogger<CompactionStartupHostedService> logger,
     IOptions<CompactionOptions> options,
-    CompactionService compactionService
+    CompactionService compactionService,
+    TimeProvider timeProvider
 ) : BackgroundService
 {
     private static readonly TimeZoneInfo s_japanTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Asia/Tokyo");
@@ -47,7 +48,7 @@ public sealed class CompactionStartupHostedService(
             await Run(stoppingToken);
             while (!stoppingToken.IsCancellationRequested)
             {
-                (DateTimeOffset nextRunJapan, TimeSpan delayUntilNextRun) = CalculateDelayUntilNextScheduledTime();
+                (DateTimeOffset nextRunJapan, TimeSpan delayUntilNextRun) = CalculateDelayUntilNextScheduledTime(timeProvider);
                 logger.ZLogInformation($"Next compaction scheduled at {nextRunJapan:O}");
                 await Task.Delay(delayUntilNextRun, stoppingToken);
                 await Run(stoppingToken);
@@ -55,9 +56,9 @@ public sealed class CompactionStartupHostedService(
         }, stoppingToken).ContinueWith(_ => compactionService.StopCompactionAsync(CancellationToken.None), CancellationToken.None);
     }
 
-    private static (DateTimeOffset nextRunJapan, TimeSpan delayUntilNextRun) CalculateDelayUntilNextScheduledTime()
+    private static (DateTimeOffset nextRunJapan, TimeSpan delayUntilNextRun) CalculateDelayUntilNextScheduledTime(TimeProvider timeProvider)
     {
-        DateTimeOffset now = DateTimeOffset.UtcNow;
+        DateTimeOffset now = timeProvider.GetUtcNow();
         DateTimeOffset japanNow = TimeZoneInfo.ConvertTime(now, s_japanTimeZone);
         DateTimeOffset nextRunJapan = new(japanNow.Date.AddHours(ScheduledHour), s_japanTimeZone.GetUtcOffset(japanNow));
 
