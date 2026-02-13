@@ -282,9 +282,14 @@ public class CompactionService(
         {
             LockInfo? currentLock = await s3LockService.GetLockInfoAsync(CancellationToken.None);
             if (currentLock != null
-                && string.Equals(currentLock.LockId, stalledStatus.LockId, StringComparison.Ordinal)
-                && currentLock.ExpiresAt <= nowUtc)
+                && string.Equals(currentLock.LockId, stalledStatus.LockId, StringComparison.Ordinal))
             {
+                if (currentLock.ExpiresAt > nowUtc)
+                {
+                    logger.ZLogWarning(
+                        $"Invalidating compaction lock for stalled run even though lock has not yet expired. " +
+                        $"LockId={currentLock.LockId}, ExpiresAt={currentLock.ExpiresAt:o}, Now={nowUtc:o}");
+                }
                 await s3LockService.TryInvalidateExpiredLockAsync(currentLock, CancellationToken.None);
             }
         }
