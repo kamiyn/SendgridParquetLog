@@ -105,6 +105,9 @@ public class CompactionService(
         return null;
     }
 
+    public Task<LockInfo?> GetLockInfoAsync(CancellationToken ct = default) =>
+        s3LockService.GetLockInfoAsync(ct);
+
     public async Task<RunStatus?> GetRunStatusAsync(CancellationToken ct = default)
     {
         var (runJsonPath, _) = SendGridPathUtility.GetS3CompactionRunFile();
@@ -137,7 +140,12 @@ public class CompactionService(
                 await JsonSerializer.SerializeAsync(ms, status, AppJsonSerializerContext.Default.RunStatus, cancellationToken);
                 await s3StorageService.PutObjectAsync(ms, runJsonPath, cancellationToken);
 
-                await s3LockService.ExtendLockExpirationAsync(status.LockId, cancellationToken);
+                // 完了済み (EndTime 設定済み) の場合はロック延長をスキップする
+                // ReleaseLockAsync 後に ExtendLockExpirationAsync を呼ぶとロックが再有効化されるため
+                if (status.EndTime == null)
+                {
+                    await s3LockService.ExtendLockExpirationAsync(status.LockId, cancellationToken);
+                }
 
                 RunStatusSubject.OnNext(status);
             });
