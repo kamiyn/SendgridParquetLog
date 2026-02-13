@@ -35,6 +35,7 @@ public class CompactionService(
     private readonly SemaphoreSlim _startupTaskSemaphore = new(1);
     private readonly CompactionOptions _compactionOptions = compactionOptions.Value;
     private static readonly TimeSpan MaxInactivityDuration = TimeSpan.FromDays(1);
+    private static readonly TimeSpan LockHeartbeatInterval = TimeSpan.FromMinutes(5);
 
     internal R3.Subject<RunStatus> RunStatusSubject { get; } = new();
 
@@ -297,7 +298,11 @@ public class CompactionService(
                         $"Invalidating compaction lock for stalled run even though lock has not yet expired. " +
                         $"LockId={currentLock.LockId}, ExpiresAt={currentLock.ExpiresAt:o}, Now={nowUtc:o}");
                 }
-                await s3LockService.TryInvalidateExpiredLockAsync(currentLock, CancellationToken.None);
+                bool invalidated = await s3LockService.TryForceInvalidateLockAsync(currentLock, CancellationToken.None);
+                if (!invalidated)
+                {
+                    logger.ZLogInformation($"Skip force invalidating stale compaction lock due to concurrent lock state change. LockId={currentLock.LockId}");
+                }
             }
         }
         catch (Exception ex)
@@ -376,6 +381,9 @@ public class CompactionService(
         var runStatus = runStatusContext.RunStatus;
         logger.ZLogInformation($"Compaction process started at {runStatus.StartTime} with {runStatus.TargetDays.Count} target dates");
 
+        using var lockHeartbeatCancellation = CancellationTokenSource.CreateLinkedTokenSource(token);
+        Task lockHeartbeatTask = RunLockHeartbeatAsync(runStatus.LockId, lockHeartbeatCancellation.Token);
+
         try
         {
             foreach ((DateOnly dateOnly, string pathPrefix) in runStatus.TargetDays.Zip(runStatus.TargetPathPrefixes))
@@ -408,10 +416,32 @@ public class CompactionService(
         }
         finally
         {
+            await lockHeartbeatCancellation.CancelAsync();
+            await lockHeartbeatTask;
             await s3LockService.ReleaseLockAsync(runStatus.LockId, CancellationToken.None);
             runStatusContext.CompletedAllDays(timeProvider.GetUtcNow());
             await runStatusContext.SaveRunStatusAsync(CancellationToken.None); // キャンセルされた場合でも保存するように CancellationToken.None
             logger.ZLogInformation($"Compaction process completed at {runStatus.EndTime}");
+        }
+    }
+
+    private async Task RunLockHeartbeatAsync(string lockId, CancellationToken token)
+    {
+        while (!token.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(LockHeartbeatInterval, token);
+                await s3LockService.ExtendLockExpirationAsync(lockId, token);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                logger.ZLogWarning(ex, $"Failed to extend compaction lock by heartbeat. LockId={lockId}");
+            }
         }
     }
 
