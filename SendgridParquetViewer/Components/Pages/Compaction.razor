@@ -233,6 +233,15 @@
 					// 管理画面のため同時ユーザー数は限定的であり、最大30分の待機中も SignalR 接続を維持する
 					await Task.Delay(waitTime, _cts.Token);
 				}
+				else
+				{
+					// 時計のずれなどにより待機時間が 0 以下となった場合はログに記録して即時クリーンアップを試行する
+					Logger.LogWarning(
+						"Calculated wait time for lock cleanup is non-positive. WaitTime={WaitTime}, ExpiresAt={ExpiresAt}, Now={Now}",
+						waitTime,
+						lockInfo.ExpiresAt,
+						TimeProvider.GetUtcNow());
+				}
 
 				// 待機後に再度クリーンアップ
 				var secondLockInfo = await CompactionService.CleanupExpiredLockAsync(_cts.Token);
