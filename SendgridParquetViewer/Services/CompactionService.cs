@@ -292,6 +292,15 @@ public class CompactionService(
             if (currentLock != null
                 && string.Equals(currentLock.LockId, stalledStatus.LockId, StringComparison.Ordinal))
             {
+                // ロックのハートビートがまだ機能している（ExpiresAt が十分先）場合は
+                // run.json の LastUpdated が古いだけで実際には稼働中とみなし stall 判定をスキップする
+                if (currentLock.ExpiresAt > nowUtc.Add(LockHeartbeatInterval))
+                {
+                    logger.ZLogInformation(
+                        $"Lock is still actively maintained by heartbeat (ExpiresAt={currentLock.ExpiresAt:o}, Now={nowUtc:o}). Skipping stall finalization.");
+                    return stalledStatus;
+                }
+
                 if (currentLock.ExpiresAt > nowUtc)
                 {
                     logger.ZLogWarning(
@@ -382,7 +391,7 @@ public class CompactionService(
         logger.ZLogInformation($"Compaction process started at {runStatus.StartTime} with {runStatus.TargetDays.Count} target dates");
 
         using var lockHeartbeatCancellation = CancellationTokenSource.CreateLinkedTokenSource(token);
-        Task lockHeartbeatTask = RunLockHeartbeatAsync(runStatus.LockId, lockHeartbeatCancellation.Token);
+        Task lockHeartbeatTask = RunLockHeartbeatAsync(runStatus.LockId, lockHeartbeatCancellation);
 
         try
         {
@@ -425,14 +434,18 @@ public class CompactionService(
         }
     }
 
-    private async Task RunLockHeartbeatAsync(string lockId, CancellationToken token)
+    private async Task RunLockHeartbeatAsync(string lockId, CancellationTokenSource cts)
     {
-        while (!token.IsCancellationRequested)
+        const int maxConsecutiveFailures = 3;
+        int consecutiveFailures = 0;
+
+        while (!cts.Token.IsCancellationRequested)
         {
             try
             {
-                await Task.Delay(LockHeartbeatInterval, token);
-                await s3LockService.ExtendLockExpirationAsync(lockId, token);
+                await Task.Delay(LockHeartbeatInterval, cts.Token);
+                await s3LockService.ExtendLockExpirationAsync(lockId, cts.Token);
+                consecutiveFailures = 0;
             }
             catch (OperationCanceledException)
             {
@@ -440,7 +453,14 @@ public class CompactionService(
             }
             catch (Exception ex)
             {
-                logger.ZLogWarning(ex, $"Failed to extend compaction lock by heartbeat. LockId={lockId}");
+                consecutiveFailures++;
+                logger.ZLogWarning(ex, $"Failed to extend compaction lock by heartbeat. LockId={lockId}, ConsecutiveFailures={consecutiveFailures}");
+                if (consecutiveFailures >= maxConsecutiveFailures)
+                {
+                    logger.ZLogError($"Lock heartbeat failed {consecutiveFailures} consecutive times. Cancelling compaction to prevent dual execution. LockId={lockId}");
+                    await cts.CancelAsync();
+                    break;
+                }
             }
         }
     }

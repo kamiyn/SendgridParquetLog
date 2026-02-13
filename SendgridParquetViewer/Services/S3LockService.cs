@@ -47,8 +47,8 @@ public class S3LockService(
             }
             catch (Exception ex)
             {
-                logger.ZLogWarning(ex, $"Failed to deserialize existing lock info while acquiring lock. Treating lock as recoverable by CAS overwrite. lockPath:{lockPath}");
-                existingLock = null;
+                logger.ZLogWarning(ex, $"Failed to deserialize existing lock info while acquiring lock. Refusing to acquire lock until lock is manually resolved. lockPath:{lockPath}");
+                return false;
             }
 
             if (existingLock != null && existingLock.ExpiresAt > now)
