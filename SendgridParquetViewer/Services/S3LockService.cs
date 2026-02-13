@@ -149,7 +149,9 @@ public class S3LockService(
             return;
         }
 
-        if (existingLock == null || !string.Equals(existingLock.LockId, lockId, StringComparison.Ordinal))
+        if (existingLock == null
+            || !string.Equals(existingLock.LockId, lockId, StringComparison.Ordinal)
+            || !string.Equals(existingLock.OwnerId, ownerId, StringComparison.Ordinal))
         {
             return;
         }
