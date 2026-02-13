@@ -281,8 +281,8 @@
 		{
 			_isWaitingForLock = false;
 			_lockExpiresAt = null;
+			StateHasChanged();
 		}
-		StateHasChanged();
 	}
 
 	private async Task RefreshStatus()
