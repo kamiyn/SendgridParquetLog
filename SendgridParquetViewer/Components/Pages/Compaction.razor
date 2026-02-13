@@ -361,6 +361,7 @@
 				if (_lockInfo == null || _lockInfo.ExpiresAt <= TimeProvider.GetUtcNow())
 				{
 					StopLockCountdownTimer();
+					await InvokeAsync(StateHasChanged);
 					break;
 				}
 				await InvokeAsync(StateHasChanged);
