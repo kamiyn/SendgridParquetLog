@@ -33,9 +33,13 @@
                         {
                             <br /><small>Lock ExpiresAt: @_lockExpiresAt.Value.ToString("s")</small>
                         }
+                        @if (_runStatus != null)
+                        {
+                            <br /><small>Note: The status information below may be stale while waiting for the lock.</small>
+                        }
                     </p>
                 }
-                else if (_runStatus != null)
+                @if (_runStatus != null)
                 {
                     <p>
                         <div><strong>Start Time:</strong> @_runStatus.StartTime.ToString("s")</div>
