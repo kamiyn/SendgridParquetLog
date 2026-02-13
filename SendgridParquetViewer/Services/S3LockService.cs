@@ -40,7 +40,17 @@ public class S3LockService(
         var result = await s3StorageService.GetObjectWithETagAsync(lockPath, ct);
         if (result.Content.Length > 0)
         {
-            var existingLock = JsonSerializer.Deserialize<LockInfo>(result.Content, AppJsonSerializerContext.Default.LockInfo);
+            LockInfo? existingLock;
+            try
+            {
+                existingLock = JsonSerializer.Deserialize<LockInfo>(result.Content, AppJsonSerializerContext.Default.LockInfo);
+            }
+            catch (Exception ex)
+            {
+                logger.ZLogWarning(ex, $"Failed to deserialize existing lock info while acquiring lock. Treating lock as recoverable by CAS overwrite. lockPath:{lockPath}");
+                existingLock = null;
+            }
+
             if (existingLock != null && existingLock.ExpiresAt > now)
             {
                 logger.ZLogInformation($"Lock is held by {existingLock.OwnerId} until {existingLock.ExpiresAt} lockPath:{lockPath}");
