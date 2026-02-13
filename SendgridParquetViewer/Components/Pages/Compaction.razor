@@ -25,7 +25,17 @@
                     <FluentLabel Typo="Typography.Subject">Current Status</FluentLabel>
                 </FluentHeader>
                 
-                @if (_runStatus != null)
+                @if (_isWaitingForLock)
+                {
+                    <FluentProgressRing />
+                    <p>他インスタンスのロックの有効期限切れを待機しています...
+                        @if (_lockExpiresAt.HasValue)
+                        {
+                            <br /><small>Lock ExpiresAt: @_lockExpiresAt.Value.ToString("s")</small>
+                        }
+                    </p>
+                }
+                else if (_runStatus != null)
                 {
                     <p>
                         <div><strong>Start Time:</strong> @_runStatus.StartTime.ToString("s")</div>
@@ -112,16 +122,6 @@
                             }
                         </details>
                     }
-                }
-                else if (_isWaitingForLock)
-                {
-                    <FluentProgressRing />
-                    <p>他インスタンスのロックの有効期限切れを待機しています...
-                        @if (_lockExpiresAt.HasValue)
-                        {
-                            <br /><small>Lock ExpiresAt: @_lockExpiresAt.Value.ToString("s")</small>
-                        }
-                    </p>
                 }
                 else if (_isLoadingStatus)
                 {

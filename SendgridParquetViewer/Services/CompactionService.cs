@@ -273,6 +273,7 @@ public class CompactionService(
 
         stalledStatus.EndTime = nowUtc;
         stalledStatus.LastUpdated = nowUtc;
+        stalledStatus.AbnormalTermination = true;
 
         try
         {

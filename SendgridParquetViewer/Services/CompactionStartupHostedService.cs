@@ -25,6 +25,25 @@ public sealed class CompactionStartupHostedService(
 
         return Task.Run(async () =>
         {
+            // 初回実行: 複数インスタンスの競合を避けるためランダムな jitter を入れる
+            var jitterSeconds = Random.Shared.Next(5, 31);
+            logger.ZLogInformation($"Initial compaction startup jitter: {jitterSeconds}s");
+            await Task.Delay(TimeSpan.FromSeconds(jitterSeconds), stoppingToken);
+
+            // jitter 後にロックの有効期限を確認（他インスタンスが先にクリーンアップしていないか再確認）
+            try
+            {
+                var lockInfo = await compactionService.CleanupExpiredLockAsync(stoppingToken);
+                if (lockInfo != null)
+                {
+                    logger.ZLogInformation($"Lock is still valid (ExpiresAt: {lockInfo.ExpiresAt:s}). Another instance may be running.");
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.ZLogError(ex, $"Error during initial lock cleanup");
+            }
+
             await Run(stoppingToken);
             while (!stoppingToken.IsCancellationRequested)
             {
