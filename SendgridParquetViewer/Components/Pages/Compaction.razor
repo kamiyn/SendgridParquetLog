@@ -171,7 +171,7 @@
 </FluentCard>
 
 @code {
-	private static readonly TimeSpan LockExpiryClockSkewMargin = TimeSpan.FromSeconds(300);
+	private static readonly TimeSpan LockExpiryClockSkewMargin = TimeSpan.FromSeconds(60);
 	private RunStatus? _runStatus;
 	private bool _isLoadingStatus;
 	private bool _isStarting;
