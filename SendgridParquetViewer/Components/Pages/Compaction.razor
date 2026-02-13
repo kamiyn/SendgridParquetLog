@@ -247,8 +247,22 @@
 				var secondLockInfo = await CompactionService.CleanupExpiredLockAsync(_cts.Token);
 				if (secondLockInfo != null)
 				{
-					Logger.LogWarning("Lock cleanup after wait did not remove lock. Lock info: {@LockInfo}", secondLockInfo);
-					ShowMessage("ロックのクリーンアップに失敗しました。", MessageIntent.Error);
+					// 2回目に取得したロック情報が同じロックか、新しいロックかを判定する
+					if (secondLockInfo.LockId == lockInfo.LockId)
+					{
+						// 同じロックが残っている → クリーンアップ失敗として扱う
+						Logger.LogWarning("Lock cleanup after wait did not remove original lock. Lock info: {@LockInfo}", secondLockInfo);
+						ShowMessage("ロックのクリーンアップに失敗しました。", MessageIntent.Error);
+					}
+					else
+					{
+						// 別のインスタンスが新しいロックを取得した可能性がある
+						Logger.LogInformation(
+							"A new lock was acquired after waiting for the previous lock to expire. Previous: {@PreviousLock}, New: {@NewLock}",
+							lockInfo,
+							secondLockInfo);
+						ShowMessage("別のプロセスによって新しいロックが取得されました。しばらくしてから再試行してください。", MessageIntent.Warning);
+					}
 				}
 			}
 
