@@ -366,7 +366,11 @@
 				await InvokeAsync(StateHasChanged);
 			}
 		}
-		catch (OperationCanceledException) { }
+		catch (OperationCanceledException)
+		{
+			// Cancellation is expected when the component is disposed or the countdown is stopped.
+			Logger.LogDebug("Lock countdown timer was cancelled.");
+		}
 	}
 
 	private void StopLockCountdownTimer()
