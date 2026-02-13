@@ -228,7 +228,12 @@
 				}
 
 				// 待機後に再度クリーンアップ
-				await CompactionService.CleanupExpiredLockAsync(_cts.Token);
+				var secondLockInfo = await CompactionService.CleanupExpiredLockAsync(_cts.Token);
+				if (secondLockInfo != null)
+				{
+					Logger.LogWarning("Lock cleanup after wait did not remove lock. Lock info: {@LockInfo}", secondLockInfo);
+					ShowMessage("ロックのクリーンアップに失敗しました。", MessageIntent.Error);
+				}
 			}
 
 			await RefreshStatus();
