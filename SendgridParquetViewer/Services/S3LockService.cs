@@ -14,6 +14,7 @@ public interface IS3LockService
     Task ExtendLockExpirationAsync(string lockId, CancellationToken ct);
     Task ReleaseLockAsync(string lockId, CancellationToken ct);
     Task<bool> TryInvalidateExpiredLockAsync(LockInfo expectedLock, CancellationToken ct);
+    Task<bool> TryForceInvalidateLockAsync(LockInfo expectedLock, CancellationToken ct);
     Task<LockInfo?> GetLockInfoAsync(CancellationToken ct);
 }
 
@@ -39,7 +40,17 @@ public class S3LockService(
         var result = await s3StorageService.GetObjectWithETagAsync(lockPath, ct);
         if (result.Content.Length > 0)
         {
-            var existingLock = JsonSerializer.Deserialize<LockInfo>(result.Content, AppJsonSerializerContext.Default.LockInfo);
+            LockInfo? existingLock;
+            try
+            {
+                existingLock = JsonSerializer.Deserialize<LockInfo>(result.Content, AppJsonSerializerContext.Default.LockInfo);
+            }
+            catch (Exception ex)
+            {
+                logger.ZLogWarning(ex, $"Failed to deserialize existing lock info while acquiring lock. Refusing to acquire lock until lock is manually resolved. lockPath:{lockPath}");
+                return false;
+            }
+
             if (existingLock != null && existingLock.ExpiresAt > now)
             {
                 logger.ZLogInformation($"Lock is held by {existingLock.OwnerId} until {existingLock.ExpiresAt} lockPath:{lockPath}");
@@ -209,6 +220,42 @@ public class S3LockService(
 
         // Note: `false` here means the CAS update failed (e.g., the lock was concurrently changed
         // or deleted after we read it), which the caller treats as "lock state changed concurrently".
+        return updated;
+    }
+
+    public async Task<bool> TryForceInvalidateLockAsync(LockInfo expectedLock, CancellationToken ct)
+    {
+        var (_, lockPath) = SendGridPathUtility.GetS3CompactionRunFile();
+        var result = await s3StorageService.GetObjectWithETagAsync(lockPath, ct);
+        if (result.Content.Length == 0)
+        {
+            return true;
+        }
+
+        LockInfo? currentLock;
+        try
+        {
+            currentLock = JsonSerializer.Deserialize<LockInfo>(result.Content, AppJsonSerializerContext.Default.LockInfo);
+        }
+        catch (Exception ex)
+        {
+            logger.ZLogWarning(ex, $"Failed to deserialize lock info while force invalidating lock. lockPath:{lockPath}");
+            return false;
+        }
+
+        if (currentLock == null || !IsSameLock(currentLock, expectedLock))
+        {
+            return false;
+        }
+
+        currentLock.ExpiresAt = timeProvider.GetUtcNow();
+        byte[] lockJson = JsonSerializer.SerializeToUtf8Bytes(currentLock, AppJsonSerializerContext.Default.LockInfo);
+        bool updated = await s3StorageService.PutObjectWithConditionAsync(lockPath, lockJson, result.ETag, ct);
+        if (updated)
+        {
+            logger.ZLogWarning($"Lock force invalidated via CAS update. Lock ID: {currentLock.LockId} lockPath:{lockPath}");
+        }
+
         return updated;
     }
 
