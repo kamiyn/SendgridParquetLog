@@ -215,6 +215,7 @@
 				{
 					_lockExpiresAt = lockInfo.ExpiresAt;
 					StateHasChanged();
+					// 管理画面のため同時ユーザー数は限定的であり、最大30分の待機中も SignalR 接続を維持する
 					await Task.Delay(waitTime, _cts.Token);
 				}
 

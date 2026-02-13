@@ -80,7 +80,8 @@ public class CompactionService(
             }
             catch (Exception ex)
             {
-                logger.ZLogError(ex, $"Failed to persist abnormal termination status");
+                logger.ZLogError(ex, $"Failed to persist abnormal termination status. Skipping lock deletion to retry on next cleanup.");
+                return null; // run.json が更新できなければロック削除をスキップし次回再試行
             }
 
             RunStatusSubject.OnNext(runStatus);

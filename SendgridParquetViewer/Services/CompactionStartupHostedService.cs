@@ -26,7 +26,7 @@ public sealed class CompactionStartupHostedService(
         return Task.Run(async () =>
         {
             // 初回実行: 複数インスタンスの競合を避けるためランダムな jitter を入れる
-            var jitterSeconds = Random.Shared.Next(5, 31);
+            var jitterSeconds = Random.Shared.Next(5, 61);
             logger.ZLogInformation($"Initial compaction startup jitter: {jitterSeconds}s");
             await Task.Delay(TimeSpan.FromSeconds(jitterSeconds), stoppingToken);
 
