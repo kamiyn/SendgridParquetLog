@@ -166,6 +166,7 @@
 </FluentCard>
 
 @code {
+	private static readonly TimeSpan LockExpiryClockSkewMargin = TimeSpan.FromSeconds(300);
 	private RunStatus? _runStatus;
 	private bool _isLoadingStatus;
 	private bool _isStarting;
@@ -218,7 +219,8 @@
 			if (lockInfo != null)
 			{
 				// ロックが有効期限内 → ExpiresAt まで待機
-				var waitTime = lockInfo.ExpiresAt - DateTimeOffset.UtcNow;
+				// 他インスタンスとの時計のずれを考慮し余裕を持たせる
+			var waitTime = lockInfo.ExpiresAt - DateTimeOffset.UtcNow + LockExpiryClockSkewMargin;
 				if (waitTime > TimeSpan.Zero)
 				{
 					_lockExpiresAt = lockInfo.ExpiresAt;
