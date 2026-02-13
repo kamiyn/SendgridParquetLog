@@ -182,10 +182,18 @@
 
 	protected override async Task OnInitializedAsync()
 	{
-		await RefreshStatus();
+		try
+		{
+			await RefreshStatus();
+		}
+		catch (Exception ex)
+		{
+			Logger.LogError(ex, "Failed to refresh compaction status during initialization");
+			ShowMessage("ステータスの取得に失敗しました。ロック状態を確認しています。", MessageIntent.Error);
+		}
 
-		// 自プロセスでスレッド進行中でなく、run.json が Running 状態の場合はロックの期限切れを確認する
-		if (_runStatus is { EndTime: null } && !CompactionService.IsCompactionRunningLocally)
+		// 自プロセスでスレッド進行中でなく、run.json が Running 状態または取得できない場合はロックの期限切れを確認する
+		if (!_runStatus?.EndTime.HasValue && !CompactionService.IsCompactionRunningLocally)
 		{
 			await WaitForAndCleanupStalledLockAsync();
 		}
