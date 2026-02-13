@@ -15,7 +15,6 @@ public interface IS3LockService
     Task ReleaseLockAsync(string lockId, CancellationToken ct);
     Task<bool> TryInvalidateExpiredLockAsync(LockInfo expectedLock, CancellationToken ct);
     Task<LockInfo?> GetLockInfoAsync(CancellationToken ct);
-    Task ForceDeleteLockAsync(CancellationToken ct);
 }
 
 public class S3LockService(
@@ -151,7 +150,7 @@ public class S3LockService(
 
         if (existingLock == null
             || !string.Equals(existingLock.LockId, lockId, StringComparison.Ordinal)
-            || !string.Equals(existingLock.OwnerId, ownerId, StringComparison.Ordinal))
+            || !string.Equals(existingLock.OwnerId, InstanceId, StringComparison.Ordinal))
         {
             return;
         }
@@ -233,17 +232,4 @@ public class S3LockService(
         }
     }
 
-    public async Task ForceDeleteLockAsync(CancellationToken ct)
-    {
-        var (_, lockPath) = SendGridPathUtility.GetS3CompactionRunFile();
-        var deleted = await s3StorageService.DeleteObjectAsync(lockPath, ct);
-        if (deleted)
-        {
-            logger.ZLogWarning($"Lock file force-deleted. lockPath:{lockPath}");
-        }
-        else
-        {
-            logger.ZLogError($"Failed to force-delete lock file. lockPath:{lockPath}");
-        }
-    }
 }

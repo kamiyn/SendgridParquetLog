@@ -31,7 +31,7 @@ public class CompactionService(
     private const int RowGroupSize = 60_000;
 
     private CancellationTokenSource? _startupCancellation;
-    private CompactionStartResult? _compactionStartResult;
+    private volatile CompactionStartResult? _compactionStartResult;
     private readonly SemaphoreSlim _startupTaskSemaphore = new(1);
     private readonly CompactionOptions _compactionOptions = compactionOptions.Value;
     private static readonly TimeSpan MaxInactivityDuration = TimeSpan.FromDays(1);
