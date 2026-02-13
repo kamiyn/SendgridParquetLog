@@ -208,6 +208,8 @@ public class S3LockService(
             logger.ZLogWarning($"Expired lock invalidated via CAS update. Lock ID: {currentLock.LockId} lockPath:{lockPath}");
         }
 
+        // Note: `false` here means the CAS update failed (e.g., the lock was concurrently changed
+        // or deleted after we read it), which the caller treats as "lock state changed concurrently".
         return updated;
     }
 
