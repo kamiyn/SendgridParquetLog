@@ -194,7 +194,14 @@ public class S3StorageService(
 
             if (response.IsSuccessStatusCode)
             {
-                return new S3GetObjectResult(content, response.Headers.ETag?.Tag);
+                string? etag = response.Headers.ETag?.Tag;
+                if (string.IsNullOrEmpty(etag))
+                {
+                    logger.ZLogError($"Successful GET for object {key} from S3 is missing ETag header.");
+                    throw new InvalidOperationException("ETag is missing for successful GET object response.");
+                }
+
+                return new S3GetObjectResult(content, etag);
             }
 
             if (response.StatusCode == HttpStatusCode.NotFound)
