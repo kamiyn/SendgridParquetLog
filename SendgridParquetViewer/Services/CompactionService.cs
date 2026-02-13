@@ -62,7 +62,12 @@ public class CompactionService(
         // 期限切れ → run.json を異常終了マーク + ロック削除
         logger.ZLogWarning($"Expired lock detected (ExpiresAt: {lockInfo.ExpiresAt:s}, Owner: {lockInfo.OwnerId}). Cleaning up.");
 
-        var runStatus = await GetRunStatusAsync(ct);
+        var (runJsonPath, _) = SendGridPathUtility.GetS3CompactionRunFile();
+        byte[] existingRunJson = await s3StorageService.GetObjectAsByteArrayAsync(runJsonPath, ct);
+        RunStatus? runStatus = existingRunJson.Any()
+            ? JsonSerializer.Deserialize(existingRunJson, AppJsonSerializerContext.Default.RunStatus)
+            : null;
+
         if (runStatus is { EndTime: null })
         {
             runStatus.EndTime = now;
@@ -71,12 +76,16 @@ public class CompactionService(
 
             try
             {
-                var (runJsonPath, _) = SendGridPathUtility.GetS3CompactionRunFile();
-                await using var ms = new MemoryStream();
-                await JsonSerializer.SerializeAsync(ms, runStatus, AppJsonSerializerContext.Default.RunStatus, ct);
-                ms.Seek(0, SeekOrigin.Begin);
-                await s3StorageService.PutObjectAsync(ms, runJsonPath, ct);
-                logger.ZLogWarning($"Marked stalled run as abnormally terminated (started {runStatus.StartTime:s})");
+                byte[] updatedRunJson = JsonSerializer.SerializeToUtf8Bytes(runStatus, AppJsonSerializerContext.Default.RunStatus);
+                bool written = await s3StorageService.PutObjectWithConditionAsync(runJsonPath, updatedRunJson, existingRunJson, ct);
+                if (!written)
+                {
+                    logger.ZLogInformation($"run.json was already updated by another instance. Proceeding to lock deletion.");
+                }
+                else
+                {
+                    logger.ZLogWarning($"Marked stalled run as abnormally terminated (started {runStatus.StartTime:s})");
+                }
             }
             catch (Exception ex)
             {
