@@ -34,8 +34,9 @@ public class CompactionService(
     private volatile CompactionStartResult? _compactionStartResult;
     private readonly SemaphoreSlim _startupTaskSemaphore = new(1);
     private readonly CompactionOptions _compactionOptions = compactionOptions.Value;
+    private readonly IS3LockService _s3LockService = s3LockService;
     private static readonly TimeSpan MaxInactivityDuration = TimeSpan.FromDays(1);
-    private static readonly TimeSpan LockHeartbeatInterval = TimeSpan.FromMinutes(5);
+    private TimeSpan LockHeartbeatInterval => _s3LockService.LockDuration / 6;
 
     internal R3.Subject<RunStatus> RunStatusSubject { get; } = new();
 
