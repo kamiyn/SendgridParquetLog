@@ -201,6 +201,7 @@
 	private DateTimeOffset? _lockExpiresAt;
 	private string _message = string.Empty;
 	private IDisposable? _runStatusSubjectSubscription;
+	private PeriodicTimer? _lockCountdownTimer;
 	private MessageIntent _messageIntent = MessageIntent.Info;
 	readonly CancellationTokenSource _cts = new CancellationTokenSource();
 
@@ -323,6 +324,7 @@
 		{
             _runStatus = await CompactionService.GetRunStatusAsync();
             _lockInfo = await CompactionService.GetLockInfoAsync();
+            UpdateLockCountdownTimer();
         }
         catch (Exception ex)
         {
@@ -334,6 +336,43 @@
             _isLoadingStatus = false;
         }
 		StateHasChanged();
+	}
+
+	private void UpdateLockCountdownTimer()
+	{
+		var needsTimer = _lockInfo != null && _lockInfo.ExpiresAt > TimeProvider.GetUtcNow();
+		if (needsTimer && _lockCountdownTimer == null)
+		{
+			_lockCountdownTimer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+			_ = RunLockCountdownAsync(_cts.Token);
+		}
+		else if (!needsTimer)
+		{
+			StopLockCountdownTimer();
+		}
+	}
+
+	private async Task RunLockCountdownAsync(CancellationToken ct)
+	{
+		try
+		{
+			while (_lockCountdownTimer != null && await _lockCountdownTimer.WaitForNextTickAsync(ct))
+			{
+				if (_lockInfo == null || _lockInfo.ExpiresAt <= TimeProvider.GetUtcNow())
+				{
+					StopLockCountdownTimer();
+					break;
+				}
+				await InvokeAsync(StateHasChanged);
+			}
+		}
+		catch (OperationCanceledException) { }
+	}
+
+	private void StopLockCountdownTimer()
+	{
+		_lockCountdownTimer?.Dispose();
+		_lockCountdownTimer = null;
 	}
 
     private async Task StartCompaction()
@@ -375,6 +414,7 @@
         _cts.Cancel();
         _cts.Dispose();
 		_runStatusSubjectSubscription?.Dispose();
+		StopLockCountdownTimer();
     }
 }
 
