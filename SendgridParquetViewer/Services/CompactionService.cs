@@ -43,70 +43,6 @@ public class CompactionService(
     public bool IsCompactionRunningLocally =>
         _compactionStartResult?.StartTask is { IsCompleted: false };
 
-    /// <summary>
-    /// 期限切れのロックをクリーンアップする。
-    /// ロックが有効期限内の場合は LockInfo を返す（呼び出し元が ExpiresAt まで待機に使う）。
-    /// ロックが存在しない、ローカルで実行中、または期限切れで処理完了した場合は null を返す。
-    /// </summary>
-    public async Task<LockInfo?> CleanupExpiredLockAsync(CancellationToken ct)
-    {
-        if (IsCompactionRunningLocally) return null;
-
-        var lockInfo = await s3LockService.GetLockInfoAsync(ct);
-        if (lockInfo == null) return null;
-
-        var now = timeProvider.GetUtcNow();
-        if (lockInfo.ExpiresAt > now)
-        {
-            return lockInfo; // まだ有効期限内 → 呼び出し元が待つ
-        }
-
-        // 期限切れ → run.json を異常終了マーク + ロック削除
-        logger.ZLogWarning($"Expired lock detected (ExpiresAt: {lockInfo.ExpiresAt:s}, Owner: {lockInfo.OwnerId}). Cleaning up.");
-
-        var (runJsonPath, _) = SendGridPathUtility.GetS3CompactionRunFile();
-        var result = await s3StorageService.GetObjectWithETagAsync(runJsonPath, ct);
-        RunStatus? runStatus = result.Content.Length > 0
-            ? JsonSerializer.Deserialize(result.Content, AppJsonSerializerContext.Default.RunStatus)
-            : null;
-
-        if (runStatus is { EndTime: null })
-        {
-            runStatus.EndTime = now;
-            runStatus.LastUpdated = now;
-            runStatus.AbnormalTermination = true;
-
-            try
-            {
-                byte[] updatedRunJson = JsonSerializer.SerializeToUtf8Bytes(runStatus, AppJsonSerializerContext.Default.RunStatus);
-                bool written = await s3StorageService.PutObjectWithConditionAsync(runJsonPath, updatedRunJson, result.ETag, ct);
-                if (!written)
-                {
-                    logger.ZLogInformation($"run.json was already updated by another instance. Proceeding to lock deletion.");
-                }
-                else
-                {
-                    logger.ZLogWarning($"Marked stalled run as abnormally terminated (started {runStatus.StartTime:s})");
-                }
-            }
-            catch (Exception ex)
-            {
-                logger.ZLogError(ex, $"Failed to persist abnormal termination status. Skipping lock deletion to retry on next cleanup.");
-                return null; // run.json が更新できなければロック削除をスキップし次回再試行
-            }
-
-            RunStatusSubject.OnNext(runStatus);
-        }
-
-        bool invalidated = await s3LockService.TryInvalidateExpiredLockAsync(lockInfo, ct);
-        if (!invalidated)
-        {
-            logger.ZLogInformation($"Skip invalidating expired lock because lock state changed concurrently.");
-        }
-
-        return null;
-    }
-
     public Task<LockInfo?> GetLockInfoAsync(CancellationToken ct = default) =>
         s3LockService.GetLockInfoAsync(ct);
 
@@ -188,11 +124,21 @@ public class CompactionService(
             }
             else
             {
-                RunStatusSubject.OnNext(currentStatus);
-                return new CompactionStartResult
+                // 無活動期間が閾値以内でも、ロックが期限切れまたは存在しない場合はストール済みとみなす
+                var lockInfo = await s3LockService.GetLockInfoAsync(ct);
+                if (lockInfo == null || lockInfo.ExpiresAt <= nowUTC)
                 {
-                    Reason = $"Compaction is already running (started {currentStatus.StartTime:s}, last update {lastActivity:s})"
-                };
+                    currentStatus = await FinalizeStalledRunAsync(currentStatus, nowUTC);
+                    logger.ZLogInformation($"FinalizeStalledRunAsync (expired lock) LastUpdated:{currentStatus.LastUpdated}");
+                }
+                else
+                {
+                    RunStatusSubject.OnNext(currentStatus);
+                    return new CompactionStartResult
+                    {
+                        Reason = $"Compaction is already running (started {currentStatus.StartTime:s}, last update {lastActivity:s})"
+                    };
+                }
             }
         }
 
