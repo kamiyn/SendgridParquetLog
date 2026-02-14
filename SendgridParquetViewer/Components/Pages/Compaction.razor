@@ -26,20 +26,6 @@
                     <FluentLabel Typo="Typography.Subject">Current Status</FluentLabel>
                 </FluentHeader>
                 
-                @if (_isWaitingForLock)
-                {
-                    <FluentProgressRing />
-                    <p>他インスタンスのロックの有効期限切れを待機しています...
-                        @if (_lockExpiresAt.HasValue)
-                        {
-                            <br /><small>Lock ExpiresAt: @_lockExpiresAt.Value.ToString("s")</small>
-                        }
-                        @if (_runStatus != null)
-                        {
-                            <br /><small>Note: The status information below may be stale while waiting for the lock.</small>
-                        }
-                    </p>
-                }
                 @if (_runStatus != null)
                 {
                     <p>
@@ -155,7 +141,7 @@
                 <FluentButton Appearance="Appearance.Accent"
                              OnClick="StartCompaction"
                              Loading="_isStarting"
-                             Disabled="@(_runStatus?.EndTime == null && _runStatus != null)">
+                             Disabled="@(IsStartDisabled)">
                     Start Compaction
                 </FluentButton>
 
@@ -191,13 +177,10 @@
 </FluentCard>
 
 @code {
-	private static readonly TimeSpan LockExpiryClockSkewMargin = TimeSpan.FromSeconds(60);
 	private RunStatus? _runStatus;
 	private LockInfo? _lockInfo;
 	private bool _isLoadingStatus;
 	private bool _isStarting;
-	private bool _isWaitingForLock;
-	private DateTimeOffset? _lockExpiresAt;
 	private string _message = string.Empty;
 	private IDisposable? _runStatusSubjectSubscription;
 	private PeriodicTimer? _lockCountdownTimer;
@@ -217,6 +200,10 @@
 		return $"{remaining.Seconds}秒";
 	}
 
+	bool IsStartDisabled =>
+		CompactionService.IsCompactionRunningLocally
+		|| (_lockInfo != null && _lockInfo.ExpiresAt > TimeProvider.GetUtcNow());
+
 	protected override async Task OnInitializedAsync()
 	{
 		try
@@ -229,12 +216,6 @@
 			ShowMessage("ステータスの取得に失敗しました。ロック状態を確認しています。", MessageIntent.Error);
 		}
 
-		// 自プロセスでスレッド進行中でなく、run.json が Running 状態の場合はロックの期限切れを確認する
-		if (_runStatus != null && !_runStatus.EndTime.HasValue && !CompactionService.IsCompactionRunningLocally)
-		{
-			await WaitForAndCleanupStalledLockAsync();
-		}
-
 		_runStatusSubjectSubscription = CompactionService.RunStatusSubject
 			.ObserveOnCurrentSynchronizationContext()
             .Subscribe(runStatus =>
@@ -243,77 +224,6 @@
                 _runStatus = runStatus;
                 StateHasChanged();
 			});
-	}
-
-	private async Task WaitForAndCleanupStalledLockAsync()
-	{
-		_isWaitingForLock = true;
-		StateHasChanged();
-		try
-		{
-			var lockInfo = await CompactionService.CleanupExpiredLockAsync(_cts.Token);
-			if (lockInfo != null)
-			{
-				// ロックが有効期限内 → ExpiresAt まで待機
-				// 他インスタンスとの時計のずれを考慮し余裕を持たせる
-				var waitTime = lockInfo.ExpiresAt - TimeProvider.GetUtcNow() + LockExpiryClockSkewMargin;
-				if (waitTime > TimeSpan.Zero)
-				{
-					_lockExpiresAt = lockInfo.ExpiresAt;
-					StateHasChanged();
-					// 管理画面のため同時ユーザー数は限定的であり、最大30分の待機中も SignalR 接続を維持する
-					await Task.Delay(waitTime, _cts.Token);
-				}
-				else
-				{
-					// 時計のずれなどにより待機時間が 0 以下となった場合はログに記録して即時クリーンアップを試行する
-					Logger.LogWarning(
-						"Calculated wait time for lock cleanup is non-positive. WaitTime={WaitTime}, ExpiresAt={ExpiresAt}, Now={Now}",
-						waitTime,
-						lockInfo.ExpiresAt,
-						TimeProvider.GetUtcNow());
-				}
-
-				// 待機後に再度クリーンアップ
-				var secondLockInfo = await CompactionService.CleanupExpiredLockAsync(_cts.Token);
-				if (secondLockInfo != null)
-				{
-					// 2回目に取得したロック情報が同じロックか、新しいロックかを判定する
-					if (secondLockInfo.LockId == lockInfo.LockId)
-					{
-						// 同じロックが残っている → クリーンアップ失敗として扱う
-						Logger.LogWarning("Lock cleanup after wait did not remove original lock. Lock info: {@LockInfo}", secondLockInfo);
-						ShowMessage("ロックのクリーンアップに失敗しました。", MessageIntent.Error);
-					}
-					else
-					{
-						// 別のインスタンスが新しいロックを取得した可能性がある
-						Logger.LogInformation(
-							"A new lock was acquired after waiting for the previous lock to expire. Previous: {@PreviousLock}, New: {@NewLock}",
-							lockInfo,
-							secondLockInfo);
-						ShowMessage("別のプロセスによって新しいロックが取得されました。しばらくしてから再試行してください。", MessageIntent.Warning);
-					}
-				}
-			}
-
-			await RefreshStatus();
-		}
-		catch (OperationCanceledException)
-		{
-			// ページ離脱時のキャンセル
-		}
-		catch (Exception ex)
-		{
-			Logger.LogError(ex, "Error during stalled lock cleanup");
-			ShowMessage("ロックのクリーンアップに失敗しました。", MessageIntent.Error);
-		}
-		finally
-		{
-			_isWaitingForLock = false;
-			_lockExpiresAt = null;
-			StateHasChanged();
-		}
 	}
 
 	private async Task RefreshStatus()

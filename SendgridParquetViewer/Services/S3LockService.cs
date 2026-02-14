@@ -10,6 +10,7 @@ namespace SendgridParquetViewer.Services;
 
 public interface IS3LockService
 {
+    TimeSpan LockDuration { get; }
     Task<bool> TryAcquireLockAsync(string lockId, CancellationToken ct);
     Task ExtendLockExpirationAsync(string lockId, CancellationToken ct);
     Task ReleaseLockAsync(string lockId, CancellationToken ct);
@@ -23,7 +24,7 @@ public class S3LockService(
     TimeProvider timeProvider,
     S3StorageService s3StorageService) : IS3LockService
 {
-    private static readonly TimeSpan LockDuration = TimeSpan.FromMinutes(30);
+    public TimeSpan LockDuration { get; } = TimeSpan.FromMinutes(30);
     private static readonly string InstanceId = $"{Environment.MachineName}_{Guid.NewGuid():N}";
 
     private static bool IsSameLock(LockInfo a, LockInfo b) =>
