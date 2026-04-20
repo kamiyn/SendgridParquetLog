@@ -1,14 +1,16 @@
-﻿#if UseSwagger
-using System.Net;
+﻿using System.Net;
 
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 using SendgridParquet.Shared;
 
-namespace SendgridParquetLogger.Controllers;
+namespace SendgridParquetViewer.Controllers;
 
 [ApiController]
 [Route("webhook")]
+[AllowAnonymous]
+[IgnoreAntiforgeryToken]
 public class WebhookController(
     WebhookHelper webhookHelper
 ) : ControllerBase
@@ -33,4 +35,3 @@ public class WebhookController(
         return StatusCode((int)status);
     }
 }
-#endif

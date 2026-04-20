@@ -1,14 +1,16 @@
-﻿using System.Globalization;
+﻿using System;
+using System.Globalization;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-
-using SendgridParquet.Shared;
 
 using ZLogger;
 
-namespace SendgridParquetLogger.Helper;
+namespace SendgridParquet.Shared;
 
 /// <summary>
 /// This class allows you to use the Event Webhook feature. Read the docs for

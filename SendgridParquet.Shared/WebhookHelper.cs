@@ -1,17 +1,21 @@
-﻿using System.Buffers;
+﻿using System;
+using System.Buffers;
+using System.Collections.Generic;
+using System.IO;
 using System.IO.Pipelines;
+using System.Linq;
 using System.Net;
 using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
 
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-
-using SendgridParquet.Shared;
-
-using SendgridParquetLogger.Models;
 
 using ZLogger;
 
-namespace SendgridParquetLogger.Helper;
+namespace SendgridParquet.Shared;
 
 public class WebhookHelper(
     ILogger<WebhookHelper> logger,
@@ -46,7 +50,7 @@ public class WebhookHelper(
                 // case RequestValidator.RequestValidatorResult.NotConfigured: // 許容しない
                 try
                 {
-                    var events = JsonSerializer.Deserialize(payloadBytes, AppJsonSerializerContext.Default.SendGridEventArray) ?? [];
+                    var events = JsonSerializer.Deserialize(payloadBytes, SendGridEventJsonContext.Default.SendGridEventArray) ?? [];
                     return (HttpStatusCode.OK, events);
                 }
                 catch (JsonException ex)

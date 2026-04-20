@@ -1,10 +1,13 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using System;
+using System.Threading;
+using System.Threading.Tasks;
 
-using SendgridParquet.Shared;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
-namespace SendgridParquetLogger.Helper;
+namespace SendgridParquet.Shared;
 
-internal class CreateBucketService : BackgroundService
+public class CreateBucketService : BackgroundService
 {
     private readonly S3StorageService _s3StorageService;
     private readonly ILogger<CreateBucketService> _logger;
