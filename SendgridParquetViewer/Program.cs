@@ -89,6 +89,12 @@ builder.Services.AddOptions<SendgridOptions>()
     .ValidateDataAnnotations()
     .ValidateOnStart();
 
+// Configure SendGrid webhook receive options (shared with Logger)
+builder.Services.AddOptions<SendGridOptions>()
+    .Bind(builder.Configuration.GetSection(SendGridOptions.SectionName))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+
 //builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddOptions<TimeProviderOptions>()
     .Configure(options =>
@@ -123,6 +129,14 @@ builder.Services.AddHttpClient<ISendgridTemplateService, SendgridTemplateService
 
 // Add Parquet service
 builder.Services.AddSingleton<ParquetService>(); // 無状態のため AddSingleton
+
+// Webhook receive services (shared with Logger)
+builder.Services.AddSingleton<RequestValidator>(); // 無状態 PublicKey 生成をキャッシュするため AddSingleton
+builder.Services.AddScoped<WebhookHelper>();
+
+// Ensure S3 bucket exists at startup (Logger インスタンス廃止予定のため Viewer 単独でもバケット保証する)
+// Compaction HostedService より前に登録して先に動かす
+builder.Services.AddHostedService<CreateBucketService>();
 
 // Add Compaction service
 builder.Services.AddSingleton<CompactionService>(); // 1プロセスあたり同時実行は1つだけにする
