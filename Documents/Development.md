@@ -160,8 +160,12 @@ dotnet run --project SendgridParquetLog.AppHost
 
 ローカル MinIO 上で:
 
-- **「1 日前のデータが存在しない」を試す**: 何もデータを投げ込まずに起動すれば、昨日の `v3raw/YYYY/MM/DD/` と `v3compaction/YYYY/MM/DD/` が両方空になるため警告が発火します。どちらか片方でもファイルがあれば警告は出ません（Compaction 実施済みで v3raw だけ消えているケースを誤警告しない）。
-- **「2 日前の圧縮済みデータが存在しない」を試す**: `v3compaction/<2 日前の日付>/` 配下を空のままにして起動すると警告が発火します。`v3raw` の有無は判定に影響しません。
+- **「Webhook 受信停止の疑い」(AND 条件) を試す**: 以下 3 つを同時に満たすよう MinIO を用意して起動すると警告が発火します。
+  - `v3compaction/<2 日前の日付>/` に何か 1 ファイル置く（例: `mc cp ./dummy.parquet local/sendgrid-events/v3compaction/2026/04/19/00/dummy.parquet`）
+  - `v3raw/<1 日前の日付>/` を空のまま
+  - `v3compaction/<1 日前の日付>/` を空のまま
+
+  3 つのどれかを外すと警告は出なくなるはずです（例えば 1 日前の `v3compaction/` にもファイルがあれば Compaction 済み扱いで正常）。
 - **Compaction 例外**: `S3__SECRETKEY` を意図的に壊して S3 アクセスを失敗させると、Compaction 内部の例外パスを通り警告に乗ります。
 
 ### 5. URL ガードの確認

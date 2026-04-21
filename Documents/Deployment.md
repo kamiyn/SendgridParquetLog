@@ -137,9 +137,13 @@ docker compose logs -f
 
 ### 警告条件（`Run()` 開始時に判定）
 
-1. **JST で 1 日前のデータが S3 に一切見当たらない** — `v3raw/YYYY/MM/DD/` と `v3compaction/YYYY/MM/DD/` の**両方**が空の場合に警告。Webhook 受信が止まっている可能性。片方にデータがあれば問題なしとする（例: Compaction 実施済みで v3raw だけ空、というケースを誤警告しない）。
-2. **JST で 2 日前の圧縮済みデータが存在しない** — `v3compaction/YYYY/MM/DD/` にファイルが無ければ警告。前回の Compaction が出力を生成できなかった可能性。`v3raw` は参照しない。
-3. **Compaction 実行自体が例外で失敗** — 既存ログ (`ZLogError`) に加えて Slack 警告にも乗せる
+1. **Webhook 受信停止の疑い (AND 条件)** — 以下の 3 つが同時に成立した場合のみ 1 件の警告を出す。いずれか単独では警告しない。
+   - JST で 2 日前の圧縮済みデータ (`v3compaction/YYYY/MM/DD/`) が**存在する** (= 直近の Compaction パイプラインは動作していた)
+   - JST で 1 日前の生データ (`v3raw/YYYY/MM/DD/`) が**存在しない**
+   - JST で 1 日前の圧縮済みデータ (`v3compaction/YYYY/MM/DD/`) が**存在しない**
+
+   すなわち「Compaction パイプラインは動いているのに 1 日前のデータ (生/圧縮済みのいずれ) も無い」状態のみを Webhook 受信停止の強い疑いとして通知する。
+2. **Compaction 実行自体が例外で失敗** — 既存ログ (`ZLogError`) に加えて Slack 警告にも乗せる
 
 ### URL の妥当性
 
