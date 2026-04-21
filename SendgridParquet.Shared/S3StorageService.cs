@@ -222,6 +222,40 @@ public class S3StorageService(
         }
     }
 
+    /// <summary>
+    /// 指定した完全なオブジェクトキーが S3 に存在するかどうかを HEAD リクエストで判定する。
+    /// <see cref="AnyFileExistsAsync"/> は prefix 末尾に '/' を補って ListObjectsV2 を投げるため
+    /// 完全なキーには使えない ("key/" 以下のリストになり常に空になる)。キーそのものの存在確認には
+    /// こちらを使う。
+    /// </summary>
+    public async ValueTask<bool> ObjectExistsAsync(string key, CancellationToken ct)
+    {
+        var uri = GetObjectUri(key);
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Head, uri);
+            AddAwsSignatureHeaders(request, null);
+            using HttpResponseMessage response = await httpClient.SendAsync(request, ct);
+
+            if (response.IsSuccessStatusCode)
+            {
+                return true;
+            }
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                return false;
+            }
+            logger.ZLogWarning($"Unexpected status code {response.StatusCode} while HEAD {uri}; treating as not-exists");
+            return false;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception ex)
+        {
+            logger.ZLogError(ex, $"Error heading object {uri}");
+            return false;
+        }
+    }
+
     public async ValueTask<bool> DeleteObjectAsync(string key, CancellationToken ct)
     {
         var uri = GetObjectUri(key);

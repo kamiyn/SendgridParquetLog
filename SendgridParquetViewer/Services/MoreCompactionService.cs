@@ -277,7 +277,9 @@ public class MoreCompactionService(
         // 実行時点でも outputKey の存在を S3 に問い合わせ直して保守的に確認する。
         // (スキャン結果だけに依存すると TOCTOU で 完成済み merged を上書きし、
         // 元ソースが部分削除されているタイミングだと データ欠損 parquet で塗り替える恐れがある。)
-        bool existingOutputLive = await s3StorageService.AnyFileExistsAsync(outputKey, ct);
+        // AnyFileExistsAsync は prefix 末尾に '/' を補って ListObjectsV2 する実装で
+        // 完全キーの存在確認には使えないため、HEAD で問い合わせる ObjectExistsAsync を使う。
+        bool existingOutputLive = await s3StorageService.ObjectExistsAsync(outputKey, ct);
         bool existingOutputPresent = existingOutputInScan || existingOutputLive;
 
         // (A) 前回実行がアップロード成功後に元ソース削除の途中で中断したケース、または
