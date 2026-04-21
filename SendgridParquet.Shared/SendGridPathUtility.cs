@@ -160,4 +160,29 @@ public static class SendGridPathUtility
 
     public static (string runJsonPath, string lockPath) GetS3CompactionRunFile() =>
         ($"{FolderPrefixCompaction}/run.json", $"{FolderPrefixCompaction}/run.lock");
+
+    /// <summary>
+    /// 追加コンパクション (MoreCompaction) の出力ファイル名。
+    /// 1 フォルダ 1 ファイル保証時の固定名。
+    /// </summary>
+    public const string MoreCompactionFileName = "morecompaction" + ParquetFileExtension;
+
+    /// <summary>
+    /// 追加コンパクションの完了を示す JSON のファイル名。
+    /// </summary>
+    public const string MoreCompactionStatusFileName = "morecompaction.json";
+
+    /// <summary>
+    /// 追加コンパクションの出力 Parquet の S3 キー。
+    /// 対象 yyyy/MM/dd/HH フォルダの直下に固定名で配置する。
+    /// </summary>
+    public static string GetS3MoreCompactionParquetKey(int year, int month, int day, int hour) =>
+        $"{FolderPrefixCompaction}{GetYmdhPrefix(year, month, day, hour)}/{MoreCompactionFileName}";
+
+    /// <summary>
+    /// 年月単位での完了マーカー JSON の S3 キー。
+    /// 存在すれば その年月の全フォルダが 1 parquet 保証済み。
+    /// </summary>
+    public static string GetS3MoreCompactionStatusKey(int year, int month) =>
+        $"{FolderPrefixCompaction}{GetYmdhPrefix(year, month, null, null)}/{MoreCompactionStatusFileName}";
 }

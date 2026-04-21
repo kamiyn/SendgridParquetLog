@@ -19,6 +19,8 @@ namespace SendgridParquet.Shared;
 
 public record S3GetObjectResult(byte[] Content, string? ETag);
 
+public readonly record struct S3ObjectEntry(string Key, long Size);
+
 public class S3StorageService(
     ILogger<S3StorageService> logger,
     IOptions<S3Options> options,
@@ -388,6 +390,47 @@ public class S3StorageService(
                    .Select(cp => cp.Element(ns + "Key")?.Value!)
                    .Where(p => !string.IsNullOrEmpty(p))
             );
+
+            bool isTruncated = string.Equals(doc.Root?.Element(ns + "IsTruncated")?.Value, "true", StringComparison.OrdinalIgnoreCase);
+            continuationToken = isTruncated ? doc.Root?.Element(ns + "NextContinuationToken")?.Value : null;
+        } while (!string.IsNullOrEmpty(continuationToken));
+
+        return results;
+    }
+
+    /// <summary>
+    /// prefix 配下のオブジェクトを Key と Size の組で列挙する。
+    /// </summary>
+    public async ValueTask<IReadOnlyCollection<S3ObjectEntry>> ListFilesWithSizeAsync(string prefix, CancellationToken ct)
+    {
+        var results = new List<S3ObjectEntry>();
+        string? continuationToken = null;
+
+        do
+        {
+            if (ct.IsCancellationRequested)
+            {
+                break;
+            }
+            var content = await ListObjectsAsync(new ListObjectsRequest(prefix, null, continuationToken), ct);
+            if (string.IsNullOrEmpty(content))
+            {
+                break;
+            }
+
+            XDocument doc = XDocument.Parse(content);
+            XNamespace ns = doc.Root?.GetDefaultNamespace() ?? XNamespace.None;
+
+            foreach (XElement c in doc.Descendants(ns + "Contents"))
+            {
+                string? key = c.Element(ns + "Key")?.Value;
+                if (string.IsNullOrEmpty(key))
+                {
+                    continue;
+                }
+                long size = long.TryParse(c.Element(ns + "Size")?.Value, out long parsed) ? parsed : 0L;
+                results.Add(new S3ObjectEntry(key, size));
+            }
 
             bool isTruncated = string.Equals(doc.Root?.Element(ns + "IsTruncated")?.Value, "true", StringComparison.OrdinalIgnoreCase);
             continuationToken = isTruncated ? doc.Root?.Element(ns + "NextContinuationToken")?.Value : null;

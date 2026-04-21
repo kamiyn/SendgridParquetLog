@@ -1,4 +1,4 @@
-namespace SendgridParquetViewer.Models;
+﻿namespace SendgridParquetViewer.Models;
 
 /// <summary>
 /// AzureAd 構成のうち、Slack 通知にアプリケーション識別情報として載せたい部分だけを取り出すための Options。

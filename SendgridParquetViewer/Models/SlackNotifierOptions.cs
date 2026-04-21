@@ -1,4 +1,4 @@
-namespace SendgridParquetViewer.Models;
+﻿namespace SendgridParquetViewer.Models;
 
 public class SlackNotifierOptions
 {

@@ -8,6 +8,7 @@ namespace SendgridParquetViewer.Models;
 [JsonSerializable(typeof(LockInfo[]))]
 [JsonSerializable(typeof(SearchCondition))]
 [JsonSerializable(typeof(SearchCondition[]))]
+[JsonSerializable(typeof(MoreCompactionStatus))]
 [JsonSourceGenerationOptions(GenerationMode = JsonSourceGenerationMode.Default,
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     WriteIndented = true // 人間が読むこともあるのでインデントする
