@@ -207,12 +207,13 @@ public class MoreCompactionService(
     }
 
     /// <summary>
-    /// 指定フォルダを 1 ファイルへ統合する。
+    /// 指定フォルダを 1 ファイルへ統合する。出力名は folder-unique な
+    /// morecompaction{yyyy}{MM}{dd}{HH}.parquet (<see cref="SendGridPathUtility.GetMoreCompactionFileName"/>)。
     /// 手順:
-    ///   1. 既存の morecompaction.parquet があれば削除 (前回アップロード中断への対処)
+    ///   1. 既存の出力キー (同一キー) があれば削除 (前回アップロード中断への対処)
     ///   2. フォルダ内 Parquet をストリーミングで読みながら 一時ファイルに 1 つの Parquet を作成
     ///   3. 一時ファイルを S3 へアップロード
-    ///   4. 検証成功後に 元ファイル (morecompaction.parquet 以外) を削除
+    ///   4. 検証成功後に 元ファイル (出力キー以外) を削除
     /// </summary>
     public async Task<MoreCompactionFolderResult> ExecuteFolderAsync(HourFolder folder, CancellationToken ct)
     {

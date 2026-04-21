@@ -163,10 +163,11 @@ public static class SendGridPathUtility
 
     /// <summary>
     /// 追加コンパクション (MoreCompaction) の出力ファイル名。
-    /// フォルダをまたいでも一意になるように yyyyMMddHH を含める。
+    /// 通常 Compaction 出力 (ハッシュ名) と一目で区別できるよう `morecompaction` プレフィックスを付け、
+    /// フォルダをまたいでも一意になるよう yyyyMMddHH を含める。
     /// </summary>
     public static string GetMoreCompactionFileName(int year, int month, int day, int hour) =>
-        $"compaction{year:D4}{month:D2}{day:D2}{hour:D2}{ParquetFileExtension}";
+        $"morecompaction{year:D4}{month:D2}{day:D2}{hour:D2}{ParquetFileExtension}";
 
     /// <summary>
     /// 追加コンパクションの完了を示す JSON のファイル名。
