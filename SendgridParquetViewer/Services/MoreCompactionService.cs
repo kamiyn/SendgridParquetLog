@@ -148,7 +148,12 @@ public class MoreCompactionService(
         await JsonSerializer.SerializeAsync(ms, status, AppJsonSerializerContext.Default.MoreCompactionStatus, ct);
         ms.Seek(0, SeekOrigin.Begin);
         string key = SendGridPathUtility.GetS3MoreCompactionStatusKey(year, month);
-        await s3StorageService.PutObjectAsync(ms, key, ct);
+        bool uploaded = await s3StorageService.PutObjectAsync(ms, key, ct);
+        if (!uploaded)
+        {
+            logger.ZLogError($"Failed to write MoreCompaction status: {key}");
+            throw new InvalidOperationException($"Failed to write MoreCompaction status to '{key}'.");
+        }
         logger.ZLogInformation($"MoreCompaction status written: {key}");
         return status;
     }
