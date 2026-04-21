@@ -101,7 +101,12 @@ public sealed class CompactionStartupHostedService(
                 logger.ZLogInformation($"Compaction was skipped: {skipReason}");
             }
         }
-        catch (OperationCanceledException) { return; }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
+        catch (OperationCanceledException ex)
+        {
+            logger.ZLogError(ex, $"CompactionStartupHostedService");
+            warnings.Add($"Compaction 実行中に例外: {ex.GetType().Name}: {ex.Message}");
+        }
         catch (Exception ex)
         {
             logger.ZLogError(ex, $"CompactionStartupHostedService");
