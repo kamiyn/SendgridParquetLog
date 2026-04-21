@@ -219,16 +219,16 @@ public class MoreCompactionService(
             return new MoreCompactionFolderResult(folder, Skipped: true, TotalEvents: 0, DeletedFiles: 0);
         }
 
-        // (1) 既存の morecompaction.parquet を削除。中断後の残骸を確実に消す。
+        // (1) 既存の出力ファイル (同一キー) を削除。中断後の残骸を確実に消す。
         await s3StorageService.DeleteObjectAsync(outputKey, ct);
 
         IReadOnlyList<S3ObjectEntry> readTargets = sources
-            .Where(e => !e.Key.EndsWith("/" + SendGridPathUtility.MoreCompactionFileName, StringComparison.Ordinal))
+            .Where(e => !string.Equals(e.Key, outputKey, StringComparison.Ordinal))
             .ToArray();
 
         if (readTargets.Count == 0)
         {
-            logger.ZLogInformation($"MoreCompaction no readable sources after excluding {SendGridPathUtility.MoreCompactionFileName}: {folder.Prefix}");
+            logger.ZLogInformation($"MoreCompaction no readable sources after excluding {outputKey}: {folder.Prefix}");
             return new MoreCompactionFolderResult(folder, Skipped: true, TotalEvents: 0, DeletedFiles: 0);
         }
 

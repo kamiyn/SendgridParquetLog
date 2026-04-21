@@ -26,7 +26,7 @@
     </p>
     <p>
         <small>
-            出力ファイル名は固定 (<code>@SendGridPathUtility.MoreCompactionFileName</code>) です。
+            出力ファイル名は <code>compaction&lt;yyyyMMddHH&gt;.parquet</code> で、フォルダをまたいでも一意になります。
             処理中断の耐性のためアップロード前に同名ファイルを削除してから書き込みます。
             完了マーカー <code>@SendGridPathUtility.MoreCompactionStatusFileName</code> が年月フォルダ直下に存在する場合は処理済みとして先に進みません。
         </small>

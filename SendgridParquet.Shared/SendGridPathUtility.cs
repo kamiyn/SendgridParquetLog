@@ -163,9 +163,10 @@ public static class SendGridPathUtility
 
     /// <summary>
     /// 追加コンパクション (MoreCompaction) の出力ファイル名。
-    /// 1 フォルダ 1 ファイル保証時の固定名。
+    /// フォルダをまたいでも一意になるように yyyyMMddHH を含める。
     /// </summary>
-    public const string MoreCompactionFileName = "morecompaction" + ParquetFileExtension;
+    public static string GetMoreCompactionFileName(int year, int month, int day, int hour) =>
+        $"compaction{year:D4}{month:D2}{day:D2}{hour:D2}{ParquetFileExtension}";
 
     /// <summary>
     /// 追加コンパクションの完了を示す JSON のファイル名。
@@ -174,10 +175,10 @@ public static class SendGridPathUtility
 
     /// <summary>
     /// 追加コンパクションの出力 Parquet の S3 キー。
-    /// 対象 yyyy/MM/dd/HH フォルダの直下に固定名で配置する。
+    /// 対象 yyyy/MM/dd/HH フォルダの直下に yyyyMMddHH を含むユニークな名前で配置する。
     /// </summary>
     public static string GetS3MoreCompactionParquetKey(int year, int month, int day, int hour) =>
-        $"{FolderPrefixCompaction}{GetYmdhPrefix(year, month, day, hour)}/{MoreCompactionFileName}";
+        $"{FolderPrefixCompaction}{GetYmdhPrefix(year, month, day, hour)}/{GetMoreCompactionFileName(year, month, day, hour)}";
 
     /// <summary>
     /// 年月単位での完了マーカー JSON の S3 キー。
