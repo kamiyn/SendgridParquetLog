@@ -345,6 +345,24 @@ public class S3StorageService(
         return results;
     }
 
+    /// <summary>
+    /// prefix 配下にオブジェクトが 1 つでも存在するかを確認する。
+    /// ListObjectsV2 に max-keys=1 を渡して早期判定するため、キーの全件列挙は行わない。
+    /// </summary>
+    public async ValueTask<bool> AnyFileExistsAsync(string prefix, CancellationToken ct)
+    {
+        string content = await ListObjectsAsync(
+            new ListObjectsRequest(prefix, Delimiter: null, ContinuationToken: null, MaxKeys: 1), ct);
+        if (string.IsNullOrEmpty(content))
+        {
+            return false;
+        }
+
+        XDocument doc = XDocument.Parse(content);
+        XNamespace ns = doc.Root?.GetDefaultNamespace() ?? XNamespace.None;
+        return doc.Descendants(ns + "Contents").Any();
+    }
+
     public async ValueTask<IReadOnlyCollection<string>> ListFilesAsync(string prefix, CancellationToken ct)
     {
         var results = new List<string>();
@@ -381,7 +399,7 @@ public class S3StorageService(
     /// <summary>
     /// https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListObjectsV2.html
     /// </summary>
-    public record struct ListObjectsRequest(string Prefix, string? Delimiter, string? ContinuationToken)
+    public record struct ListObjectsRequest(string Prefix, string? Delimiter, string? ContinuationToken, int? MaxKeys = null)
     {
         internal string GetQueryString()
         {
@@ -399,6 +417,11 @@ public class S3StorageService(
             {
                 query.Append("&continuation-token=");
                 query.Append(Uri.EscapeDataString(ContinuationToken));
+            }
+            if (MaxKeys is int max && max > 0)
+            {
+                query.Append("&max-keys=");
+                query.Append(max);
             }
             return query.ToString();
         }
