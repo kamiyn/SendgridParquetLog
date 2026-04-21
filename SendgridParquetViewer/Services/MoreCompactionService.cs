@@ -209,11 +209,16 @@ public class MoreCompactionService(
     /// <summary>
     /// 指定フォルダを 1 ファイルへ統合する。出力名は folder-unique な
     /// morecompaction{yyyy}{MM}{dd}{HH}.parquet (<see cref="SendGridPathUtility.GetMoreCompactionFileName"/>)。
-    /// 手順:
-    ///   1. 既存の出力キー (同一キー) があれば削除 (前回アップロード中断への対処)
-    ///   2. フォルダ内 Parquet をストリーミングで読みながら 一時ファイルに 1 つの Parquet を作成
-    ///   3. 一時ファイルを S3 へアップロード
-    ///   4. 検証成功後に 元ファイル (出力キー以外) を削除
+    /// 再実行で冪等になるよう、既存の出力キーがあれば検証のみ行う:
+    ///   A. 出力キーが既に存在する (前回アップロード完了後に 元ソース削除の途中で中断したケース):
+    ///      検証に成功したら 残ソースの削除だけを実施する。
+    ///      (残ソースは欠けている可能性があるため再マージしない。再マージで outputKey を
+    ///       消して サブセットで書き直すと データ損失になる。)
+    ///   B. 出力キーが無い (初回または アップロード前に中断したケース):
+    ///      1. フォルダ内 Parquet をストリーミングで読みながら 一時ファイルに 1 つの Parquet を作成
+    ///      2. 一時ファイルを S3 へアップロード
+    ///      3. 検証
+    ///      4. 元ファイル削除
     /// </summary>
     public async Task<MoreCompactionFolderResult> ExecuteFolderAsync(HourFolder folder, CancellationToken ct)
     {
@@ -228,24 +233,48 @@ public class MoreCompactionService(
             return new MoreCompactionFolderResult(folder, Skipped: true, TotalEvents: 0, DeletedFiles: 0);
         }
 
-        // (1) 既存の出力ファイル (同一キー) を削除。中断後の残骸を確実に消す。
-        await s3StorageService.DeleteObjectAsync(outputKey, ct);
-
-        IReadOnlyList<S3ObjectEntry> readTargets = sources
+        bool existingOutputPresent = sources.Any(e => string.Equals(e.Key, outputKey, StringComparison.Ordinal));
+        IReadOnlyList<S3ObjectEntry> leftoverSources = sources
             .Where(e => !string.Equals(e.Key, outputKey, StringComparison.Ordinal))
             .ToArray();
 
-        if (readTargets.Count == 0)
+        // (A) 前回実行がアップロード成功後に元ソース削除の途中で中断したケース。
+        // outputKey が読めることを確認した上で、残ソースの削除のみ行う。
+        // ここで outputKey を削除 → 残ソースから再マージ、としてしまうと、
+        // 元ソースが部分削除されている場合に完成済み merged データを失う恐れがある。
+        // outputKey の検証で例外が出た場合はそのまま throw して 人手の確認を促す
+        // (破損している outputKey を勝手に削除して 中身未知のソースから書き直すのは危険)。
+        if (existingOutputPresent)
         {
-            logger.ZLogInformation($"MoreCompaction no readable sources after excluding {outputKey}: {folder.Prefix}");
+            logger.ZLogInformation($"MoreCompaction existing output found; verify and cleanup only: {outputKey}");
+            await VerifyUploadedParquetAsync(outputKey, ct);
+
+            int cleaned = 0;
+            foreach (S3ObjectEntry src in leftoverSources)
+            {
+                ct.ThrowIfCancellationRequested();
+                if (await s3StorageService.DeleteObjectAsync(src.Key, ct))
+                {
+                    cleaned++;
+                }
+            }
+            logger.ZLogInformation($"MoreCompaction resumed cleanup: {folder.Prefix} deleted={cleaned}");
+            return new MoreCompactionFolderResult(folder, Skipped: false, TotalEvents: 0, DeletedFiles: cleaned);
+        }
+
+        // (B) 通常ケース: outputKey が無いので マージして新規作成する。
+
+        if (leftoverSources.Count == 0)
+        {
+            logger.ZLogInformation($"MoreCompaction no readable sources: {folder.Prefix}");
             return new MoreCompactionFolderResult(folder, Skipped: true, TotalEvents: 0, DeletedFiles: 0);
         }
 
-        // (2) ストリーミングで 1 つの Parquet を一時ファイルへ書き出す。
+        // (1) ストリーミングで 1 つの Parquet を一時ファイルへ書き出す。
         long totalEvents = 0;
         await using FileStream outputStream = DisposableTempFile.Open(nameof(MoreCompactionService) + "-output");
         bool hasData = await parquetService.ConvertToParquetStreamingAsync(
-            EnumerateSourceEventsAsync(readTargets, count => Interlocked.Add(ref totalEvents, count), ct),
+            EnumerateSourceEventsAsync(leftoverSources, count => Interlocked.Add(ref totalEvents, count), ct),
             outputStream,
             rowGroupSize: RowGroupSize,
             token: ct);
@@ -256,7 +285,7 @@ public class MoreCompactionService(
             return new MoreCompactionFolderResult(folder, Skipped: true, TotalEvents: 0, DeletedFiles: 0);
         }
 
-        // (3) S3 へアップロード。
+        // (2) S3 へアップロード。PUT は atomic なので 既存が無い前提のこの分岐では上書き競合は起きない。
         outputStream.Seek(0, SeekOrigin.Begin);
         bool uploaded = await s3StorageService.PutObjectAsync(outputStream, outputKey, ct);
         if (!uploaded)
@@ -264,18 +293,14 @@ public class MoreCompactionService(
             throw new InvalidOperationException($"Failed to upload merged parquet: {outputKey}");
         }
 
-        // アップロード後 Parquet として読めるか検証。
+        // (3) アップロード後 Parquet として読めるか検証。
         await VerifyUploadedParquetAsync(outputKey, ct);
 
-        // (4) 元ファイル (出力キー自身を除く) を削除。
+        // (4) 元ファイルを削除。outputKey は leftoverSources に含まれない (上で除外済み) ので 誤削除されない。
         int deleted = 0;
-        foreach (S3ObjectEntry src in readTargets)
+        foreach (S3ObjectEntry src in leftoverSources)
         {
             ct.ThrowIfCancellationRequested();
-            if (string.Equals(src.Key, outputKey, StringComparison.Ordinal))
-            {
-                continue;
-            }
             if (await s3StorageService.DeleteObjectAsync(src.Key, ct))
             {
                 deleted++;
