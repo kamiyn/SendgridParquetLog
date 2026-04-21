@@ -399,6 +399,42 @@ public class S3StorageService(
     }
 
     /// <summary>
+    /// prefix 配下の Parquet ファイル (.parquet 拡張子) のみを列挙する。
+    /// DuckDB や Compaction 処理に渡す前段で、morecompaction.json などの
+    /// 非 parquet オブジェクトを誤って対象にしないためのガード。
+    /// </summary>
+    public async ValueTask<IReadOnlyCollection<string>> ListParquetFilesAsync(string prefix, CancellationToken ct)
+    {
+        var all = await ListFilesAsync(prefix, ct);
+        var results = new List<string>(all.Count);
+        foreach (string key in all)
+        {
+            if (key.EndsWith(SendGridPathUtility.ParquetFileExtension, StringComparison.OrdinalIgnoreCase))
+            {
+                results.Add(key);
+            }
+        }
+        return results;
+    }
+
+    /// <summary>
+    /// prefix 配下の Parquet ファイル (.parquet 拡張子) のみを Key と Size の組で列挙する。
+    /// </summary>
+    public async ValueTask<IReadOnlyCollection<S3ObjectEntry>> ListParquetFilesWithSizeAsync(string prefix, CancellationToken ct)
+    {
+        var all = await ListFilesWithSizeAsync(prefix, ct);
+        var results = new List<S3ObjectEntry>(all.Count);
+        foreach (S3ObjectEntry entry in all)
+        {
+            if (entry.Key.EndsWith(SendGridPathUtility.ParquetFileExtension, StringComparison.OrdinalIgnoreCase))
+            {
+                results.Add(entry);
+            }
+        }
+        return results;
+    }
+
+    /// <summary>
     /// prefix 配下のオブジェクトを Key と Size の組で列挙する。
     /// </summary>
     public async ValueTask<IReadOnlyCollection<S3ObjectEntry>> ListFilesWithSizeAsync(string prefix, CancellationToken ct)

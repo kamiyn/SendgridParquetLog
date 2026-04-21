@@ -120,18 +120,14 @@ public class MoreCompactionService(
 
         progress?.Report(new ScanProgress(0, 0, null, 0));
 
-        IReadOnlyCollection<S3ObjectEntry> entries = await s3StorageService.ListFilesWithSizeAsync(prefix, ct);
+        IReadOnlyCollection<S3ObjectEntry> entries = await s3StorageService.ListParquetFilesWithSizeAsync(prefix, ct);
         ct.ThrowIfCancellationRequested();
 
-        // (yyyy, MM, dd, HH) にグループ化。キー分解に失敗したもの (例: morecompaction.json や
-        // 不正なパス) はスキップ。
+        // (yyyy, MM, dd, HH) にグループ化。キー分解に失敗したもの (不正パスなど) はスキップ。
+        // 拡張子フィルタは ListParquetFilesWithSizeAsync 側で担保される。
         var grouped = new Dictionary<(int Year, int Month, int Day, int Hour), List<S3ObjectEntry>>();
         foreach (S3ObjectEntry entry in entries)
         {
-            if (!entry.Key.EndsWith(SendGridPathUtility.ParquetFileExtension, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
             if (!TryParseCompactionKey(entry.Key, out int y, out int m, out int d, out int h))
             {
                 continue;

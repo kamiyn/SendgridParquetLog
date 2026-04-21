@@ -416,10 +416,7 @@ public class CompactionService(
     {
         logger.ZLogInformation($"List files for {targetDate} at path {pathPrefix}");
 
-        var allObjects = await s3StorageService.ListFilesAsync(pathPrefix, token);
-        var targetParquetFiles = allObjects
-            .Where(key => key.EndsWith(SendGridPathUtility.ParquetFileExtension, StringComparison.OrdinalIgnoreCase))
-            .ToArray();
+        var targetParquetFiles = await s3StorageService.ListParquetFilesAsync(pathPrefix, token);
 
         if (!targetParquetFiles.Any())
         {
