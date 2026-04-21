@@ -83,6 +83,12 @@ builder.Services.AddOptions<CompactionOptions>()
     .ValidateDataAnnotations()
     .ValidateOnStart();
 
+// Configure Slack notifier options (optional; URLs are validated at use-time via Uri.TryCreate)
+builder.Services.AddOptions<SlackNotifierOptions>()
+    .Bind(builder.Configuration.GetSection(SlackNotifierOptions.SectionName))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+
 // Configure SendGrid options
 builder.Services.AddOptions<SendgridOptions>()
     .Bind(builder.Configuration.GetSection(SendgridOptions.SectionName))
@@ -137,6 +143,10 @@ builder.Services.AddScoped<WebhookHelper>();
 // Ensure S3 bucket exists at startup (Logger インスタンス廃止予定のため Viewer 単独でもバケット保証する)
 // Compaction HostedService より前に登録して先に動かす
 builder.Services.AddHostedService<CreateBucketService>();
+
+// Add Slack notifier (typed HttpClient) and health checker used by Compaction host service
+builder.Services.AddHttpClient<SlackNotifier>();
+builder.Services.AddSingleton<CompactionHealthCheck>();
 
 // Add Compaction service
 builder.Services.AddSingleton<CompactionService>(); // 1プロセスあたり同時実行は1つだけにする

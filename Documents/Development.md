@@ -6,6 +6,7 @@ SendGrid Webhook to Parquet Logger の開発およびデバッグに関するド
 
 - [ローカル開発](#ローカル開発)
 - [SendGrid 署名検証（開発向け）](#sendgrid-署名検証開発向け)
+- [Slack Webhook の動作確認](#slack-webhook-の動作確認)
 - [トラブルシューティング](#トラブルシューティング)
 
 ## ローカル開発
@@ -132,6 +133,40 @@ curl -X POST "$api/webhook/sendgrid" \
 - 署名対象は「`<UNIX秒のtimestamp>` と `payload(JSON文字列)` をそのまま連結したバイト列」です。
 - 署名は DER 形式の ECDSA 署名（OpenSSL の `-sign` 出力）を Base64 化したものを送ります。
 - Windows の場合は類似の手順を PowerShell + OpenSSL/MSYS で実行できます。
+
+## Slack Webhook の動作確認
+
+Compaction 実行時の Slack 通知（[デプロイ・構築ガイド：Slack 通知](./Deployment.md#slack-通知) を参照）をローカルで確認する手順です。
+
+### 1. テスト用エンドポイントの用意
+
+実際の Slack ワークスペースを使う代わりに、[https://webhook.site](https://webhook.site) などで一時的な受信 URL を発行するのが手軽です。発行された URL は `{ "text": "..." }` の JSON ペイロードを受信ログとして可視化してくれます。
+
+### 2. 環境変数の設定
+
+`appsettings.Development.json` に書く方法と、シェルから環境変数で渡す方法のいずれかを使います。
+
+```bash
+export SLACKNOTIFIER__WARNINGWEBHOOKURL="https://webhook.site/<your-warning-id>"
+export SLACKNOTIFIER__INFORMATIONWEBHOOKURL="https://webhook.site/<your-information-id>"
+dotnet run --project SendgridParquetLog.AppHost
+```
+
+### 3. 通知の発火タイミング
+
+`SendgridParquetViewer/Services/CompactionStartupHostedService.cs` の `Run()` がコンテナ起動直後と JST 6 時の毎日スケジュール時に評価され、警告が 0 件なら information、1 件以上なら warning が送信されます。起動時の Run() で webhook.site に POST が届くことを確認してください。
+
+### 4. 警告条件を意図的に発火させる
+
+ローカル MinIO 上で:
+
+- **「1 日前のデータが存在しない」を試す**: 何もデータを投げ込まずに起動すれば、昨日の `v3raw/YYYY/MM/DD/` プレフィックス下が空のため警告が発火します。
+- **「2 日前の生データが残存」を試す**: `mc` などで `v3raw/<2 日前の日付>/dummy.parquet` を 1 つ置いて再起動します。
+- **Compaction 例外**: `S3__SECRETKEY` を意図的に壊して S3 アクセスを失敗させると、Compaction 内部の例外パスを通り警告に乗ります。
+
+### 5. URL ガードの確認
+
+`SLACKNOTIFIER__WARNINGWEBHOOKURL` を空文字や `"not a url"`、`"ftp://example.com"` 等にして起動した場合、`Uri.TryCreate(..., UriKind.Absolute, ..)` で弾かれて当該種別の通知のみが黙ってスキップされます（ZLogger に「Slack warning webhook is not configured. Skip.」のような Debug ログが出る）。
 
 ## トラブルシューティング
 

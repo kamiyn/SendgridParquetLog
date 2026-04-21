@@ -1,5 +1,7 @@
 ﻿using Microsoft.Extensions.Options;
 
+using SendgridParquet.Shared;
+
 using SendgridParquetViewer.Models;
 
 using ZLogger;
@@ -10,7 +12,9 @@ public sealed class CompactionStartupHostedService(
     ILogger<CompactionStartupHostedService> logger,
     IOptions<CompactionOptions> options,
     CompactionService compactionService,
-    TimeProvider timeProvider
+    TimeProvider timeProvider,
+    CompactionHealthCheck healthCheck,
+    SlackNotifier slackNotifier
 ) : BackgroundService
 {
     private static readonly TimeZoneInfo s_japanTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Asia/Tokyo");
@@ -66,6 +70,21 @@ public sealed class CompactionStartupHostedService(
     private async Task Run(CancellationToken ct)
     {
         logger.ZLogInformation($"Starting compaction process in CompactionStartupHostedService.");
+
+        var warnings = new List<string>();
+
+        try
+        {
+            IReadOnlyList<string> healthWarnings = await healthCheck.CheckAsync(ct);
+            warnings.AddRange(healthWarnings);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            logger.ZLogError(ex, $"CompactionHealthCheck failed");
+            warnings.Add($"健全性チェックでエラー: {ex.GetType().Name}: {ex.Message}");
+        }
+
         try
         {
             CompactionStartResult compactionStartResult = await compactionService.StartCompactionAsync(ct);
@@ -74,10 +93,29 @@ public sealed class CompactionStartupHostedService(
                 await compactionStartResult.StartTask;
             }
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException) { return; }
         catch (Exception ex)
         {
             logger.ZLogError(ex, $"CompactionStartupHostedService");
+            warnings.Add($"Compaction 実行中に例外: {ex.GetType().Name}: {ex.Message}");
+        }
+
+        await NotifySlack(warnings, ct);
+    }
+
+    private async Task NotifySlack(IReadOnlyList<string> warnings, CancellationToken ct)
+    {
+        DateTimeOffset jstNow = timeProvider.GetUtcNow().ToJst();
+
+        if (warnings.Count > 0)
+        {
+            var header = $"⚠️ Compaction 健全性チェックに警告 ({jstNow:yyyy-MM-dd HH:mm:ss} JST)";
+            var body = string.Join('\n', warnings.Select(w => $"• {w}"));
+            await slackNotifier.SendWarningAsync($"{header}\n{body}", ct);
+        }
+        else
+        {
+            await slackNotifier.SendInformationAsync($"✅ Daily Compaction 正常実行 ({jstNow:yyyy-MM-dd HH:mm:ss} JST)", ct);
         }
     }
 }
