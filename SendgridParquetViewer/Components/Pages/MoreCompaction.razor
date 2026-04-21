@@ -12,7 +12,7 @@
 
 <PageTitle>追加コンパクション</PageTitle>
 
-<FluentCard class="main-card">
+<FluentCard class="main-card more-compaction-card">
     <FluentHeader>
         <FluentSpacer />
         <FluentLabel Typo="Typography.PageTitle">追加コンパクション</FluentLabel>
@@ -214,6 +214,15 @@
 </FluentCard>
 
 <style>
+    /* FluentCard はデフォルトで固定高さ/contain のため、FluentDatePicker のカレンダーポップアップが下側でクリップされる。
+       高さを中身に合わせて伸ばし、ポップアップは外側に overflow させる。 */
+    .more-compaction-card {
+        height: auto;
+        min-height: calc(100vh - 3rem);
+        overflow: visible;
+        contain: none;
+    }
+
     .more-compaction-table {
         border-collapse: collapse;
         width: 100%;
