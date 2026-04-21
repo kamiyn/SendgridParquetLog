@@ -21,8 +21,9 @@
 
     <p>
         通常の Compaction 処理が途中で失敗すると、<code>v3compaction/yyyy/MM/dd/HH</code> フォルダに
-        複数の Parquet ファイルが残ることがあります。この画面では年月単位で対象フォルダを洗い出し、
-        1 フォルダ 1 Parquet ファイルへ統合します。
+        複数の Parquet ファイルが残ることがあります。この画面では対象フォルダを洗い出し、
+        1 フォルダ 1 Parquet ファイルへ統合します。年月モードでは月全体を、年月日モードではその日 1 日だけをスキャン対象とします
+        (年月日モードでは月単位の完了マーカーは書き込みません)。
     </p>
     <p>
         <small>
@@ -32,17 +33,26 @@
         </small>
     </p>
 
-    <FluentStack Orientation="Orientation.Horizontal" VerticalAlignment="VerticalAlignment.Center" Style="gap: 1em; flex-wrap: wrap;">
-        <FluentNumberField TValue="int" @bind-Value="_selectedYear" Label="年" Min="2000" Max="2999" Style="width: 8em;" />
-        <FluentNumberField TValue="int" @bind-Value="_selectedMonth" Label="月" Min="1" Max="12" Style="width: 8em;" />
-        <FluentButton Appearance="Appearance.Accent" OnClick="OnScanClickedAsync" Disabled="@(_isScanning || _isRunning)">
-            @(_isScanning ? "スキャン中..." : "スキャン")
-        </FluentButton>
+    <FluentStack Orientation="Orientation.Horizontal" VerticalAlignment="VerticalAlignment.Top" Style="gap: 1em; flex-wrap: wrap;">
+        <div style="min-width: 220px;">
+            <FluentDatePicker @bind-Value="_selectedDate" Label="対象日付" Style="width: 100%;" />
+            <FluentRadioGroup @bind-Value="_dateSelectionMode" Style="margin-top: 5px;">
+                <FluentRadio Value="@DateSelectionMode.YearMonth">年月のみ使用（日付は無視）</FluentRadio>
+                <FluentRadio Value="@DateSelectionMode.YearMonthDay">年月日すべて使用</FluentRadio>
+            </FluentRadioGroup>
+        </div>
+        <div style="margin-top: 25px;">
+            <FluentButton Appearance="Appearance.Accent" OnClick="OnScanClickedAsync" Disabled="@(_isScanning || _isRunning)">
+                @(_isScanning ? "スキャン中..." : "スキャン")
+            </FluentButton>
+        </div>
         @if (_maxSelectable is { } maxSel)
         {
-            <FluentLabel>
-                <small>選択可能な最新年月: @maxSel.Year / @($"{maxSel.Month:D2}")</small>
-            </FluentLabel>
+            <div style="margin-top: 30px;">
+                <FluentLabel>
+                    <small>選択可能な最新年月: @maxSel.Year / @($"{maxSel.Month:D2}")</small>
+                </FluentLabel>
+            </div>
         }
     </FluentStack>
 
@@ -55,9 +65,9 @@
                 {
                     <small>
                         スキャン中:
-                        @if (sp.CurrentDay is { } d)
+                        @if (sp.CurrentDay is { } d && _selectedDate is { } sd)
                         {
-                            @($"{_selectedYear}/{_selectedMonth:D2}/{d:D2}")
+                            @($"{sd.Year}/{sd.Month:D2}/{d:D2}")
                         }
                         else
                         {
@@ -97,9 +107,11 @@
     else if (_scanCompleted && _scan != null)
     {
         <FluentCard style="margin-top: 1em;">
-            <h3>スキャン結果: @_scan.Year / @($"{_scan.Month:D2}")</h3>
+            <h3>
+                スキャン結果: @_scan.Year / @($"{_scan.Month:D2}")@(_scanDay is { } sd ? $" / {sd:D2}" : string.Empty)
+            </h3>
             <p>
-                全 <strong>@_scan.TotalHourFolders</strong> 件の yyyy/MM/dd/HH フォルダを確認しました。<br />
+                全 <strong>@_scan.TotalHourFolders</strong> 件の @(_scanDay is null ? "yyyy/MM/dd/HH" : "yyyy/MM/dd/HH (当日)") フォルダを確認しました。<br />
                 Parquet が 2 つ以上あるフォルダ: <strong>@_scan.MultiFileFolders.Count</strong> 件
                 @if (_scan.MultiFileFolders.Count != _remainingFolders.Count)
                 {
@@ -111,14 +123,18 @@
             {
                 @if (_scan.TotalHourFolders == 0)
                 {
-                    <p>この年月に対象フォルダは存在しません。</p>
+                    <p>この @(_scanDay is null ? "年月" : "日付") に対象フォルダは存在しません。</p>
                 }
-                else
+                else if (_scanDay is null)
                 {
                     <p>すべてのフォルダが 1 parquet のみです。完了マーカーを書き込みます。</p>
                     <FluentButton Appearance="Appearance.Accent" OnClick="OnWriteStatusClickedAsync" Disabled="@_isRunning">
                         完了マーカーを書き込む
                     </FluentButton>
+                }
+                else
+                {
+                    <p>この日付のすべての hour フォルダが 1 parquet のみです。</p>
                 }
             }
             else
@@ -136,10 +152,17 @@
 
                 @if (_remainingFolders.Count == 0)
                 {
-                    <p>すべての対象フォルダの統合が完了しました。完了マーカーを書き込めます。</p>
-                    <FluentButton Appearance="Appearance.Accent" OnClick="OnWriteStatusClickedAsync" Disabled="@_isRunning">
-                        完了マーカーを書き込む
-                    </FluentButton>
+                    @if (_scanDay is null)
+                    {
+                        <p>すべての対象フォルダの統合が完了しました。完了マーカーを書き込めます。</p>
+                        <FluentButton Appearance="Appearance.Accent" OnClick="OnWriteStatusClickedAsync" Disabled="@_isRunning">
+                            完了マーカーを書き込む
+                        </FluentButton>
+                    }
+                    else
+                    {
+                        <p>この日付の対象フォルダはすべて統合が完了しました。</p>
+                    }
                 }
                 else
                 {
@@ -210,8 +233,14 @@
 </style>
 
 @code {
-    private int _selectedYear;
-    private int _selectedMonth;
+    public enum DateSelectionMode
+    {
+        YearMonth,
+        YearMonthDay
+    }
+
+    private DateSelectionMode _dateSelectionMode = DateSelectionMode.YearMonth;
+    private DateTime? _selectedDate; // FluentDatePicker に bind するときは nullable でなければならない
     private (int Year, int Month)? _maxSelectable;
 
     private bool _isScanning;
@@ -223,6 +252,7 @@
     private MoreCompactionService.DiskSpaceEstimate? _diskEstimate;
     private MoreCompactionService.ScanProgress? _scanProgress;
     private List<MoreCompactionService.HourFolder> _remainingFolders = [];
+    private int? _scanDay;
 
     private string _message = string.Empty;
     private MessageIntent _messageIntent = MessageIntent.Info;
@@ -235,8 +265,7 @@
         // 選択可能な最新年月 = 今月の 1 つ前
         DateTimeOffset previousMonth = nowJst.AddMonths(-1);
         _maxSelectable = (previousMonth.Year, previousMonth.Month);
-        _selectedYear = previousMonth.Year;
-        _selectedMonth = previousMonth.Month;
+        _selectedDate = new DateTime(previousMonth.Year, previousMonth.Month, 1);
     }
 
     private bool ValidateSelection()
@@ -246,14 +275,14 @@
             ShowMessage("選択可能年月の算出に失敗しました。", MessageIntent.Error);
             return false;
         }
-
-        int selected = _selectedYear * 100 + _selectedMonth;
-        int max = maxSel.Year * 100 + maxSel.Month;
-        if (_selectedMonth is < 1 or > 12)
+        if (_selectedDate is not { } date)
         {
-            ShowMessage("月は 1 から 12 の範囲で指定してください。", MessageIntent.Error);
+            ShowMessage("対象日付を選択してください。", MessageIntent.Error);
             return false;
         }
+
+        int selected = date.Year * 100 + date.Month;
+        int max = maxSel.Year * 100 + maxSel.Month;
         if (selected > max)
         {
             ShowMessage($"先月以前の年月のみ指定できます (最新: {maxSel.Year}/{maxSel.Month:D2})。", MessageIntent.Warning);
@@ -269,23 +298,32 @@
             return;
         }
 
+        DateTime date = _selectedDate!.Value;
+        int year = date.Year;
+        int month = date.Month;
+        int? day = _dateSelectionMode == DateSelectionMode.YearMonthDay ? date.Day : null;
+
         _status = null;
         _scan = null;
         _diskEstimate = null;
         _scanCompleted = false;
         _scanProgress = null;
         _remainingFolders = [];
+        _scanDay = day;
         _runLog.Clear();
         _message = string.Empty;
 
         _isScanning = true;
         try
         {
-            _status = await MoreCompactionService.GetStatusAsync(_selectedYear, _selectedMonth, _cts.Token);
-            if (_status != null)
+            if (day is null)
             {
-                ShowMessage("処理完了済みのためスキャンを実施しません。", MessageIntent.Info);
-                return;
+                _status = await MoreCompactionService.GetStatusAsync(year, month, _cts.Token);
+                if (_status != null)
+                {
+                    ShowMessage("処理完了済みのためスキャンを実施しません。", MessageIntent.Info);
+                    return;
+                }
             }
 
             var progress = new Progress<MoreCompactionService.ScanProgress>(p =>
@@ -293,7 +331,7 @@
                 _scanProgress = p;
                 StateHasChanged();
             });
-            MoreCompactionService.ScanResult scan = await MoreCompactionService.ScanAsync(_selectedYear, _selectedMonth, _cts.Token, progress);
+            MoreCompactionService.ScanResult scan = await MoreCompactionService.ScanAsync(year, month, _cts.Token, progress, day);
             _scan = scan;
             _scanCompleted = true;
             _remainingFolders = [.. scan.MultiFileFolders];
@@ -301,11 +339,15 @@
 
             if (scan.TotalHourFolders == 0)
             {
-                ShowMessage("この年月に対象フォルダは存在しません。", MessageIntent.Info);
+                ShowMessage(day is null
+                    ? "この年月に対象フォルダは存在しません。"
+                    : "この日付に対象フォルダは存在しません。", MessageIntent.Info);
             }
             else if (scan.MultiFileFolders.Count == 0)
             {
-                ShowMessage("すべてのフォルダが 1 parquet のみです。完了マーカーを書き込めます。", MessageIntent.Success);
+                ShowMessage(day is null
+                    ? "すべてのフォルダが 1 parquet のみです。完了マーカーを書き込めます。"
+                    : "この日付のすべての hour フォルダが 1 parquet のみです。", MessageIntent.Success);
             }
             else
             {
@@ -318,7 +360,7 @@
         }
         catch (Exception ex)
         {
-            Logger.ZLogError(ex, $"Scan failed {_selectedYear}/{_selectedMonth}");
+            Logger.ZLogError(ex, $"Scan failed {year}/{month}{(day is { } d ? $"/{d:D2}" : string.Empty)}");
             ShowMessage("スキャンに失敗しました。", MessageIntent.Error);
         }
         finally

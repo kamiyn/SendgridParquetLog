@@ -94,18 +94,26 @@ public class MoreCompactionService(
     }
 
     /// <summary>
-    /// 指定年月の v3compaction/yyyy/MM/dd/HH フォルダを全走査し、
+    /// 指定年月 (または 年月日) の v3compaction/yyyy/MM/dd/HH フォルダを走査し、
     /// Parquet ファイルが 2 つ以上あるフォルダを洗い出す。
+    /// day が指定された場合はその 1 日だけが対象。
     /// </summary>
-    public async Task<ScanResult> ScanAsync(int year, int month, CancellationToken ct, IProgress<ScanProgress>? progress = null)
+    public async Task<ScanResult> ScanAsync(int year, int month, CancellationToken ct, IProgress<ScanProgress>? progress = null, int? day = null)
     {
-        var monthPrefix = SendGridPathUtility.GetS3CompactionPrefix(year, month, null, null);
-        IEnumerable<string> dayDirs = await s3StorageService.ListDirectoriesAsync(monthPrefix, ct);
-
-        int[] days = dayDirs.Select(d => int.TryParse(d, out int v) ? v : 0)
-            .Where(v => v > 0)
-            .OrderBy(v => v)
-            .ToArray();
+        int[] days;
+        if (day is { } d)
+        {
+            days = [d];
+        }
+        else
+        {
+            var monthPrefix = SendGridPathUtility.GetS3CompactionPrefix(year, month, null, null);
+            IEnumerable<string> dayDirs = await s3StorageService.ListDirectoriesAsync(monthPrefix, ct);
+            days = dayDirs.Select(x => int.TryParse(x, out int v) ? v : 0)
+                .Where(v => v > 0)
+                .OrderBy(v => v)
+                .ToArray();
+        }
 
         var allFolders = new List<HourFolder>();
         var multi = new List<HourFolder>();
@@ -114,11 +122,11 @@ public class MoreCompactionService(
 
         for (int i = 0; i < days.Length; i++)
         {
-            int day = days[i];
+            int currentDay = days[i];
             ct.ThrowIfCancellationRequested();
-            progress?.Report(new ScanProgress(i, days.Length, day, multi.Count));
+            progress?.Report(new ScanProgress(i, days.Length, currentDay, multi.Count));
 
-            var dayPrefix = SendGridPathUtility.GetS3CompactionPrefix(year, month, day, null);
+            var dayPrefix = SendGridPathUtility.GetS3CompactionPrefix(year, month, currentDay, null);
             IEnumerable<string> hourDirs = await s3StorageService.ListDirectoriesAsync(dayPrefix, ct);
 
             foreach (int hour in hourDirs.Select(h => int.TryParse(h, out int v) ? v : -1)
@@ -126,14 +134,14 @@ public class MoreCompactionService(
                          .OrderBy(v => v))
             {
                 ct.ThrowIfCancellationRequested();
-                var hourPrefix = SendGridPathUtility.GetS3CompactionPrefix(year, month, day, hour);
+                var hourPrefix = SendGridPathUtility.GetS3CompactionPrefix(year, month, currentDay, hour);
                 IReadOnlyCollection<S3ObjectEntry> entries = await s3StorageService.ListFilesWithSizeAsync(hourPrefix, ct);
                 var parquetFiles = entries
                     .Where(e => e.Key.EndsWith(SendGridPathUtility.ParquetFileExtension, StringComparison.OrdinalIgnoreCase))
                     .OrderBy(e => e.Key, StringComparer.Ordinal)
                     .ToArray();
 
-                var folder = new HourFolder(year, month, day, hour, hourPrefix, parquetFiles);
+                var folder = new HourFolder(year, month, currentDay, hour, hourPrefix, parquetFiles);
                 allFolders.Add(folder);
                 if (parquetFiles.Length >= 2)
                 {
