@@ -18,6 +18,10 @@ public sealed class SlackNotifier(
     IOptions<SlackNotifierOptions> options,
     ILogger<SlackNotifier> logger)
 {
+    // 通知は運用補助のため、Slack 側が遅い/ハングしても Compaction 本処理をブロックしない。
+    // 呼び出し元の CancellationToken とリンクし、短いタイムアウトで打ち切る。
+    private static readonly TimeSpan s_httpTimeout = TimeSpan.FromSeconds(5);
+
     private readonly SlackNotifierOptions _options = options.Value;
 
     public Task SendWarningAsync(string text, CancellationToken ct) =>
@@ -34,25 +38,36 @@ public sealed class SlackNotifier(
             return;
         }
 
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(s_httpTimeout);
+
         try
         {
             // Slack Incoming Webhook expects { "text": "..." }
-            using HttpResponseMessage response = await httpClient.PostAsJsonAsync(uri, new { text }, ct);
+            using HttpResponseMessage response = await httpClient.PostAsJsonAsync(uri, new { text }, cts.Token);
             if (response.IsSuccessStatusCode)
             {
                 logger.ZLogInformation($"Slack {level} notification sent.");
             }
             else
             {
-                string body = await response.Content.ReadAsStringAsync(ct);
+                string body = await response.Content.ReadAsStringAsync(cts.Token);
                 logger.ZLogError($"Slack {level} notification failed. Status: {response.StatusCode}, Body: {body}");
             }
         }
-        catch (OperationCanceledException) { throw; }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // 呼び出し元のキャンセルは伝搬する
+            throw;
+        }
+        catch (OperationCanceledException)
+        {
+            // タイムアウト: 通知失敗として握りつぶす
+            logger.ZLogError($"Slack {level} notification timed out after {s_httpTimeout.TotalSeconds:0}s.");
+        }
         catch (Exception ex)
         {
             logger.ZLogError(ex, $"Slack {level} notification threw an exception.");
         }
     }
-
 }
