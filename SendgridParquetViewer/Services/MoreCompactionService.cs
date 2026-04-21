@@ -298,10 +298,11 @@ public class MoreCompactionService(
             foreach (S3ObjectEntry src in leftoverSources)
             {
                 ct.ThrowIfCancellationRequested();
-                if (await s3StorageService.DeleteObjectAsync(src.Key, ct))
+                if (!await s3StorageService.DeleteObjectAsync(src.Key, ct))
                 {
-                    cleaned++;
+                    throw new InvalidOperationException($"Failed to delete source after resumed cleanup: {src.Key}");
                 }
+                cleaned++;
             }
             logger.ZLogInformation($"MoreCompaction resumed cleanup: {folder.Prefix} deleted={cleaned}");
             return new MoreCompactionFolderResult(folder, Skipped: false, TotalEvents: 0, DeletedFiles: cleaned);
@@ -342,14 +343,16 @@ public class MoreCompactionService(
         await VerifyUploadedParquetAsync(outputKey, ct);
 
         // (4) 元ファイルを削除。outputKey は leftoverSources に含まれない (上で除外済み) ので 誤削除されない。
+        // 1 件でも失敗すると フォルダ内に古いソースが残り「1 parquet 保証」が崩れるため、その時点で例外にする。
         int deleted = 0;
         foreach (S3ObjectEntry src in leftoverSources)
         {
             ct.ThrowIfCancellationRequested();
-            if (await s3StorageService.DeleteObjectAsync(src.Key, ct))
+            if (!await s3StorageService.DeleteObjectAsync(src.Key, ct))
             {
-                deleted++;
+                throw new InvalidOperationException($"Failed to delete source after merge: {src.Key}");
             }
+            deleted++;
         }
 
         logger.ZLogInformation($"MoreCompaction done: {folder.Prefix} events={totalEvents} deleted={deleted}");
