@@ -21,6 +21,16 @@ public record S3GetObjectResult(byte[] Content, string? ETag);
 
 public readonly record struct S3ObjectEntry(string Key, long Size);
 
+/// <summary>
+/// 条件付き PUT の結果。
+/// </summary>
+public enum S3ConditionalPutResult
+{
+    Uploaded,
+    PreconditionFailed,
+    Failed,
+}
+
 public class S3StorageService(
     ILogger<S3StorageService> logger,
     IOptions<S3Options> options,
@@ -285,6 +295,49 @@ public class S3StorageService(
         {
             logger.ZLogError(ex, $"Error deleting object {uri} from S3");
             return false;
+        }
+    }
+
+    /// <summary>
+    /// If-None-Match: * を付けた Stream PUT。オブジェクトが存在しない場合のみ作成する。
+    /// 大容量 (マージ済み Parquet 等) を byte[] に読み込まずに送りたいケース向け。
+    /// </summary>
+    public async ValueTask<S3ConditionalPutResult> PutObjectIfNoneMatchAsync(string key, Stream content, CancellationToken ct)
+    {
+        var uri = GetObjectUri(key);
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Put, uri);
+            request.Headers.TryAddWithoutValidation("If-None-Match", "*");
+
+            AddAwsSignatureHeaders(request, content);
+
+            content.Seek(0, SeekOrigin.Begin);
+            request.Content = new StreamContent(content);
+            request.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
+            using HttpResponseMessage response = await httpClient.SendAsync(request, ct);
+
+            if (response.IsSuccessStatusCode)
+            {
+                string? etag = response.Headers.ETag?.Tag;
+                logger.ZLogInformation($"Object {uri} uploaded conditionally (If-None-Match) to S3. ETag: {etag}");
+                return S3ConditionalPutResult.Uploaded;
+            }
+            if (response.StatusCode == HttpStatusCode.PreconditionFailed)
+            {
+                logger.ZLogInformation($"Conditional PUT failed for {uri} - precondition not met (object already exists)");
+                return S3ConditionalPutResult.PreconditionFailed;
+            }
+
+            string responseContent = await response.Content.ReadAsStringAsync(ct);
+            logger.ZLogError($"Error uploading object {uri} to S3. Status: {response.StatusCode}, Response: {ErrorContent(responseContent)}");
+            return S3ConditionalPutResult.Failed;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception ex)
+        {
+            logger.ZLogError(ex, $"Error uploading object {uri} to S3 (conditional stream)");
+            return S3ConditionalPutResult.Failed;
         }
     }
 

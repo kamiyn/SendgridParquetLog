@@ -331,12 +331,23 @@ public class MoreCompactionService(
             return new MoreCompactionFolderResult(folder, Skipped: true, TotalEvents: 0, DeletedFiles: 0);
         }
 
-        // (2) S3 へアップロード。PUT は atomic なので 既存が無い前提のこの分岐では上書き競合は起きない。
+        // (2) S3 へアップロード。
+        // 注意: S3 PUT の atomicity は「部分書き込みが他者から見えない」保証で、上書き競合は防がない。
+        // live check (ObjectExistsAsync) 〜 PUT の間に別実行が同じ outputKey を先に書いているケースに
+        // 備えて、If-None-Match: * 付きの条件付き PUT で上書きを防ぐ。
         outputStream.Seek(0, SeekOrigin.Begin);
-        bool uploaded = await s3StorageService.PutObjectAsync(outputStream, outputKey, ct);
-        if (!uploaded)
+        S3ConditionalPutResult putResult = await s3StorageService.PutObjectIfNoneMatchAsync(outputKey, outputStream, ct);
+        switch (putResult)
         {
-            throw new InvalidOperationException($"Failed to upload merged parquet: {outputKey}");
+            case S3ConditionalPutResult.Uploaded:
+                break;
+            case S3ConditionalPutResult.PreconditionFailed:
+                // 別実行が先に outputKey を作成した。再スキャン → 再実行で A 分岐 (verify + cleanup) が引かれる。
+                throw new InvalidOperationException(
+                    $"Conditional PUT failed (concurrent writer created {outputKey}); re-run to enter verify+cleanup path.");
+            case S3ConditionalPutResult.Failed:
+            default:
+                throw new InvalidOperationException($"Failed to upload merged parquet: {outputKey}");
         }
 
         // (3) アップロード後 Parquet として読めるか検証。
