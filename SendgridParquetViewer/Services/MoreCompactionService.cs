@@ -97,61 +97,87 @@ public class MoreCompactionService(
     /// 指定年月 (または 年月日) の v3compaction/yyyy/MM/dd/HH フォルダを走査し、
     /// Parquet ファイルが 2 つ以上あるフォルダを洗い出す。
     /// day が指定された場合はその 1 日だけが対象。
+    ///
+    /// 実装は prefix (月 or 日) 配下を 1 回の再帰 LIST で取得し、キー文字列から
+    /// yyyy/MM/dd/HH を分解してグループ化する。ディレクトリ単位に LIST を
+    /// 繰り返すよりも HTTP 往復回数が激減する。
     /// </summary>
     public async Task<ScanResult> ScanAsync(int year, int month, CancellationToken ct, IProgress<ScanProgress>? progress = null, int? day = null)
     {
-        int[] days;
-        if (day is { } d)
+        // 月モード: v3compaction/yyyy/MM  /  日モード: v3compaction/yyyy/MM/dd
+        string prefix = SendGridPathUtility.GetS3CompactionPrefix(year, month, day, null);
+
+        progress?.Report(new ScanProgress(0, 0, null, 0));
+
+        IReadOnlyCollection<S3ObjectEntry> entries = await s3StorageService.ListFilesWithSizeAsync(prefix, ct);
+        ct.ThrowIfCancellationRequested();
+
+        // (yyyy, MM, dd, HH) にグループ化。キー分解に失敗したもの (例: morecompaction.json や
+        // 不正なパス) はスキップ。
+        var grouped = new Dictionary<(int Year, int Month, int Day, int Hour), List<S3ObjectEntry>>();
+        foreach (S3ObjectEntry entry in entries)
         {
-            days = [d];
-        }
-        else
-        {
-            var monthPrefix = SendGridPathUtility.GetS3CompactionPrefix(year, month, null, null);
-            IEnumerable<string> dayDirs = await s3StorageService.ListDirectoriesAsync(monthPrefix, ct);
-            days = dayDirs.Select(x => int.TryParse(x, out int v) ? v : 0)
-                .Where(v => v > 0)
-                .OrderBy(v => v)
-                .ToArray();
-        }
-
-        var allFolders = new List<HourFolder>();
-        var multi = new List<HourFolder>();
-
-        progress?.Report(new ScanProgress(0, days.Length, null, 0));
-
-        for (int i = 0; i < days.Length; i++)
-        {
-            int currentDay = days[i];
-            ct.ThrowIfCancellationRequested();
-            progress?.Report(new ScanProgress(i, days.Length, currentDay, multi.Count));
-
-            var dayPrefix = SendGridPathUtility.GetS3CompactionPrefix(year, month, currentDay, null);
-            IEnumerable<string> hourDirs = await s3StorageService.ListDirectoriesAsync(dayPrefix, ct);
-
-            foreach (int hour in hourDirs.Select(h => int.TryParse(h, out int v) ? v : -1)
-                         .Where(v => v >= 0)
-                         .OrderBy(v => v))
+            if (!entry.Key.EndsWith(SendGridPathUtility.ParquetFileExtension, StringComparison.OrdinalIgnoreCase))
             {
-                ct.ThrowIfCancellationRequested();
-                var hourPrefix = SendGridPathUtility.GetS3CompactionPrefix(year, month, currentDay, hour);
-                IReadOnlyCollection<S3ObjectEntry> entries = await s3StorageService.ListFilesWithSizeAsync(hourPrefix, ct);
-                var parquetFiles = entries
-                    .Where(e => e.Key.EndsWith(SendGridPathUtility.ParquetFileExtension, StringComparison.OrdinalIgnoreCase))
-                    .OrderBy(e => e.Key, StringComparer.Ordinal)
-                    .ToArray();
+                continue;
+            }
+            if (!TryParseCompactionKey(entry.Key, out int y, out int m, out int d, out int h))
+            {
+                continue;
+            }
+            if (y != year || m != month || (day is { } dd && d != dd))
+            {
+                // prefix の想定から外れるキーは無視 (防御的)
+                continue;
+            }
+            var groupKey = (y, m, d, h);
+            if (!grouped.TryGetValue(groupKey, out var list))
+            {
+                list = new List<S3ObjectEntry>();
+                grouped[groupKey] = list;
+            }
+            list.Add(entry);
+        }
 
-                var folder = new HourFolder(year, month, currentDay, hour, hourPrefix, parquetFiles);
-                allFolders.Add(folder);
-                if (parquetFiles.Length >= 2)
-                {
-                    multi.Add(folder);
-                }
+        var allFolders = new List<HourFolder>(grouped.Count);
+        var multi = new List<HourFolder>();
+        foreach (var groupKey in grouped.Keys.OrderBy(k => k.Day).ThenBy(k => k.Hour))
+        {
+            List<S3ObjectEntry> bucket = grouped[groupKey];
+            S3ObjectEntry[] parquetFiles = bucket
+                .OrderBy(e => e.Key, StringComparer.Ordinal)
+                .ToArray();
+            string hourPrefix = SendGridPathUtility.GetS3CompactionPrefix(groupKey.Year, groupKey.Month, groupKey.Day, groupKey.Hour);
+            var folder = new HourFolder(groupKey.Year, groupKey.Month, groupKey.Day, groupKey.Hour, hourPrefix, parquetFiles);
+            allFolders.Add(folder);
+            if (parquetFiles.Length >= 2)
+            {
+                multi.Add(folder);
             }
         }
 
-        progress?.Report(new ScanProgress(days.Length, days.Length, null, multi.Count));
+        int distinctDays = allFolders.Select(f => f.Day).Distinct().Count();
+        progress?.Report(new ScanProgress(distinctDays, distinctDays, null, multi.Count));
         return new ScanResult(year, month, allFolders, multi);
+    }
+
+    /// <summary>
+    /// `v3compaction/yyyy/MM/dd/HH/<name>` 形式の S3 キーを年月日時に分解する。
+    /// 先頭 5 セグメント (prefix + yyyy + MM + dd + HH) をすべて int パースできた場合のみ true。
+    /// </summary>
+    private static bool TryParseCompactionKey(string key, out int year, out int month, out int day, out int hour)
+    {
+        year = month = day = hour = 0;
+        string[] parts = key.Split('/');
+        // 期待形式: ["v3compaction", "yyyy", "MM", "dd", "HH", "filename"] -> parts.Length >= 6
+        if (parts.Length < 6)
+        {
+            return false;
+        }
+        return int.TryParse(parts[1], out year)
+            && int.TryParse(parts[2], out month)
+            && int.TryParse(parts[3], out day)
+            && int.TryParse(parts[4], out hour);
     }
 
     /// <summary>
