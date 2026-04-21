@@ -65,6 +65,12 @@ public class MoreCompactionService(
         long AvailableFreeBytes,
         bool IsSufficient);
 
+    public sealed record ScanProgress(
+        int ProcessedDays,
+        int TotalDays,
+        int? CurrentDay,
+        int MultiFileFoldersFound);
+
     /// <summary>
     /// 年月の完了マーカーを取得する。存在しない場合は null を返す。
     /// </summary>
@@ -91,19 +97,27 @@ public class MoreCompactionService(
     /// 指定年月の v3compaction/yyyy/MM/dd/HH フォルダを全走査し、
     /// Parquet ファイルが 2 つ以上あるフォルダを洗い出す。
     /// </summary>
-    public async Task<ScanResult> ScanAsync(int year, int month, CancellationToken ct)
+    public async Task<ScanResult> ScanAsync(int year, int month, CancellationToken ct, IProgress<ScanProgress>? progress = null)
     {
         var monthPrefix = SendGridPathUtility.GetS3CompactionPrefix(year, month, null, null);
         IEnumerable<string> dayDirs = await s3StorageService.ListDirectoriesAsync(monthPrefix, ct);
 
+        int[] days = dayDirs.Select(d => int.TryParse(d, out int v) ? v : 0)
+            .Where(v => v > 0)
+            .OrderBy(v => v)
+            .ToArray();
+
         var allFolders = new List<HourFolder>();
         var multi = new List<HourFolder>();
 
-        foreach (int day in dayDirs.Select(d => int.TryParse(d, out int v) ? v : 0)
-                     .Where(v => v > 0)
-                     .OrderBy(v => v))
+        progress?.Report(new ScanProgress(0, days.Length, null, 0));
+
+        for (int i = 0; i < days.Length; i++)
         {
+            int day = days[i];
             ct.ThrowIfCancellationRequested();
+            progress?.Report(new ScanProgress(i, days.Length, day, multi.Count));
+
             var dayPrefix = SendGridPathUtility.GetS3CompactionPrefix(year, month, day, null);
             IEnumerable<string> hourDirs = await s3StorageService.ListDirectoriesAsync(dayPrefix, ct);
 
@@ -128,6 +142,7 @@ public class MoreCompactionService(
             }
         }
 
+        progress?.Report(new ScanProgress(days.Length, days.Length, null, multi.Count));
         return new ScanResult(year, month, allFolders, multi);
     }
 

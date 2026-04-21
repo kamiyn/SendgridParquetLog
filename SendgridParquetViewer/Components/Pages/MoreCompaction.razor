@@ -46,6 +46,34 @@
         }
     </FluentStack>
 
+    @if (_isScanning)
+    {
+        <FluentStack Orientation="Orientation.Horizontal" VerticalAlignment="VerticalAlignment.Center" Style="gap: 0.75em; margin-top: 0.5em;">
+            <FluentProgressRing Style="width: 1.25em; height: 1.25em;" />
+            <FluentLabel>
+                @if (_scanProgress is { } sp)
+                {
+                    <small>
+                        スキャン中:
+                        @if (sp.CurrentDay is { } d)
+                        {
+                            @($"{_selectedYear}/{_selectedMonth:D2}/{d:D2}")
+                        }
+                        else
+                        {
+                            <span>準備中</span>
+                        }
+                        (@sp.ProcessedDays / @sp.TotalDays 日 完了, 対象フォルダ @sp.MultiFileFoldersFound 件)
+                    </small>
+                }
+                else
+                {
+                    <small>スキャン中: 準備中</small>
+                }
+            </FluentLabel>
+        </FluentStack>
+    }
+
     @if (!string.IsNullOrEmpty(_message))
     {
         <div style="margin-top: 1em;">
@@ -73,6 +101,10 @@
             <p>
                 全 <strong>@_scan.TotalHourFolders</strong> 件の yyyy/MM/dd/HH フォルダを確認しました。<br />
                 Parquet が 2 つ以上あるフォルダ: <strong>@_scan.MultiFileFolders.Count</strong> 件
+                @if (_scan.MultiFileFolders.Count != _remainingFolders.Count)
+                {
+                    <span>(残り <strong>@_remainingFolders.Count</strong> 件)</span>
+                }
             </p>
 
             @if (_scan.MultiFileFolders.Count == 0)
@@ -102,39 +134,49 @@
                     </FluentMessageBar>
                 }
 
-                <table class="more-compaction-table">
-                    <thead>
-                        <tr>
-                            <th>日/時</th>
-                            <th>parquet 数</th>
-                            <th>合計サイズ</th>
-                            <th>操作</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var folder in _scan.MultiFileFolders)
-                        {
-                            <tr>
-                                <td>@($"{folder.Day:D2}") / @($"{folder.Hour:D2}")</td>
-                                <td>@folder.ParquetFiles.Count</td>
-                                <td>@FormatBytes(folder.TotalBytes)</td>
-                                <td>
-                                    <FluentButton Appearance="Appearance.Neutral"
-                                                  OnClick="@(() => OnRunFolderClickedAsync(folder))"
-                                                  Disabled="@_isRunning">
-                                        実行
-                                    </FluentButton>
-                                </td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-
-                <div style="margin-top: 1em;">
-                    <FluentButton Appearance="Appearance.Accent" OnClick="OnRunAllClickedAsync" Disabled="@_isRunning">
-                        @(_isRunning ? "実行中..." : "すべて実行")
+                @if (_remainingFolders.Count == 0)
+                {
+                    <p>すべての対象フォルダの統合が完了しました。完了マーカーを書き込めます。</p>
+                    <FluentButton Appearance="Appearance.Accent" OnClick="OnWriteStatusClickedAsync" Disabled="@_isRunning">
+                        完了マーカーを書き込む
                     </FluentButton>
-                </div>
+                }
+                else
+                {
+                    <table class="more-compaction-table">
+                        <thead>
+                            <tr>
+                                <th>日/時</th>
+                                <th>parquet 数</th>
+                                <th>合計サイズ</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var folder in _remainingFolders)
+                            {
+                                <tr @key="folder.Prefix">
+                                    <td>@($"{folder.Day:D2}") / @($"{folder.Hour:D2}")</td>
+                                    <td>@folder.ParquetFiles.Count</td>
+                                    <td>@FormatBytes(folder.TotalBytes)</td>
+                                    <td>
+                                        <FluentButton Appearance="Appearance.Neutral"
+                                                      OnClick="@(() => OnRunFolderClickedAsync(folder))"
+                                                      Disabled="@_isRunning">
+                                            実行
+                                        </FluentButton>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+
+                    <div style="margin-top: 1em;">
+                        <FluentButton Appearance="Appearance.Accent" OnClick="OnRunAllClickedAsync" Disabled="@_isRunning">
+                            @(_isRunning ? "実行中..." : "すべて実行")
+                        </FluentButton>
+                    </div>
+                }
             }
         </FluentCard>
     }
@@ -179,6 +221,8 @@
     private MoreCompactionStatus? _status;
     private MoreCompactionService.ScanResult? _scan;
     private MoreCompactionService.DiskSpaceEstimate? _diskEstimate;
+    private MoreCompactionService.ScanProgress? _scanProgress;
+    private List<MoreCompactionService.HourFolder> _remainingFolders = [];
 
     private string _message = string.Empty;
     private MessageIntent _messageIntent = MessageIntent.Info;
@@ -229,6 +273,8 @@
         _scan = null;
         _diskEstimate = null;
         _scanCompleted = false;
+        _scanProgress = null;
+        _remainingFolders = [];
         _runLog.Clear();
         _message = string.Empty;
 
@@ -242,9 +288,15 @@
                 return;
             }
 
-            MoreCompactionService.ScanResult scan = await MoreCompactionService.ScanAsync(_selectedYear, _selectedMonth, _cts.Token);
+            var progress = new Progress<MoreCompactionService.ScanProgress>(p =>
+            {
+                _scanProgress = p;
+                StateHasChanged();
+            });
+            MoreCompactionService.ScanResult scan = await MoreCompactionService.ScanAsync(_selectedYear, _selectedMonth, _cts.Token, progress);
             _scan = scan;
             _scanCompleted = true;
+            _remainingFolders = [.. scan.MultiFileFolders];
             _diskEstimate = MoreCompactionService.EstimateDiskSpace(scan.MaxTempBytesPerFolder);
 
             if (scan.TotalHourFolders == 0)
@@ -272,6 +324,7 @@
         finally
         {
             _isScanning = false;
+            _scanProgress = null;
         }
     }
 
@@ -337,6 +390,8 @@
                     else
                     {
                         AppendLog($"{label} 完了 events={result.TotalEvents} 元ファイル削除={result.DeletedFiles}");
+                        _remainingFolders.Remove(folder);
+                        StateHasChanged();
                     }
                 }
                 catch (OperationCanceledException)
@@ -350,24 +405,6 @@
                     AppendLog($"{label} 失敗: {ex.Message}");
                 }
             }
-
-            // 実行後に再スキャンして最新状態を反映するが、実行ログは保持する
-            List<string> existingRunLog = [.. _runLog];
-            string? existingMessage = _message;
-            MessageIntent existingMessageIntent = _messageIntent;
-
-            await OnScanClickedAsync();
-
-            _runLog.Clear();
-            _runLog.AddRange(existingRunLog);
-
-            if (string.IsNullOrEmpty(_message) && !string.IsNullOrEmpty(existingMessage))
-            {
-                _message = existingMessage;
-                _messageIntent = existingMessageIntent;
-            }
-
-            StateHasChanged();
         }
         finally
         {
