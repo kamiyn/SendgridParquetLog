@@ -64,16 +64,7 @@
                 @if (_scanProgress is { } sp)
                 {
                     <small>
-                        スキャン中:
-                        @if (sp.CurrentDay is { } d && _selectedDate is { } sd)
-                        {
-                            @($"{sd.Year}/{sd.Month:D2}/{d:D2}")
-                        }
-                        else
-                        {
-                            <span>準備中</span>
-                        }
-                        (@sp.ProcessedDays / @sp.TotalDays 日 完了, 対象フォルダ @sp.MultiFileFoldersFound 件)
+                        スキャン中: @sp.ProcessedDays / @sp.TotalDays 日 完了, 対象フォルダ @sp.MultiFileFoldersFound 件
                     </small>
                 }
                 else
