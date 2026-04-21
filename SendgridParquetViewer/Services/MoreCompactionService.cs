@@ -97,6 +97,8 @@ public class MoreCompactionService(
             }
             return JsonSerializer.Deserialize(content, AppJsonSerializerContext.Default.MoreCompactionStatus);
         }
+        // キャンセルは呼び出し元に伝搬させる (不要な警告ログも出さない)。
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
             logger.ZLogWarning(ex, $"Unable to read more-compaction status from {key}");
