@@ -41,6 +41,17 @@ public class MoreCompactionService(
         IReadOnlyList<S3ObjectEntry> ParquetFiles)
     {
         public long TotalBytes => ParquetFiles.Sum(f => f.Size);
+
+        public long MaxFileBytes => ParquetFiles.Count == 0 ? 0L : ParquetFiles.Max(f => f.Size);
+
+        /// <summary>
+        /// ExecuteFolderAsync 実行中に一時フォルダで同時に存在しうるバイト数の安全側見積もり。
+        /// 下記 3 つが同時に乗ることを想定:
+        ///   (a) マージ出力 tempfile ≒ TotalBytes
+        ///   (b) Verify 用に再ダウンロードした tempfile ≒ TotalBytes (output は解放前なので並存)
+        ///   (c) ソース tempfile 1 本 ≒ MaxFileBytes (実装上は verify と並存しないが保守的に加算)
+        /// </summary>
+        public long EstimatedPeakTempBytes => TotalBytes * 2 + MaxFileBytes;
     }
 
     public sealed record ScanResult(
@@ -53,10 +64,10 @@ public class MoreCompactionService(
 
         /// <summary>
         /// 逐次実行時に一時的に必要となる最大ディスク量。
-        /// MoreCompaction は 1 フォルダずつ処理するため、最大サイズのフォルダ 1 つぶん。
+        /// MoreCompaction は 1 フォルダずつ処理するため、ピーク消費量が最大のフォルダ 1 つぶん。
         /// </summary>
         public long MaxTempBytesPerFolder =>
-            MultiFileFolders.Count == 0 ? 0L : MultiFileFolders.Max(f => f.TotalBytes);
+            MultiFileFolders.Count == 0 ? 0L : MultiFileFolders.Max(f => f.EstimatedPeakTempBytes);
     }
 
     public sealed record DiskSpaceEstimate(
@@ -259,12 +270,20 @@ public class MoreCompactionService(
             return new MoreCompactionFolderResult(folder, Skipped: true, TotalEvents: 0, DeletedFiles: 0);
         }
 
-        bool existingOutputPresent = sources.Any(e => string.Equals(e.Key, outputKey, StringComparison.Ordinal));
+        bool existingOutputInScan = sources.Any(e => string.Equals(e.Key, outputKey, StringComparison.Ordinal));
         IReadOnlyList<S3ObjectEntry> leftoverSources = sources
             .Where(e => !string.Equals(e.Key, outputKey, StringComparison.Ordinal))
             .ToArray();
 
-        // (A) 前回実行がアップロード成功後に元ソース削除の途中で中断したケース。
+        // スキャンから実行までに別セッション等で outputKey が作られているかもしれないので、
+        // 実行時点でも outputKey の存在を S3 に問い合わせ直して保守的に確認する。
+        // (スキャン結果だけに依存すると TOCTOU で 完成済み merged を上書きし、
+        // 元ソースが部分削除されているタイミングだと データ欠損 parquet で塗り替える恐れがある。)
+        bool existingOutputLive = await s3StorageService.AnyFileExistsAsync(outputKey, ct);
+        bool existingOutputPresent = existingOutputInScan || existingOutputLive;
+
+        // (A) 前回実行がアップロード成功後に元ソース削除の途中で中断したケース、または
+        // スキャン後に別実行者がアップロードしたケース。
         // outputKey が読めることを確認した上で、残ソースの削除のみ行う。
         // ここで outputKey を削除 → 残ソースから再マージ、としてしまうと、
         // 元ソースが部分削除されている場合に完成済み merged データを失う恐れがある。

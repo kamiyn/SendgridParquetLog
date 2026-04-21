@@ -415,7 +415,10 @@
         {
             return;
         }
-        await RunFoldersAsync(_scan.MultiFileFolders);
+        // _remainingFolders は RunFoldersAsync 中に成功行から除去される。
+        // 初回スキャン結果 (_scan.MultiFileFolders) を渡すと 個別実行で既に処理済みの
+        // フォルダまで再実行してしまうので、現時点での残フォルダのスナップショットを渡す。
+        await RunFoldersAsync([.. _remainingFolders]);
     }
 
     private async Task RunFoldersAsync(IReadOnlyList<MoreCompactionService.HourFolder> folders)
