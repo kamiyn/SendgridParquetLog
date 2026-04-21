@@ -81,8 +81,8 @@ public sealed class SlackNotifier(
     /// </summary>
     private string PrependIdentity(string text)
     {
-        string clientId = string.IsNullOrEmpty(_azureAdIdentity.ClientId) ? "(unset)" : _azureAdIdentity.ClientId;
-        string tenantId = string.IsNullOrEmpty(_azureAdIdentity.TenantId) ? "(unset)" : _azureAdIdentity.TenantId;
+        string clientId = string.IsNullOrWhiteSpace(_azureAdIdentity.ClientId) ? "(unset)" : _azureAdIdentity.ClientId.Trim();
+        string tenantId = string.IsNullOrWhiteSpace(_azureAdIdentity.TenantId) ? "(unset)" : _azureAdIdentity.TenantId.Trim();
 
         if (clientId == "(unset)" && tenantId == "(unset)")
         {
