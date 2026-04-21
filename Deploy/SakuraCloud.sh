@@ -247,6 +247,14 @@ DEPLOYMENT_PAYLOAD=$(cat <<EOF
           "value": "${SENDGRID__APIKEY}"
         },
         {
+          "key": "SLACKNOTIFIER__WARNINGWEBHOOKURL",
+          "value": "${SLACKNOTIFIER__WARNINGWEBHOOKURL:-}"
+        },
+        {
+          "key": "SLACKNOTIFIER__INFORMATIONWEBHOOKURL",
+          "value": "${SLACKNOTIFIER__INFORMATIONWEBHOOKURL:-}"
+        },
+        {
           "key": "AzureAD__Domain",
           "value": "${AzureAD__Domain}"
         },
