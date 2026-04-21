@@ -355,7 +355,7 @@ public class S3StorageService(
             new ListObjectsRequest(prefix, Delimiter: null, ContinuationToken: null, MaxKeys: 1), ct);
         if (string.IsNullOrEmpty(content))
         {
-            return false;
+            throw new InvalidOperationException($"Failed to list S3 objects for prefix '{prefix}'.");
         }
 
         XDocument doc = XDocument.Parse(content);
