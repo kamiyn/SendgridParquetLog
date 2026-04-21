@@ -85,12 +85,20 @@ public sealed class CompactionStartupHostedService(
             warnings.Add($"健全性チェックでエラー: {ex.GetType().Name}: {ex.Message}");
         }
 
+        string? skipReason = null;
         try
         {
             CompactionStartResult compactionStartResult = await compactionService.StartCompactionAsync(ct);
             if (compactionStartResult.StartTask != null)
             {
                 await compactionStartResult.StartTask;
+            }
+            else
+            {
+                skipReason = string.IsNullOrEmpty(compactionStartResult.Reason)
+                    ? "(理由不明)"
+                    : compactionStartResult.Reason;
+                logger.ZLogInformation($"Compaction was skipped: {skipReason}");
             }
         }
         catch (OperationCanceledException) { return; }
@@ -100,10 +108,10 @@ public sealed class CompactionStartupHostedService(
             warnings.Add($"Compaction 実行中に例外: {ex.GetType().Name}: {ex.Message}");
         }
 
-        await NotifySlack(warnings, ct);
+        await NotifySlack(warnings, skipReason, ct);
     }
 
-    private async Task NotifySlack(IReadOnlyList<string> warnings, CancellationToken ct)
+    private async Task NotifySlack(IReadOnlyList<string> warnings, string? skipReason, CancellationToken ct)
     {
         DateTimeOffset jstNow = timeProvider.GetUtcNow().ToJst();
 
@@ -112,10 +120,15 @@ public sealed class CompactionStartupHostedService(
             var header = $"⚠️ Compaction 健全性チェックに警告 ({jstNow:yyyy-MM-dd HH:mm:ss} JST)";
             var body = string.Join('\n', warnings.Select(w => $"• {w}"));
             await slackNotifier.SendWarningAsync($"{header}\n{body}", ct);
+            return;
         }
-        else
+
+        if (skipReason is not null)
         {
-            await slackNotifier.SendInformationAsync($"✅ Daily Compaction 正常実行 ({jstNow:yyyy-MM-dd HH:mm:ss} JST)", ct);
+            await slackNotifier.SendInformationAsync($"⏭️ Compaction スキップ: {skipReason} ({jstNow:yyyy-MM-dd HH:mm:ss} JST)", ct);
+            return;
         }
+
+        await slackNotifier.SendInformationAsync($"✅ Daily Compaction 正常実行 ({jstNow:yyyy-MM-dd HH:mm:ss} JST)", ct);
     }
 }

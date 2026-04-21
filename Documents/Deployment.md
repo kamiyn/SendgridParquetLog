@@ -128,7 +128,12 @@ docker compose logs -f
 | 種別 | 環境変数 | 送信タイミング |
 |---|---|---|
 | 警告 (warning) | `SLACKNOTIFIER__WARNINGWEBHOOKURL` | 下記の警告条件のいずれかが成立した場合 |
-| 情報 (information) | `SLACKNOTIFIER__INFORMATIONWEBHOOKURL` | 警告条件が 1 つも成立しなかった場合（毎日の Compaction が動いていることのハートビート） |
+| 情報 (information) | `SLACKNOTIFIER__INFORMATIONWEBHOOKURL` | 警告条件が 1 つも成立しなかった場合（正常実行、または分散ロック未取得等によりスキップされた場合） |
+
+情報通知は以下のいずれかのバリエーションで送信されます:
+
+- `✅ Daily Compaction 正常実行 ...` — 実際に Compaction が走り完了した
+- `⏭️ Compaction スキップ: <理由> ...` — `StartCompactionAsync` が `StartTask == null` を返した場合（例: 別インスタンスが実行中で分散ロックを取得できなかった等）。毎日の Compaction 自体は「動いている」状態の範囲内なので警告ではなく情報として扱う。
 
 ### 警告条件（`Run()` 開始時に判定）
 
