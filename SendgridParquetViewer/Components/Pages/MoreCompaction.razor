@@ -351,8 +351,23 @@
                 }
             }
 
-            // 実行後に再スキャンして最新状態を反映する
+            // 実行後に再スキャンして最新状態を反映するが、実行ログは保持する
+            List<string> existingRunLog = [.. _runLog];
+            string? existingMessage = _message;
+            MessageIntent existingMessageIntent = _messageIntent;
+
             await OnScanClickedAsync();
+
+            _runLog.Clear();
+            _runLog.AddRange(existingRunLog);
+
+            if (string.IsNullOrEmpty(_message) && !string.IsNullOrEmpty(existingMessage))
+            {
+                _message = existingMessage;
+                _messageIntent = existingMessageIntent;
+            }
+
+            StateHasChanged();
         }
         finally
         {
