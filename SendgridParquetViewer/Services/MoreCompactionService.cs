@@ -274,7 +274,8 @@ public class MoreCompactionService(
                 if (!response.IsSuccessStatusCode)
                 {
                     logger.ZLogWarning($"MoreCompaction failed to download {entry.Key} status={response.StatusCode}");
-                    continue;
+                    throw new InvalidOperationException(
+                        $"MoreCompaction cannot continue because source download failed for {entry.Key} status={response.StatusCode}");
                 }
                 await using Stream body = await response.Content.ReadAsStreamAsync(ct);
                 await body.CopyToAsync(tempStream, DisposableTempFile.BufferSize, ct);
