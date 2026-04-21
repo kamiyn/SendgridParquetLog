@@ -149,6 +149,17 @@ docker compose logs -f
 
 両環境変数は内部的に `Uri.TryCreate(value, UriKind.Absolute, out _)` で評価され、絶対 URI かつスキームが `http` / `https` の場合のみ送信対象になります。未設定または不正な URL の場合、その種別の通知のみが黙ってスキップされ、もう一方の URL の通知やアプリケーション本体の動作には影響しません。
 
+### メッセージに付与されるアプリケーション識別情報
+
+Warning / Information どちらの通知も、本文の先頭に以下の形式のヘッダーを付けて送信します。複数環境 / 複数テナントに同一コードをデプロイしている場合でも、どのアプリケーションからの通知かを Slack 上で判別できるようにするためです。
+
+```
+📍 AzureAd ClientId=`<AzureAD__CLIENTID>` TenantId=`<AzureAD__TENANTID>`
+<本文>
+```
+
+どちらの値も `appsettings.json` / 環境変数 (`AzureAD__CLIENTID`, `AzureAD__TENANTID`) の `AzureAd` セクションから読み取ります。両方とも未設定の場合（開発認証モード等）はヘッダー行自体を省略します。
+
 ### Slack 側の準備
 
 Slack ワークスペースで [Incoming Webhook アプリ](https://api.slack.com/messaging/webhooks) を追加し、警告用と情報用にそれぞれ別チャンネル（または同じチャンネル）の Webhook URL を発行して上記環境変数に設定してください。送信ペイロードは `{ "text": "..." }` 形式です。

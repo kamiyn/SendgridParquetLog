@@ -122,7 +122,7 @@ public sealed class CompactionStartupHostedService(
 
         if (warnings.Count > 0)
         {
-            var header = $"⚠️ Compaction 健全性チェックに警告 ({jstNow:yyyy-MM-dd HH:mm:ss} JST)";
+            var header = $"⚠️ SendgridParquetViewer Compaction 健全性チェック警告 ({jstNow:yyyy-MM-dd HH:mm:ss} JST)";
             var body = string.Join('\n', warnings.Select(w => $"• {w}"));
             await slackNotifier.SendWarningAsync($"{header}\n{body}", ct);
             return;

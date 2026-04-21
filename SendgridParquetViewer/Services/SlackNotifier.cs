@@ -16,6 +16,7 @@ namespace SendgridParquetViewer.Services;
 public sealed class SlackNotifier(
     HttpClient httpClient,
     IOptions<SlackNotifierOptions> options,
+    IOptions<AzureAdIdentityOptions> azureAdIdentity,
     ILogger<SlackNotifier> logger)
 {
     // 通知は運用補助のため、Slack 側が遅い/ハングしても Compaction 本処理をブロックしない。
@@ -23,6 +24,7 @@ public sealed class SlackNotifier(
     private static readonly TimeSpan s_httpTimeout = TimeSpan.FromSeconds(5);
 
     private readonly SlackNotifierOptions _options = options.Value;
+    private readonly AzureAdIdentityOptions _azureAdIdentity = azureAdIdentity.Value;
 
     public Task SendWarningAsync(string text, CancellationToken ct) =>
         SendAsync(_options.TryGetWarningUri(), "warning", text, ct);
@@ -38,13 +40,15 @@ public sealed class SlackNotifier(
             return;
         }
 
+        string payloadText = PrependIdentity(text);
+
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(s_httpTimeout);
 
         try
         {
             // Slack Incoming Webhook expects { "text": "..." }
-            using HttpResponseMessage response = await httpClient.PostAsJsonAsync(uri, new { text }, cts.Token);
+            using HttpResponseMessage response = await httpClient.PostAsJsonAsync(uri, new { text = payloadText }, cts.Token);
             if (response.IsSuccessStatusCode)
             {
                 logger.ZLogInformation($"Slack {level} notification sent.");
@@ -69,5 +73,22 @@ public sealed class SlackNotifier(
         {
             logger.ZLogError(ex, $"Slack {level} notification threw an exception.");
         }
+    }
+
+    /// <summary>
+    /// アプリケーション特定の助けになるよう、AzureAd ClientId / TenantId をメッセージ先頭に差し込む。
+    /// どちらも未設定の場合はヘッダーを省略する。
+    /// </summary>
+    private string PrependIdentity(string text)
+    {
+        string clientId = string.IsNullOrEmpty(_azureAdIdentity.ClientId) ? "(unset)" : _azureAdIdentity.ClientId;
+        string tenantId = string.IsNullOrEmpty(_azureAdIdentity.TenantId) ? "(unset)" : _azureAdIdentity.TenantId;
+
+        if (clientId == "(unset)" && tenantId == "(unset)")
+        {
+            return text;
+        }
+
+        return $"📍 AzureAd ClientId=`{clientId}` TenantId=`{tenantId}`\n{text}";
     }
 }
