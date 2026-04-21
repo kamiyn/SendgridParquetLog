@@ -28,7 +28,7 @@
     <p>
         <small>
             出力ファイル名は <code>morecompaction&lt;yyyyMMddHH&gt;.parquet</code> で、通常 Compaction 出力と区別でき、フォルダをまたいでも一意になります。
-            処理中断の耐性のためアップロード前に同名ファイルを削除してから書き込みます。
+            処理中断時の安全性を優先し、同名ファイルを事前削除せずに書き込み可否を確認しながら処理します。
             完了マーカー <code>@SendGridPathUtility.MoreCompactionStatusFileName</code> が年月フォルダ直下に存在する場合は処理済みとして先に進みません。
         </small>
     </p>
