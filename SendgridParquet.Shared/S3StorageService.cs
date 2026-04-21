@@ -538,7 +538,9 @@ public class S3StorageService(
             var content = await ListObjectsAsync(new ListObjectsRequest(prefix, null, continuationToken), ct);
             if (string.IsNullOrEmpty(content))
             {
-                break;
+                throw new InvalidOperationException(
+                    $"Failed to list S3 objects for prefix '{prefix}'. ListObjectsAsync returned an empty response." +
+                    $"{(string.IsNullOrEmpty(continuationToken) ? string.Empty : $" ContinuationToken: '{continuationToken}'.")}");
             }
 
             XDocument doc = XDocument.Parse(content);
