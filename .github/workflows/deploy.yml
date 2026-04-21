@@ -22,13 +22,13 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ vars.CONTAINER_REGISTRY_URL }}
           username: ${{ vars.CONTAINER_REGISTRY_USERNAME }}
@@ -38,14 +38,14 @@ jobs:
       # SendgridParquetLogger は Webhook 受信機能を Viewer に集約したためデプロイを行わない
       - name: Extract metadata for Docker (Viewer)
         id: meta-viewer
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ vars.CONTAINER_REGISTRY_URL }}/${{ env.APP_NAME_SENDGRID_VIEWER }}
           tags: |
             type=raw,value=run_number${{ github.run_number }}
 
       - name: Build and push Docker image (Viewer)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ./SendgridParquetViewer/Dockerfile

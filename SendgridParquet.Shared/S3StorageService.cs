@@ -19,6 +19,18 @@ namespace SendgridParquet.Shared;
 
 public record S3GetObjectResult(byte[] Content, string? ETag);
 
+public readonly record struct S3ObjectEntry(string Key, long Size);
+
+/// <summary>
+/// 条件付き PUT の結果。
+/// </summary>
+public enum S3ConditionalPutResult
+{
+    Uploaded,
+    PreconditionFailed,
+    Failed,
+}
+
 public class S3StorageService(
     ILogger<S3StorageService> logger,
     IOptions<S3Options> options,
@@ -220,6 +232,40 @@ public class S3StorageService(
         }
     }
 
+    /// <summary>
+    /// 指定した完全なオブジェクトキーが S3 に存在するかどうかを HEAD リクエストで判定する。
+    /// <see cref="AnyFileExistsAsync"/> は prefix 末尾に '/' を補って ListObjectsV2 を投げるため
+    /// 完全なキーには使えない ("key/" 以下のリストになり常に空になる)。キーそのものの存在確認には
+    /// こちらを使う。
+    /// </summary>
+    public async ValueTask<bool> ObjectExistsAsync(string key, CancellationToken ct)
+    {
+        var uri = GetObjectUri(key);
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Head, uri);
+            AddAwsSignatureHeaders(request, null);
+            using HttpResponseMessage response = await httpClient.SendAsync(request, ct);
+
+            if (response.IsSuccessStatusCode)
+            {
+                return true;
+            }
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                return false;
+            }
+            logger.ZLogWarning($"Unexpected status code {response.StatusCode} while HEAD {uri}; treating as not-exists");
+            return false;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception ex)
+        {
+            logger.ZLogError(ex, $"Error heading object {uri}");
+            return false;
+        }
+    }
+
     public async ValueTask<bool> DeleteObjectAsync(string key, CancellationToken ct)
     {
         var uri = GetObjectUri(key);
@@ -249,6 +295,49 @@ public class S3StorageService(
         {
             logger.ZLogError(ex, $"Error deleting object {uri} from S3");
             return false;
+        }
+    }
+
+    /// <summary>
+    /// If-None-Match: * を付けた Stream PUT。オブジェクトが存在しない場合のみ作成する。
+    /// 大容量 (マージ済み Parquet 等) を byte[] に読み込まずに送りたいケース向け。
+    /// </summary>
+    public async ValueTask<S3ConditionalPutResult> PutObjectIfNoneMatchAsync(string key, Stream content, CancellationToken ct)
+    {
+        var uri = GetObjectUri(key);
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Put, uri);
+            request.Headers.TryAddWithoutValidation("If-None-Match", "*");
+
+            AddAwsSignatureHeaders(request, content);
+
+            content.Seek(0, SeekOrigin.Begin);
+            request.Content = new StreamContent(content);
+            request.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
+            using HttpResponseMessage response = await httpClient.SendAsync(request, ct);
+
+            if (response.IsSuccessStatusCode)
+            {
+                string? etag = response.Headers.ETag?.Tag;
+                logger.ZLogInformation($"Object {uri} uploaded conditionally (If-None-Match) to S3. ETag: {etag}");
+                return S3ConditionalPutResult.Uploaded;
+            }
+            if (response.StatusCode == HttpStatusCode.PreconditionFailed)
+            {
+                logger.ZLogInformation($"Conditional PUT failed for {uri} - precondition not met (object already exists)");
+                return S3ConditionalPutResult.PreconditionFailed;
+            }
+
+            string responseContent = await response.Content.ReadAsStringAsync(ct);
+            logger.ZLogError($"Error uploading object {uri} to S3. Status: {response.StatusCode}, Response: {ErrorContent(responseContent)}");
+            return S3ConditionalPutResult.Failed;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception ex)
+        {
+            logger.ZLogError(ex, $"Error uploading object {uri} to S3 (conditional stream)");
+            return S3ConditionalPutResult.Failed;
         }
     }
 
@@ -388,6 +477,85 @@ public class S3StorageService(
                    .Select(cp => cp.Element(ns + "Key")?.Value!)
                    .Where(p => !string.IsNullOrEmpty(p))
             );
+
+            bool isTruncated = string.Equals(doc.Root?.Element(ns + "IsTruncated")?.Value, "true", StringComparison.OrdinalIgnoreCase);
+            continuationToken = isTruncated ? doc.Root?.Element(ns + "NextContinuationToken")?.Value : null;
+        } while (!string.IsNullOrEmpty(continuationToken));
+
+        return results;
+    }
+
+    /// <summary>
+    /// prefix 配下の Parquet ファイル (.parquet 拡張子) のみを列挙する。
+    /// DuckDB や Compaction 処理に渡す前段で、morecompaction.json などの
+    /// 非 parquet オブジェクトを誤って対象にしないためのガード。
+    /// </summary>
+    public async ValueTask<IReadOnlyCollection<string>> ListParquetFilesAsync(string prefix, CancellationToken ct)
+    {
+        var all = await ListFilesAsync(prefix, ct);
+        var results = new List<string>(all.Count);
+        foreach (string key in all)
+        {
+            if (key.EndsWith(SendGridPathUtility.ParquetFileExtension, StringComparison.OrdinalIgnoreCase))
+            {
+                results.Add(key);
+            }
+        }
+        return results;
+    }
+
+    /// <summary>
+    /// prefix 配下の Parquet ファイル (.parquet 拡張子) のみを Key と Size の組で列挙する。
+    /// </summary>
+    public async ValueTask<IReadOnlyCollection<S3ObjectEntry>> ListParquetFilesWithSizeAsync(string prefix, CancellationToken ct)
+    {
+        var all = await ListFilesWithSizeAsync(prefix, ct);
+        var results = new List<S3ObjectEntry>(all.Count);
+        foreach (S3ObjectEntry entry in all)
+        {
+            if (entry.Key.EndsWith(SendGridPathUtility.ParquetFileExtension, StringComparison.OrdinalIgnoreCase))
+            {
+                results.Add(entry);
+            }
+        }
+        return results;
+    }
+
+    /// <summary>
+    /// prefix 配下のオブジェクトを Key と Size の組で列挙する。
+    /// </summary>
+    public async ValueTask<IReadOnlyCollection<S3ObjectEntry>> ListFilesWithSizeAsync(string prefix, CancellationToken ct)
+    {
+        var results = new List<S3ObjectEntry>();
+        string? continuationToken = null;
+
+        do
+        {
+            if (ct.IsCancellationRequested)
+            {
+                break;
+            }
+            var content = await ListObjectsAsync(new ListObjectsRequest(prefix, null, continuationToken), ct);
+            if (string.IsNullOrEmpty(content))
+            {
+                throw new InvalidOperationException(
+                    $"Failed to list S3 objects for prefix '{prefix}'. ListObjectsAsync returned an empty response." +
+                    $"{(string.IsNullOrEmpty(continuationToken) ? string.Empty : $" ContinuationToken: '{continuationToken}'.")}");
+            }
+
+            XDocument doc = XDocument.Parse(content);
+            XNamespace ns = doc.Root?.GetDefaultNamespace() ?? XNamespace.None;
+
+            foreach (XElement c in doc.Descendants(ns + "Contents"))
+            {
+                string? key = c.Element(ns + "Key")?.Value;
+                if (string.IsNullOrEmpty(key))
+                {
+                    continue;
+                }
+                long size = long.TryParse(c.Element(ns + "Size")?.Value, out long parsed) ? parsed : 0L;
+                results.Add(new S3ObjectEntry(key, size));
+            }
 
             bool isTruncated = string.Equals(doc.Root?.Element(ns + "IsTruncated")?.Value, "true", StringComparison.OrdinalIgnoreCase);
             continuationToken = isTruncated ? doc.Root?.Element(ns + "NextContinuationToken")?.Value : null;

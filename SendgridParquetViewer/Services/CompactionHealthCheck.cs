@@ -1,4 +1,4 @@
-using SendgridParquet.Shared;
+﻿using SendgridParquet.Shared;
 
 using ZLogger;
 

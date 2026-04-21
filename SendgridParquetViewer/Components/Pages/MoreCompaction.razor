@@ -1,0 +1,494 @@
+@page "/more-compaction"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using SendgridParquet.Shared
+@using SendgridParquetViewer.Models
+@using SendgridParquetViewer.Services
+@using ZLogger
+@implements IDisposable
+@inject ILogger<MoreCompaction> Logger
+@inject MoreCompactionService MoreCompactionService
+@inject TimeProvider TimeProvider
+
+<PageTitle>追加コンパクション</PageTitle>
+
+<FluentCard class="main-card more-compaction-card">
+    <FluentHeader>
+        <FluentSpacer />
+        <FluentLabel Typo="Typography.PageTitle">追加コンパクション</FluentLabel>
+        <FluentSpacer />
+    </FluentHeader>
+
+    <p>
+        通常の Compaction 処理が途中で失敗すると、<code>v3compaction/yyyy/MM/dd/HH</code> フォルダに
+        複数の Parquet ファイルが残ることがあります。この画面では対象フォルダを洗い出し、
+        1 フォルダ 1 Parquet ファイルへ統合します。年月モードでは月全体を、年月日モードではその日 1 日だけをスキャン対象とします
+        (年月日モードでは月単位の完了マーカーは書き込みません)。
+    </p>
+    <p>
+        <small>
+            出力ファイル名は <code>morecompaction&lt;yyyyMMddHH&gt;.parquet</code> で、通常 Compaction 出力と区別でき、フォルダをまたいでも一意になります。
+            書き込みは条件付き PUT (<code>If-None-Match</code>) で行い、既存の同名ファイルを上書きしません。
+            既に同名ファイルがある場合は削除せずに内容を検証し、元ソースの削除のみ実施します。
+            完了マーカー <code>@SendGridPathUtility.MoreCompactionStatusFileName</code> が年月フォルダ直下に存在する場合は処理済みとして先に進みません。
+        </small>
+    </p>
+
+    <FluentStack Orientation="Orientation.Horizontal" VerticalAlignment="VerticalAlignment.Top" Style="gap: 1em; flex-wrap: wrap;">
+        <div style="min-width: 220px;">
+            <FluentDatePicker @bind-Value="_selectedDate" Label="対象日付" Style="width: 100%;" />
+            <FluentRadioGroup @bind-Value="_dateSelectionMode" Style="margin-top: 5px;">
+                <FluentRadio Value="@DateSelectionMode.YearMonth">年月のみ使用（日付は無視）</FluentRadio>
+                <FluentRadio Value="@DateSelectionMode.YearMonthDay">年月日すべて使用</FluentRadio>
+            </FluentRadioGroup>
+        </div>
+        <div style="margin-top: 25px;">
+            <FluentButton Appearance="Appearance.Accent" OnClick="OnScanClickedAsync" Disabled="@(_isScanning || _isRunning)">
+                @(_isScanning ? "スキャン中..." : "スキャン")
+            </FluentButton>
+        </div>
+        @if (_maxSelectable is { } maxSel)
+        {
+            <div style="margin-top: 30px;">
+                <FluentLabel>
+                    <small>選択可能な最新年月: @maxSel.Year / @($"{maxSel.Month:D2}")</small>
+                </FluentLabel>
+            </div>
+        }
+    </FluentStack>
+
+    @if (_isScanning)
+    {
+        <FluentStack Orientation="Orientation.Horizontal" VerticalAlignment="VerticalAlignment.Center" Style="gap: 0.75em; margin-top: 0.5em;">
+            <FluentProgressRing Style="width: 1.25em; height: 1.25em;" />
+            <FluentLabel>
+                @if (_scanProgress is { } sp)
+                {
+                    <small>
+                        スキャン中: @sp.ProcessedDays / @sp.TotalDays 日 完了, 対象フォルダ @sp.MultiFileFoldersFound 件
+                    </small>
+                }
+                else
+                {
+                    <small>スキャン中: 準備中</small>
+                }
+            </FluentLabel>
+        </FluentStack>
+    }
+
+    @if (!string.IsNullOrEmpty(_message))
+    {
+        <div style="margin-top: 1em;">
+            <FluentMessageBar Intent="@_messageIntent" OnDismiss="() => _message = string.Empty">
+                @_message
+            </FluentMessageBar>
+        </div>
+    }
+
+    @if (_status != null)
+    {
+        <FluentCard style="margin-top: 1em;">
+            <p>
+                <strong>処理完了済み</strong><br />
+                @_status.Year / @($"{_status.Month:D2}") について 1 フォルダ 1 Parquet であることが保証されています。<br />
+                完了時刻: @_status.CompletedAt.ToJst().ToString("yyyy/MM/dd HH:mm:ss") JST<br />
+                確認対象フォルダ数: @_status.VerifiedHourFolders
+            </p>
+        </FluentCard>
+    }
+    else if (_scanCompleted && _scan != null)
+    {
+        <FluentCard style="margin-top: 1em;">
+            <h3>
+                スキャン結果: @_scan.Year / @($"{_scan.Month:D2}")@(_scanDay is { } sd ? $" / {sd:D2}" : string.Empty)
+            </h3>
+            <p>
+                全 <strong>@_scan.TotalHourFolders</strong> 件の @(_scanDay is null ? "yyyy/MM/dd/HH" : "yyyy/MM/dd/HH (当日)") フォルダを確認しました。<br />
+                Parquet が 2 つ以上あるフォルダ: <strong>@_scan.MultiFileFolders.Count</strong> 件
+                @if (_scan.MultiFileFolders.Count != _remainingFolders.Count)
+                {
+                    <span>(残り <strong>@_remainingFolders.Count</strong> 件)</span>
+                }
+            </p>
+
+            @if (_scan.MultiFileFolders.Count == 0)
+            {
+                @if (_scan.TotalHourFolders == 0)
+                {
+                    <p>この @(_scanDay is null ? "年月" : "日付") に対象フォルダは存在しません。</p>
+                }
+                else if (_scanDay is null)
+                {
+                    <p>すべてのフォルダが 1 parquet のみです。完了マーカーを書き込みます。</p>
+                    <FluentButton Appearance="Appearance.Accent" OnClick="OnWriteStatusClickedAsync" Disabled="@_isRunning">
+                        完了マーカーを書き込む
+                    </FluentButton>
+                }
+                else
+                {
+                    <p>この日付のすべての hour フォルダが 1 parquet のみです。</p>
+                }
+            }
+            else
+            {
+                <p>
+                    実行時の想定最大ディスク消費量 (1 フォルダあたり): <strong>@FormatBytes(_scan.MaxTempBytesPerFolder)</strong><br />
+                    一時フォルダ: <code>@_diskEstimate?.TempPath</code> 空き容量: <strong>@FormatBytes(_diskEstimate?.AvailableFreeBytes ?? 0)</strong>
+                </p>
+                @if (_diskEstimate is { IsSufficient: false })
+                {
+                    <FluentMessageBar Intent="MessageIntent.Warning">
+                        一時フォルダの空き容量が不足している可能性があります。処理を開始する前に十分な空き容量を確保してください。
+                    </FluentMessageBar>
+                }
+
+                @if (_remainingFolders.Count == 0)
+                {
+                    @if (_scanDay is null)
+                    {
+                        <p>すべての対象フォルダの統合が完了しました。完了マーカーを書き込めます。</p>
+                        <FluentButton Appearance="Appearance.Accent" OnClick="OnWriteStatusClickedAsync" Disabled="@_isRunning">
+                            完了マーカーを書き込む
+                        </FluentButton>
+                    }
+                    else
+                    {
+                        <p>この日付の対象フォルダはすべて統合が完了しました。</p>
+                    }
+                }
+                else
+                {
+                    <table class="more-compaction-table">
+                        <thead>
+                            <tr>
+                                <th>日/時</th>
+                                <th>parquet 数</th>
+                                <th>合計サイズ</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var folder in _remainingFolders)
+                            {
+                                <tr @key="folder.Prefix">
+                                    <td>@($"{folder.Day:D2}") / @($"{folder.Hour:D2}")</td>
+                                    <td>@folder.ParquetFiles.Count</td>
+                                    <td>@FormatBytes(folder.TotalBytes)</td>
+                                    <td>
+                                        <FluentButton Appearance="Appearance.Neutral"
+                                                      OnClick="@(() => OnRunFolderClickedAsync(folder))"
+                                                      Disabled="@_isRunning">
+                                            実行
+                                        </FluentButton>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+
+                    <div style="margin-top: 1em;">
+                        <FluentButton Appearance="Appearance.Accent" OnClick="OnRunAllClickedAsync" Disabled="@_isRunning">
+                            @(_isRunning ? "実行中..." : "すべて実行")
+                        </FluentButton>
+                    </div>
+                }
+            }
+        </FluentCard>
+    }
+
+    @if (_runLog.Count > 0)
+    {
+        <FluentCard style="margin-top: 1em;">
+            <h3>実行ログ</h3>
+            <pre style="white-space: pre-wrap;">@string.Join(Environment.NewLine, _runLog)</pre>
+        </FluentCard>
+    }
+</FluentCard>
+
+<style>
+    /* FluentCard はデフォルトで固定高さ/contain のため、FluentDatePicker のカレンダーポップアップが下側でクリップされる。
+       高さを中身に合わせて伸ばし、ポップアップは外側に overflow させる。 */
+    .more-compaction-card {
+        height: auto;
+        min-height: calc(100vh - 3rem);
+        overflow: visible;
+        contain: none;
+    }
+
+    .more-compaction-table {
+        border-collapse: collapse;
+        width: 100%;
+        margin-top: 0.5rem;
+    }
+
+        .more-compaction-table th,
+        .more-compaction-table td {
+            border: 1px solid #d0d7de;
+            padding: 0.4rem 0.75rem;
+            text-align: left;
+        }
+
+        .more-compaction-table th {
+            background-color: #f6f8fa;
+        }
+</style>
+
+@code {
+    public enum DateSelectionMode
+    {
+        YearMonth,
+        YearMonthDay
+    }
+
+    private DateSelectionMode _dateSelectionMode = DateSelectionMode.YearMonth;
+    private DateTime? _selectedDate; // FluentDatePicker に bind するときは nullable でなければならない
+    private (int Year, int Month)? _maxSelectable;
+
+    private bool _isScanning;
+    private bool _isRunning;
+    private bool _scanCompleted;
+
+    private MoreCompactionStatus? _status;
+    private MoreCompactionService.ScanResult? _scan;
+    private MoreCompactionService.DiskSpaceEstimate? _diskEstimate;
+    private MoreCompactionService.ScanProgress? _scanProgress;
+    private List<MoreCompactionService.HourFolder> _remainingFolders = [];
+    private int? _scanDay;
+
+    private string _message = string.Empty;
+    private MessageIntent _messageIntent = MessageIntent.Info;
+    private readonly List<string> _runLog = new();
+    private readonly CancellationTokenSource _cts = new();
+
+    protected override void OnInitialized()
+    {
+        DateTimeOffset nowJst = TimeProvider.GetUtcNow().ToJst();
+        // 選択可能な最新年月 = 今月の 1 つ前
+        DateTimeOffset previousMonth = nowJst.AddMonths(-1);
+        _maxSelectable = (previousMonth.Year, previousMonth.Month);
+        _selectedDate = new DateTime(previousMonth.Year, previousMonth.Month, 1);
+    }
+
+    private bool ValidateSelection()
+    {
+        if (_maxSelectable is not { } maxSel)
+        {
+            ShowMessage("選択可能年月の算出に失敗しました。", MessageIntent.Error);
+            return false;
+        }
+        if (_selectedDate is not { } date)
+        {
+            ShowMessage("対象日付を選択してください。", MessageIntent.Error);
+            return false;
+        }
+
+        int selected = date.Year * 100 + date.Month;
+        int max = maxSel.Year * 100 + maxSel.Month;
+        if (selected > max)
+        {
+            ShowMessage($"先月以前の年月のみ指定できます (最新: {maxSel.Year}/{maxSel.Month:D2})。", MessageIntent.Warning);
+            return false;
+        }
+        return true;
+    }
+
+    private async Task OnScanClickedAsync()
+    {
+        if (!ValidateSelection())
+        {
+            return;
+        }
+
+        DateTime date = _selectedDate!.Value;
+        int year = date.Year;
+        int month = date.Month;
+        int? day = _dateSelectionMode == DateSelectionMode.YearMonthDay ? date.Day : null;
+
+        _status = null;
+        _scan = null;
+        _diskEstimate = null;
+        _scanCompleted = false;
+        _scanProgress = null;
+        _remainingFolders = [];
+        _scanDay = day;
+        _runLog.Clear();
+        _message = string.Empty;
+
+        _isScanning = true;
+        try
+        {
+            if (day is null)
+            {
+                _status = await MoreCompactionService.GetStatusAsync(year, month, _cts.Token);
+                if (_status != null)
+                {
+                    ShowMessage("処理完了済みのためスキャンを実施しません。", MessageIntent.Info);
+                    return;
+                }
+            }
+
+            var progress = new Progress<MoreCompactionService.ScanProgress>(p =>
+            {
+                _scanProgress = p;
+                StateHasChanged();
+            });
+            MoreCompactionService.ScanResult scan = await MoreCompactionService.ScanAsync(year, month, _cts.Token, progress, day);
+            _scan = scan;
+            _scanCompleted = true;
+            _remainingFolders = [.. scan.MultiFileFolders];
+            _diskEstimate = MoreCompactionService.EstimateDiskSpace(scan.MaxTempBytesPerFolder);
+
+            if (scan.TotalHourFolders == 0)
+            {
+                ShowMessage(day is null
+                    ? "この年月に対象フォルダは存在しません。"
+                    : "この日付に対象フォルダは存在しません。", MessageIntent.Info);
+            }
+            else if (scan.MultiFileFolders.Count == 0)
+            {
+                ShowMessage(day is null
+                    ? "すべてのフォルダが 1 parquet のみです。完了マーカーを書き込めます。"
+                    : "この日付のすべての hour フォルダが 1 parquet のみです。", MessageIntent.Success);
+            }
+            else
+            {
+                ShowMessage($"{scan.MultiFileFolders.Count} 件の対象フォルダが見つかりました。", MessageIntent.Info);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // ページ破棄時のキャンセル
+        }
+        catch (Exception ex)
+        {
+            Logger.ZLogError(ex, $"Scan failed {year}/{month}{(day is { } d ? $"/{d:D2}" : string.Empty)}");
+            ShowMessage("スキャンに失敗しました。", MessageIntent.Error);
+        }
+        finally
+        {
+            _isScanning = false;
+            _scanProgress = null;
+        }
+    }
+
+    private async Task OnWriteStatusClickedAsync()
+    {
+        if (_scan == null)
+        {
+            return;
+        }
+
+        _isRunning = true;
+        try
+        {
+            _status = await MoreCompactionService.WriteStatusAsync(
+                _scan.Year, _scan.Month, _scan.TotalHourFolders, _cts.Token);
+            ShowMessage("完了マーカーを書き込みました。", MessageIntent.Success);
+        }
+        catch (Exception ex)
+        {
+            Logger.ZLogError(ex, $"Write status failed {_scan.Year}/{_scan.Month}");
+            ShowMessage("完了マーカーの書き込みに失敗しました。", MessageIntent.Error);
+        }
+        finally
+        {
+            _isRunning = false;
+        }
+    }
+
+    private async Task OnRunFolderClickedAsync(MoreCompactionService.HourFolder folder)
+    {
+        await RunFoldersAsync(new[] { folder });
+    }
+
+    private async Task OnRunAllClickedAsync()
+    {
+        if (_scan == null)
+        {
+            return;
+        }
+        // _remainingFolders は RunFoldersAsync 中に成功行から除去される。
+        // 初回スキャン結果 (_scan.MultiFileFolders) を渡すと 個別実行で既に処理済みの
+        // フォルダまで再実行してしまうので、現時点での残フォルダのスナップショットを渡す。
+        await RunFoldersAsync([.. _remainingFolders]);
+    }
+
+    private async Task RunFoldersAsync(IReadOnlyList<MoreCompactionService.HourFolder> folders)
+    {
+        _isRunning = true;
+        try
+        {
+            foreach (MoreCompactionService.HourFolder folder in folders)
+            {
+                if (_cts.IsCancellationRequested)
+                {
+                    break;
+                }
+                string label = $"{folder.Year}/{folder.Month:D2}/{folder.Day:D2}/{folder.Hour:D2}";
+                AppendLog($"{label} 実行開始 (files={folder.ParquetFiles.Count}, size={FormatBytes(folder.TotalBytes)})");
+                try
+                {
+                    MoreCompactionFolderResult result = await MoreCompactionService.ExecuteFolderAsync(folder, _cts.Token);
+                    if (result.Skipped)
+                    {
+                        AppendLog($"{label} スキップ");
+                    }
+                    else
+                    {
+                        AppendLog($"{label} 完了 events={result.TotalEvents} 元ファイル削除={result.DeletedFiles}");
+                        _remainingFolders.Remove(folder);
+                        StateHasChanged();
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    AppendLog($"{label} キャンセル");
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    Logger.ZLogError(ex, $"MoreCompaction folder failed: {label}");
+                    AppendLog($"{label} 失敗: {ex.Message}");
+                }
+            }
+        }
+        finally
+        {
+            _isRunning = false;
+        }
+    }
+
+    private void AppendLog(string line)
+    {
+        string timestamp = TimeProvider.GetUtcNow().ToJst().ToString("HH:mm:ss");
+        _runLog.Add($"[{timestamp}] {line}");
+        StateHasChanged();
+    }
+
+    private void ShowMessage(string msg, MessageIntent intent)
+    {
+        _message = msg;
+        _messageIntent = intent;
+        StateHasChanged();
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        const long scale = 1024;
+        string[] orders = ["B", "KB", "MB", "GB", "TB", "PB"];
+        double value = bytes;
+        int idx = 0;
+        while (value >= scale && idx < orders.Length - 1)
+        {
+            value /= scale;
+            idx++;
+        }
+        return FormattableString.Invariant($"{value:0.##} {orders[idx]}");
+    }
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}

@@ -156,6 +156,9 @@ builder.Services.AddSingleton<CompactionHealthCheck>();
 builder.Services.AddSingleton<CompactionService>(); // 1プロセスあたり同時実行は1つだけにする
 builder.Services.AddHostedService<CompactionStartupHostedService>(); // 起動時にコンパクションを開始するホストサービス
 
+// Add MoreCompaction service (手動で画面から実行する 追加コンパクション)
+builder.Services.AddSingleton<MoreCompactionService>();
+
 // Add health checks
 builder.Services.AddHealthChecks();
 

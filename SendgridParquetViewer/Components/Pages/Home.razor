@@ -251,7 +251,7 @@
             _ => throw new ArgumentOutOfRangeException()
         };
         var s3CompactionPrefix = SendGridPathUtility.GetS3CompactionPrefix(ymd.Year, ymd.Month, ymd.Day, ymd.Hour);
-        var keys = await S3StorageService.ListFilesAsync(s3CompactionPrefix, ct);
+        var keys = await S3StorageService.ListParquetFilesAsync(s3CompactionPrefix, ct);
         var pathPrefix = S3PresigningTransformer.PathPrefix;
         return keys.Select(x => $"{pathPrefix}/{x}").ToArray();
     }

@@ -160,4 +160,31 @@ public static class SendGridPathUtility
 
     public static (string runJsonPath, string lockPath) GetS3CompactionRunFile() =>
         ($"{FolderPrefixCompaction}/run.json", $"{FolderPrefixCompaction}/run.lock");
+
+    /// <summary>
+    /// 追加コンパクション (MoreCompaction) の出力ファイル名。
+    /// 通常 Compaction 出力 (ハッシュ名) と一目で区別できるよう `morecompaction` プレフィックスを付け、
+    /// フォルダをまたいでも一意になるよう yyyyMMddHH を含める。
+    /// </summary>
+    public static string GetMoreCompactionFileName(int year, int month, int day, int hour) =>
+        $"morecompaction{year:D4}{month:D2}{day:D2}{hour:D2}{ParquetFileExtension}";
+
+    /// <summary>
+    /// 追加コンパクションの完了を示す JSON のファイル名。
+    /// </summary>
+    public const string MoreCompactionStatusFileName = "morecompaction.json";
+
+    /// <summary>
+    /// 追加コンパクションの出力 Parquet の S3 キー。
+    /// 対象 yyyy/MM/dd/HH フォルダの直下に yyyyMMddHH を含むユニークな名前で配置する。
+    /// </summary>
+    public static string GetS3MoreCompactionParquetKey(int year, int month, int day, int hour) =>
+        $"{FolderPrefixCompaction}{GetYmdhPrefix(year, month, day, hour)}/{GetMoreCompactionFileName(year, month, day, hour)}";
+
+    /// <summary>
+    /// 年月単位での完了マーカー JSON の S3 キー。
+    /// 存在すれば その年月の全フォルダが 1 parquet 保証済み。
+    /// </summary>
+    public static string GetS3MoreCompactionStatusKey(int year, int month) =>
+        $"{FolderPrefixCompaction}{GetYmdhPrefix(year, month, null, null)}/{MoreCompactionStatusFileName}";
 }
