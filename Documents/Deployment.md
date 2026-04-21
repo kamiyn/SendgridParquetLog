@@ -137,13 +137,28 @@ docker compose logs -f
 
 ### 警告条件（`Run()` 開始時に判定）
 
-1. **JST で 1 日前のデータが S3 (`v3raw/YYYY/MM/DD/`) に 1 件も存在しない** — Webhook 受信が止まっている可能性
-2. **JST で 2 日前の生データ (`v3raw/YYYY/MM/DD/`) が残っている** — 前回の Compaction が完了しなかった可能性
-3. **Compaction 実行自体が例外で失敗** — 既存ログ (`ZLogError`) に加えて Slack 警告にも乗せる
+1. **Webhook 受信停止の疑い (AND 条件)** — 以下の 3 つが同時に成立した場合のみ 1 件の警告を出す。いずれか単独では警告しない。
+   - JST で 2 日前の圧縮済みデータ (`v3compaction/YYYY/MM/DD/`) が**存在する** (= 直近の Compaction パイプラインは動作していた)
+   - JST で 1 日前の生データ (`v3raw/YYYY/MM/DD/`) が**存在しない**
+   - JST で 1 日前の圧縮済みデータ (`v3compaction/YYYY/MM/DD/`) が**存在しない**
+
+   すなわち「Compaction パイプラインは動いているのに 1 日前のデータ (生/圧縮済みのいずれ) も無い」状態のみを Webhook 受信停止の強い疑いとして通知する。
+2. **Compaction 実行自体が例外で失敗** — 既存ログ (`ZLogError`) に加えて Slack 警告にも乗せる
 
 ### URL の妥当性
 
 両環境変数は内部的に `Uri.TryCreate(value, UriKind.Absolute, out _)` で評価され、絶対 URI かつスキームが `http` / `https` の場合のみ送信対象になります。未設定または不正な URL の場合、その種別の通知のみが黙ってスキップされ、もう一方の URL の通知やアプリケーション本体の動作には影響しません。
+
+### メッセージに付与されるアプリケーション識別情報
+
+Warning / Information どちらの通知も、本文の先頭に以下の形式のヘッダーを付けて送信します。複数環境 / 複数テナントに同一コードをデプロイしている場合でも、どのアプリケーションからの通知かを Slack 上で判別できるようにするためです。
+
+```
+📍 AzureAd ClientId=`<AzureAD__CLIENTID>` TenantId=`<AzureAD__TENANTID>`
+<本文>
+```
+
+どちらの値も `appsettings.json` / 環境変数 (`AzureAD__CLIENTID`, `AzureAD__TENANTID`) の `AzureAd` セクションから読み取ります。両方とも未設定の場合（開発認証モード等）はヘッダー行自体を省略します。
 
 ### Slack 側の準備
 

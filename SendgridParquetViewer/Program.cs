@@ -89,6 +89,10 @@ builder.Services.AddOptions<SlackNotifierOptions>()
     .ValidateDataAnnotations()
     .ValidateOnStart();
 
+// AzureAd の ClientId / TenantId を Slack 通知のアプリケーション識別情報として使うために別枠で束縛する
+builder.Services.AddOptions<AzureAdIdentityOptions>()
+    .Bind(builder.Configuration.GetSection(AzureAdIdentityOptions.SectionName));
+
 // Configure SendGrid options
 builder.Services.AddOptions<SendgridOptions>()
     .Bind(builder.Configuration.GetSection(SendgridOptions.SectionName))
