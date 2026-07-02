@@ -23,6 +23,14 @@ public class ParquetService
     /// </summary>
     private const int DefaultRowGroupMaxEstimatedBytes = 48 * 1024 * 1024;
 
+    /// <summary>
+    /// 全列 <see cref="ColumnBuffer{T}"/> のプリアロケート合計上限 (4 GiB)。
+    /// コンテナ実行前提の現実的上限。誤設定による即時 OOM を防ぐ。
+    /// </summary>
+    public const long MaxColumnBufferPreAllocateBytes = 4L * 1024 * 1024 * 1024;
+
+    private const int ColumnBufferSlotBytes = 8;
+
     public readonly record struct ParquetRowGroupFlushMetrics(
         int RowCount,
         long EstimatedBytes,
@@ -117,6 +125,33 @@ public class ParquetService
 
     private static readonly FieldProcessor[] FieldProcessors = CreateFieldProcessors();
 
+    public static int MaxRowGroupSize { get; } = CalculateMaxRowGroupSize();
+
+    public static long EstimateColumnBufferPreAllocateBytes(int rowGroupSize) =>
+        (long)rowGroupSize * FieldProcessors.Length * ColumnBufferSlotBytes;
+
+    private static int CalculateMaxRowGroupSize()
+    {
+        long maxRows = MaxColumnBufferPreAllocateBytes / (FieldProcessors.Length * ColumnBufferSlotBytes);
+        return maxRows > int.MaxValue ? int.MaxValue : (int)maxRows;
+    }
+
+    private static void ValidateRowGroupSize(int rowGroupSize)
+    {
+        if (rowGroupSize <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(rowGroupSize), rowGroupSize, "RowGroupSize must be greater than zero.");
+        }
+
+        if (rowGroupSize > MaxRowGroupSize)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(rowGroupSize),
+                rowGroupSize,
+                $"RowGroupSize must not exceed {MaxRowGroupSize} (column buffer pre-allocation is limited to {MaxColumnBufferPreAllocateBytes} bytes).");
+        }
+    }
+
     private static long EstimateStringBytes(string? value) => (value?.Length ?? 0) * 2L;
 
     private static long EstimateNullableIntBytes(int? value) => value.HasValue ? 4L : 1L;
@@ -199,10 +234,7 @@ public class ParquetService
         Action<ParquetRowGroupFlushMetrics>? onRowGroupFlushed = null,
         CancellationToken token = default)
     {
-        if (rowGroupSize <= 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(rowGroupSize));
-        }
+        ValidateRowGroupSize(rowGroupSize);
 
         if (rowGroupMaxEstimatedBytes <= 0)
         {

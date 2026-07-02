@@ -22,6 +22,8 @@ public sealed class CompactionStartupHostedService(
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        LogCompactionMemorySettings();
+
         if (!options.Value.PeriodicRunEnabled)
         {
             logger.ZLogInformation($"Compaction periodic run is disabled");
@@ -44,6 +46,26 @@ public sealed class CompactionStartupHostedService(
                 await Run(stoppingToken);
             }
         }, stoppingToken).ContinueWith(_ => compactionService.StopCompactionAsync(CancellationToken.None), CancellationToken.None);
+    }
+
+    private void LogCompactionMemorySettings()
+    {
+        CompactionOptions compactionOptions = options.Value;
+        long bufferPreAllocate = ParquetService.EstimateColumnBufferPreAllocateBytes(compactionOptions.RowGroupSize);
+        logger.ZLogInformation(
+            $"Compaction memory settings: RowGroupSize={compactionOptions.RowGroupSize}, " +
+            $"columnBufferPreAllocate={bufferPreAllocate} bytes, " +
+            $"limit={ParquetService.MaxColumnBufferPreAllocateBytes} bytes, " +
+            $"RowGroupMaxEstimatedBytes={compactionOptions.RowGroupMaxEstimatedBytes}, " +
+            $"MaxBatchSizeBytes={compactionOptions.MaxBatchSizeBytes}");
+
+        if (compactionOptions.RowGroupMaxEstimatedBytes > compactionOptions.MaxBatchSizeBytes)
+        {
+            logger.ZLogWarning(
+                $"Compaction:RowGroupMaxEstimatedBytes ({compactionOptions.RowGroupMaxEstimatedBytes}) exceeds " +
+                $"MaxBatchSizeBytes ({compactionOptions.MaxBatchSizeBytes}). " +
+                $"A single RowGroup flush threshold is larger than one batch read cap.");
+        }
     }
 
     private static (DateTimeOffset nextRunJapan, TimeSpan delayUntilNextRun) CalculateDelayUntilNextScheduledTime(TimeProvider timeProvider)
