@@ -21,6 +21,16 @@ public class SendGridOptions
     public int MaxBodyBytes { get; set; } = 1 * 1024 * 1024;
 
     /// <summary>
+    /// 1 イベントあたりの推定 in-memory サイズ上限 (UTF-16 ベース、既定 4 MiB)。
+    /// SendGrid Event Webhook の元メッセージは最大 768 KB。
+    /// https://www.twilio.com/docs/sendgrid/for-developers/tracking-events/twilio-sendgrid-event-webhook-overview
+    /// 異常に巨大な単一イベントが Parquet バッファへ載る前に拒否する。
+    /// Set via environment variable SENDGRID__MAXEVENTBYTES.
+    /// </summary>
+    [Range(1, 16_777_216)] // 1 .. 16 MiB
+    public int MaxEventBytes { get; set; } = SendGridEventValidator.DefaultMaxEventBytes;
+
+    /// <summary>
     /// Allowed skew for webhook timestamp validation.
     /// Parsed with System.TimeSpan.Parse (invariant), e.g. "00:05:00" (5 minutes), "00:00:30" (30 seconds).
     /// Set via environment variable SENDGRID__ALLOWEDSKEW. Default is "00:05:00" (5 minutes).
