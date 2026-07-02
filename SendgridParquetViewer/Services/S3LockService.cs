@@ -9,17 +9,42 @@ using ZLogger;
 namespace SendgridParquetViewer.Services;
 
 /// <summary>
-/// ハートビートによるロック延長の結果
+/// ハートビートによるロック延長の結果 (ExtendLockForHeartbeatAsync の戻り値)。
+///
+/// 状態遷移図
+/// (1 tick = ExtendLockForHeartbeatAsync 1回 / n = _consecutiveExtendFailures / 上限 = MaxConsecutiveExtendFailures = 3)
+///
+///        [TryAcquireLockAsync 成功: n:=0]
+///                     │
+///                     ▼
+///                ┌──────────┐  ── 延長成功 (n:=0) ──▶ (自身へ)
+///           ┌───▶│ Extended │
+///           │    └────┬─────┘
+///  延長成功  │         │ 延長失敗 / n++  (n=1, n<上限)
+///  (n:=0)   │         ▼
+///           │  ┌──────────────────┐  ── 延長失敗 / n++ (n<上限) ──▶ (自身へ)
+///           └──┤ TransientFailure │
+///              └────┬─────────────┘
+///                   │ 延長失敗 / n++  (n>=上限)
+///                   ▼
+///              ┌───────────┐
+///              │ Abandoned │  ── [終端] ──▶ compaction 停止 (dual execution 防止)
+///              └───────────┘
+///
+/// 凡例:
+///   延長成功 = ExtendLockExpirationAsync() が true → n を 0 にリセット
+///   延長失敗 = false (ロック消失 / 別オーナー / CAS 競合) または一時例外 (HttpClient タイムアウト等) → n をインクリメント
+///   ct が実際にキャンセルされた場合は OperationCanceledException を送出しハートビートを終了する (この図の対象外)
 /// </summary>
 public enum LockHeartbeatOutcome
 {
-    /// <summary>ロックの延長に成功した (連続失敗回数はリセットされる)</summary>
+    /// <summary>ロックの延長に成功した (連続失敗回数 n はリセットされる)</summary>
     Extended,
 
-    /// <summary>一時的に延長できなかった。リトライを継続してよい</summary>
+    /// <summary>一時的に延長できなかった (n をインクリメント / n &lt; 上限)。リトライを継続してよい</summary>
     TransientFailure,
 
-    /// <summary>連続失敗が上限に達した。ロック維持を諦めるべき (dual execution 防止のため停止する)</summary>
+    /// <summary>連続失敗が上限に達した (n &gt;= 上限)。ロック維持を諦めるべき (dual execution 防止のため停止する)</summary>
     Abandoned,
 }
 
