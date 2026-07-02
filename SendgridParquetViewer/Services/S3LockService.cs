@@ -32,8 +32,9 @@ namespace SendgridParquetViewer.Services;
 ///              └───────────┘
 ///
 /// 凡例:
-///   延長成功 = ExtendLockExpirationAsync() が true → n を 0 にリセット
-///   延長失敗 = false (ロック消失 / 別オーナー / CAS 競合) または一時例外 (HttpClient タイムアウト等) → n をインクリメント
+///   延長成功 = ExtendLockExpirationAsync() が true、
+///             または false でも再確認で同一 lockId・同一 ownerId・未期限切れ (バッチ延長との benign CAS 競合) → n を 0 にリセット
+///   延長失敗 = ロック消失 / 別オーナー / 期限切れ、または一時例外 (HttpClient タイムアウト等) → n をインクリメント
 ///   ct が実際にキャンセルされた場合は OperationCanceledException を送出しハートビートを終了する (この図の対象外)
 /// </summary>
 public enum LockHeartbeatOutcome
