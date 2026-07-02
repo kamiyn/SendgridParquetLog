@@ -76,7 +76,13 @@ public class CompactionService(
                 // ReleaseLockAsync 後に ExtendLockExpirationAsync を呼ぶとロックが再有効化されるため
                 if (status.EndTime == null)
                 {
-                    await s3LockService.ExtendLockExpirationAsync(status.LockId, cancellationToken);
+                    // バッチ単位の延長 (ハートビートとは独立)。連続失敗の判定はハートビート側が行うが、
+                    // ここでも延長失敗を検知できるよう戻り値を確認し警告ログを残す。
+                    bool extended = await s3LockService.ExtendLockExpirationAsync(status.LockId, cancellationToken);
+                    if (!extended)
+                    {
+                        logger.ZLogWarning($"Per-batch lock extension did not succeed. LockId={status.LockId}");
+                    }
                 }
 
                 RunStatusSubject.OnNext(status);
