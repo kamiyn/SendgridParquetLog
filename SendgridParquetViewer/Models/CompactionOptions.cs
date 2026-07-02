@@ -17,6 +17,7 @@ public class CompactionOptions
     /// <summary>
     /// Parquet RowGroup の最大行数。バイト量しきい値と併用する安全上限。
     /// </summary>
+    [System.ComponentModel.DataAnnotations.Range(1, int.MaxValue)]
     public int RowGroupSize { get; set; } = 25_000;
 
     /// <summary>
