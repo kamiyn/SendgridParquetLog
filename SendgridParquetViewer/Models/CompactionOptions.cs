@@ -36,6 +36,12 @@ public class CompactionOptions : IValidatableObject
     /// </summary>
     public TimeSpan TargetBefore { get; set; } = TimeSpan.FromDays(-1);
 
+    /// <summary>
+    /// 出力検証後の元ファイル削除の同時実行数 (デフォルト: 8)
+    /// </summary>
+    [Range(1, 256)]
+    public int DeleteParallelism { get; set; } = 8;
+
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
         if (RowGroupSize > ParquetService.MaxRowGroupSize)
