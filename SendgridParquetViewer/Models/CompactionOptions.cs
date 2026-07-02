@@ -23,6 +23,7 @@ public class CompactionOptions
     /// <summary>
     /// RowGroup フラッシュ時の概算バイト数しきい値 (デフォルト: 48MB)
     /// </summary>
+    [System.ComponentModel.DataAnnotations.Range(1, int.MaxValue)]
     public int RowGroupMaxEstimatedBytes { get; set; } = 48 * 1024 * 1024;
 
     /// <summary>
