@@ -12,7 +12,11 @@ public interface IS3LockService
 {
     TimeSpan LockDuration { get; }
     Task<bool> TryAcquireLockAsync(string lockId, CancellationToken ct);
-    Task ExtendLockExpirationAsync(string lockId, CancellationToken ct);
+    /// <summary>
+    /// ロックの有効期限を延長する。実際に延長できたときのみ true を返す
+    /// (ロック未存在・別オーナー・CAS 競合などで延長できなかった場合は false)。
+    /// </summary>
+    Task<bool> ExtendLockExpirationAsync(string lockId, CancellationToken ct);
     Task ReleaseLockAsync(string lockId, CancellationToken ct);
     Task<bool> TryInvalidateExpiredLockAsync(LockInfo expectedLock, CancellationToken ct);
     Task<bool> TryForceInvalidateLockAsync(LockInfo expectedLock, CancellationToken ct);
@@ -83,11 +87,11 @@ public class S3LockService(
         return success;
     }
 
-    public async Task ExtendLockExpirationAsync(string lockId, CancellationToken ct)
+    public async Task<bool> ExtendLockExpirationAsync(string lockId, CancellationToken ct)
     {
         if (string.IsNullOrEmpty(lockId))
         {
-            return;
+            return false;
         }
 
         var (_, lockPath) = SendGridPathUtility.GetS3CompactionRunFile();
@@ -95,7 +99,7 @@ public class S3LockService(
 
         if (result.Content.Length == 0)
         {
-            return;
+            return false;
         }
 
         LockInfo? existingLock;
@@ -106,22 +110,22 @@ public class S3LockService(
         catch (Exception ex)
         {
             logger.ZLogWarning(ex, $"Failed to deserialize existing lock info while extending lock expiration. lockPath:{lockPath}");
-            return;
+            return false;
         }
 
         if (existingLock == null)
         {
-            return;
+            return false;
         }
 
         if (!string.Equals(existingLock.LockId, lockId, StringComparison.Ordinal))
         {
-            return;
+            return false;
         }
 
         if (!string.Equals(existingLock.OwnerId, InstanceId, StringComparison.Ordinal))
         {
-            return;
+            return false;
         }
 
         var now = timeProvider.GetUtcNow();
@@ -137,6 +141,8 @@ public class S3LockService(
         {
             logger.ZLogWarning($"Failed to extend compaction lock {lockId} due to conditional write conflict lockPath:{lockPath}");
         }
+
+        return updated;
     }
 
     public async Task ReleaseLockAsync(string lockId, CancellationToken ct)

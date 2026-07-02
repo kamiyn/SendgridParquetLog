@@ -385,10 +385,30 @@ public class CompactionService(
             try
             {
                 await Task.Delay(LockHeartbeatInterval, cts.Token);
-                await s3LockService.ExtendLockExpirationAsync(lockId, cts.Token);
-                consecutiveFailures = 0;
+                bool extended = await s3LockService.ExtendLockExpirationAsync(lockId, cts.Token);
+                if (extended)
+                {
+                    consecutiveFailures = 0;
+                }
+                else
+                {
+                    // ロックを延長できなかった (ロック消失・別オーナー・CAS 競合など)。
+                    // 例外は出ないため、ここで明示的に失敗としてカウントする。
+                    consecutiveFailures++;
+                    logger.ZLogWarning($"Heartbeat could not extend compaction lock. LockId={lockId}, ConsecutiveFailures={consecutiveFailures}");
+                    if (consecutiveFailures >= maxConsecutiveFailures)
+                    {
+                        logger.ZLogError($"Lock heartbeat failed {consecutiveFailures} consecutive times. Cancelling compaction to prevent dual execution. LockId={lockId}");
+                        await cts.CancelAsync();
+                        break;
+                    }
+                }
             }
-            catch (OperationCanceledException)
+            // 自分たちが実際にキャンセルされた場合のみ終了する。
+            // HttpClient のタイムアウト等は TaskCanceledException(OperationCanceledException) を投げるが、
+            // cts 自体は未キャンセルなので、これを「キャンセル」と誤認してループを終わらせない
+            // (誤終了するとハートビートが止まりロックが期限切れになる)。
+            catch (OperationCanceledException) when (cts.Token.IsCancellationRequested)
             {
                 break;
             }
