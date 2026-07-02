@@ -76,7 +76,13 @@ public class CompactionService(
                 // ReleaseLockAsync 後に ExtendLockExpirationAsync を呼ぶとロックが再有効化されるため
                 if (status.EndTime == null)
                 {
-                    await s3LockService.ExtendLockExpirationAsync(status.LockId, cancellationToken);
+                    // バッチ単位の延長 (ハートビートとは独立)。連続失敗の判定はハートビート側が行うが、
+                    // ここでも延長失敗を検知できるよう戻り値を確認し警告ログを残す。
+                    bool extended = await s3LockService.ExtendLockExpirationAsync(status.LockId, cancellationToken);
+                    if (!extended)
+                    {
+                        logger.ZLogWarning($"Per-batch lock extension did not succeed. LockId={status.LockId}");
+                    }
                 }
 
                 RunStatusSubject.OnNext(status);
@@ -331,21 +337,26 @@ public class CompactionService(
         var runStatus = runStatusContext.RunStatus;
         logger.ZLogInformation($"Compaction process started at {runStatus.StartTime} with {runStatus.TargetDays.Count} target dates");
 
-        using var lockHeartbeatCancellation = CancellationTokenSource.CreateLinkedTokenSource(token);
-        Task lockHeartbeatTask = RunLockHeartbeatAsync(runStatus.LockId, lockHeartbeatCancellation);
+        // ハートビートが Abandoned (ロック維持不能) を検知したときに、この CTS を通じて
+        // コンパクション本体ごと停止できるようにする (dual execution 防止)。
+        // 親 token へのリンク子なので、外部からの停止 (StopCompactionAsync) も引き続き伝播する。
+        // 本体は token ではなくこの compactionToken を監視する。
+        using var compactionCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+        CancellationToken compactionToken = compactionCts.Token;
+        Task lockHeartbeatTask = RunLockHeartbeatAsync(runStatus.LockId, compactionCts);
 
         try
         {
             foreach ((DateOnly dateOnly, string pathPrefix) in runStatus.TargetDays.Zip(runStatus.TargetPathPrefixes))
             {
-                token.ThrowIfCancellationRequested();
+                compactionToken.ThrowIfCancellationRequested();
                 logger.ZLogInformation($"Starting compaction for date {dateOnly} at path {pathPrefix}");
                 try
                 {
-                    await ExecuteCompactionOneDayAsync(runStatusContext, dateOnly, pathPrefix, token);
+                    await ExecuteCompactionOneDayAsync(runStatusContext, dateOnly, pathPrefix, compactionToken);
                     logger.ZLogInformation($"Completed compaction for date {dateOnly} at path {pathPrefix}");
                     runStatusContext.CompletedADay(timeProvider.GetUtcNow());
-                    await runStatusContext.SaveRunStatusAsync(token);
+                    await runStatusContext.SaveRunStatusAsync(compactionToken);
                 }
                 catch (OperationCanceledException)
                 {
@@ -366,7 +377,7 @@ public class CompactionService(
         }
         finally
         {
-            await lockHeartbeatCancellation.CancelAsync();
+            await compactionCts.CancelAsync();
             await lockHeartbeatTask;
             await s3LockService.ReleaseLockAsync(runStatus.LockId, CancellationToken.None);
             runStatusContext.CompletedAllDays(timeProvider.GetUtcNow());
@@ -375,33 +386,75 @@ public class CompactionService(
         }
     }
 
+    /// <summary>
+    ///   ┌───────────────────────┐              ┌───────────────┐               ┌────┐
+    ///   │ RunLockHeartbeatAsync │              │ S3LockService │               │ S3 │
+    ///   └───────────┬───────────┘              └───────┬───────┘               └──┬─┘
+    ///               │                                  │                          │
+    ///               │   ExtendLockForHeartbeatAsync    │                          │
+    ///               │──────────────────────────────────▶                          │
+    ///               │                                  │                          │
+    ///               │                                  │      Get + CAS Put       │
+    ///               │                                  │──────────────────────────▶
+    ///               │                                  │                          │
+    ///           ┌alt [成功]─────────────────────────────────────────────────────────────┐
+    ///           │   │                                  │                          │   │
+    ///           │   │                                  │      updated=true        │   │
+    ///           │   │                                  ◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌│   │
+    ///           │   │                                  │                          │   │
+    ///           │   │      Extended (counter=0)        │                          │   │
+    ///           │   ◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌│                          │   │
+    ///           │   │                                  │                          │   │
+    ///           ├[HttpClientタイムアウト]╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┤
+    ///           │   │                                  │                          │   │
+    ///           │   │                                  │  TaskCanceledException   │   │
+    ///           │   │                                  ◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌│   │
+    ///           │   │                                  │                          │   │
+    ///           │   │  TransientFailure (counter++)    │                          │   │
+    ///           │   ◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌│                          │   │
+    ///           │   │                                  │                          │   │
+    ///           ├[CAS競合/ロック消失]╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┤
+    ///           │   │                                  │                          │   │
+    ///           │   │                                  │      updated=false       │   │
+    ///           │   │                                  ◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌│   │
+    ///           │   │                                  │                          │   │
+    ///           │   │  TransientFailure or Abandoned   │                          │   │
+    ///           │   ◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌│                          │   │
+    ///           │   │                                  │                          │   │
+    ///           └─────────────────────────────────────────────────────────────────────┘
+    ///               │                                  │                          │
+    ///               ├───┐                              │                          │
+    ///               │   │ Abandoned → CancelAsync + break                         │
+    ///               ◀───┘                              │                          │
+    ///               │                                  │                          │
+    ///   ┌───────────┴───────────┐              ┌───────┴───────┐               ┌──┴─┐
+    ///   │ RunLockHeartbeatAsync │              │ S3LockService │               │ S3 │
+    ///   └───────────────────────┘              └───────────────┘               └────┘
+    /// </summary>
     private async Task RunLockHeartbeatAsync(string lockId, CancellationTokenSource cts)
     {
-        const int maxConsecutiveFailures = 3;
-        int consecutiveFailures = 0;
-
         while (!cts.Token.IsCancellationRequested)
         {
             try
             {
                 await Task.Delay(LockHeartbeatInterval, cts.Token);
-                await s3LockService.ExtendLockExpirationAsync(lockId, cts.Token);
-                consecutiveFailures = 0;
-            }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
-            catch (Exception ex)
-            {
-                consecutiveFailures++;
-                logger.ZLogWarning(ex, $"Failed to extend compaction lock by heartbeat. LockId={lockId}, ConsecutiveFailures={consecutiveFailures}");
-                if (consecutiveFailures >= maxConsecutiveFailures)
+
+                // 連続失敗回数の管理としきい値判定は S3LockService 側が担う。
+                // ここではロックを維持できなくなった (Abandoned) 場合に compaction を止めるだけ。
+                LockHeartbeatOutcome outcome = await s3LockService.ExtendLockForHeartbeatAsync(lockId, cts.Token);
+                if (outcome == LockHeartbeatOutcome.Abandoned)
                 {
-                    logger.ZLogError($"Lock heartbeat failed {consecutiveFailures} consecutive times. Cancelling compaction to prevent dual execution. LockId={lockId}");
+                    logger.ZLogError($"Lock heartbeat abandoned after repeated failures. Cancelling compaction to prevent dual execution. LockId={lockId}");
                     await cts.CancelAsync();
                     break;
                 }
+            }
+            // 実際に自分がキャンセルされた場合のみ終了する。
+            // HttpClient のタイムアウト等 (TaskCanceledException) は S3LockService 側で
+            // 一時的失敗として扱われ、ここには伝播しない。
+            catch (OperationCanceledException) when (cts.Token.IsCancellationRequested)
+            {
+                break;
             }
         }
     }
