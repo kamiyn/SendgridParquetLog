@@ -10,9 +10,19 @@ public class CompactionOptions
     public bool PeriodicRunEnabled { get; set; } = true;
 
     /// <summary>
-    /// 最大読み込みバイト数 (デフォルト: 512MB)
+    /// 最大読み込みバイト数 (デフォルト: 256MB)
     /// </summary>
-    public long MaxBatchSizeBytes { get; set; } = 512 * 1024 * 1024;
+    public long MaxBatchSizeBytes { get; set; } = 256 * 1024 * 1024;
+
+    /// <summary>
+    /// Parquet RowGroup の最大行数。バイト量しきい値と併用する安全上限。
+    /// </summary>
+    public int RowGroupSize { get; set; } = 25_000;
+
+    /// <summary>
+    /// RowGroup フラッシュ時の概算バイト数しきい値 (デフォルト: 48MB)
+    /// </summary>
+    public int RowGroupMaxEstimatedBytes { get; set; } = 48 * 1024 * 1024;
 
     /// <summary>
     /// 標準では JST基準で昨日以前のものが対象になる

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -18,6 +19,17 @@ public class ParquetService
     /// </summary>
     private const int DefaultRowGroupSize = 10_000;
 
+    /// <summary>
+    /// RowGroup フラッシュ時の概算バイト数しきい値（既定 48 MiB）
+    /// </summary>
+    private const int DefaultRowGroupMaxEstimatedBytes = 48 * 1024 * 1024;
+
+    public readonly record struct ParquetRowGroupFlushMetrics(
+        int RowCount,
+        long EstimatedBytes,
+        long GcTotalMemoryBytes,
+        long WorkingSetBytes);
+
     // Paired field definition and processing function
     private record FieldProcessor(
         DataField Field,
@@ -27,6 +39,8 @@ public class ParquetService
     private interface IColumnBuffer
     {
         int Count { get; }
+
+        long EstimatedBytes { get; }
 
         void Append(SendGridEvent item);
 
@@ -39,30 +53,79 @@ public class ParquetService
     {
         private readonly DataField _field;
         private readonly Func<SendGridEvent, T> _selector;
-        private readonly List<T> _values;
+        private readonly Func<SendGridEvent, long> _byteEstimator;
+        private T[] _values;
+        private int _count;
+        private long _estimatedBytes;
 
-        internal ColumnBuffer(DataField field, int capacity, Func<SendGridEvent, T> selector)
+        internal ColumnBuffer(DataField field, int capacity, Func<SendGridEvent, T> selector, Func<SendGridEvent, long> byteEstimator)
         {
             _field = field;
             _selector = selector;
-            _values = new List<T>(capacity);
+            _byteEstimator = byteEstimator;
+            _values = new T[capacity];
         }
 
-        public int Count => _values.Count;
+        public int Count => _count;
 
-        public void Append(SendGridEvent item) => _values.Add(_selector(item));
+        public long EstimatedBytes => _estimatedBytes;
 
-        public DataColumn BuildDataColumn() => new(_field, _values.ToArray());
+        public void Append(SendGridEvent item)
+        {
+            if (_count >= _values.Length)
+            {
+                throw new InvalidOperationException("Column buffer capacity exceeded.");
+            }
 
-        public void Clear() => _values.Clear();
+            _values[_count] = _selector(item);
+            _count++;
+            _estimatedBytes += _byteEstimator(item);
+        }
+
+        public DataColumn BuildDataColumn()
+        {
+            if (_count == 0)
+            {
+                throw new InvalidOperationException("Cannot build DataColumn from empty buffer.");
+            }
+
+            T[] array;
+            if (_count == _values.Length)
+            {
+                array = _values;
+                _values = new T[_values.Length];
+            }
+            else
+            {
+                array = GC.AllocateUninitializedArray<T>(_count);
+                _values.AsSpan(0, _count).CopyTo(array);
+            }
+
+            return new DataColumn(_field, array);
+        }
+
+        public void Clear()
+        {
+            _count = 0;
+            _estimatedBytes = 0;
+        }
     }
 
     private static readonly FieldProcessor[] FieldProcessors = CreateFieldProcessors();
 
-    private static FieldProcessor CreateFieldProcessor<T>(DataField field, Func<SendGridEvent, T> selector)
+    private static long EstimateStringBytes(string? value) => (value?.Length ?? 0) * 2L;
+
+    private static long EstimateNullableIntBytes(int? value) => value.HasValue ? 4L : 1L;
+
+    private static long EstimateNullableLongBytes(long? value) => value.HasValue ? 8L : 1L;
+
+    private static FieldProcessor CreateFieldProcessor<T>(
+        DataField field,
+        Func<SendGridEvent, T> selector,
+        Func<SendGridEvent, long> byteEstimator)
         => new(field,
             events => new DataColumn(field, events.Select(selector).ToArray()),
-            capacity => new ColumnBuffer<T>(field, capacity, selector));
+            capacity => new ColumnBuffer<T>(field, capacity, selector, byteEstimator));
 
     private static FieldProcessor[] CreateFieldProcessors()
     {
@@ -95,32 +158,32 @@ public class ParquetService
 
         return
         [
-            CreateFieldProcessor(emailField, e => e.Email ?? string.Empty),
-            CreateFieldProcessor(timestampField, e => e.Timestamp),
-            CreateFieldProcessor(eventField, e => e.Event ?? string.Empty),
-            CreateFieldProcessor(categoryField, e => e.Category ?? string.Empty),
-            CreateFieldProcessor(sgEventIdField, e => e.SgEventId ?? string.Empty),
-            CreateFieldProcessor(sgMessageIdField, e => e.SgMessageId ?? string.Empty),
-            CreateFieldProcessor(sgTemplateIdField, e => e.SgTemplateId ?? string.Empty),
-            CreateFieldProcessor(smtpIdField, e => e.SmtpId ?? string.Empty),
-            CreateFieldProcessor(userAgentField, e => e.UserAgent ?? string.Empty),
-            CreateFieldProcessor(ipField, e => e.Ip ?? string.Empty),
-            CreateFieldProcessor(urlField, e => e.Url ?? string.Empty),
-            CreateFieldProcessor(reasonField, e => e.Reason ?? string.Empty),
-            CreateFieldProcessor(statusField, e => e.Status ?? string.Empty),
-            CreateFieldProcessor(responseField, e => e.Response ?? string.Empty),
-            CreateFieldProcessor(tlsField, e => e.Tls),
-            CreateFieldProcessor(attemptField, e => e.Attempt ?? string.Empty),
-            CreateFieldProcessor(typeField, e => e.Type ?? string.Empty),
-            CreateFieldProcessor(bounceClassificationField, e => e.BounceClassification ?? string.Empty),
-            CreateFieldProcessor(asmGroupIdField, e => e.AsmGroupId),
+            CreateFieldProcessor(emailField, e => e.Email ?? string.Empty, e => EstimateStringBytes(e.Email)),
+            CreateFieldProcessor(timestampField, e => e.Timestamp, _ => 8L),
+            CreateFieldProcessor(eventField, e => e.Event ?? string.Empty, e => EstimateStringBytes(e.Event)),
+            CreateFieldProcessor(categoryField, e => e.Category ?? string.Empty, e => EstimateStringBytes(e.Category)),
+            CreateFieldProcessor(sgEventIdField, e => e.SgEventId ?? string.Empty, e => EstimateStringBytes(e.SgEventId)),
+            CreateFieldProcessor(sgMessageIdField, e => e.SgMessageId ?? string.Empty, e => EstimateStringBytes(e.SgMessageId)),
+            CreateFieldProcessor(sgTemplateIdField, e => e.SgTemplateId ?? string.Empty, e => EstimateStringBytes(e.SgTemplateId)),
+            CreateFieldProcessor(smtpIdField, e => e.SmtpId ?? string.Empty, e => EstimateStringBytes(e.SmtpId)),
+            CreateFieldProcessor(userAgentField, e => e.UserAgent ?? string.Empty, e => EstimateStringBytes(e.UserAgent)),
+            CreateFieldProcessor(ipField, e => e.Ip ?? string.Empty, e => EstimateStringBytes(e.Ip)),
+            CreateFieldProcessor(urlField, e => e.Url ?? string.Empty, e => EstimateStringBytes(e.Url)),
+            CreateFieldProcessor(reasonField, e => e.Reason ?? string.Empty, e => EstimateStringBytes(e.Reason)),
+            CreateFieldProcessor(statusField, e => e.Status ?? string.Empty, e => EstimateStringBytes(e.Status)),
+            CreateFieldProcessor(responseField, e => e.Response ?? string.Empty, e => EstimateStringBytes(e.Response)),
+            CreateFieldProcessor(tlsField, e => e.Tls, e => EstimateNullableIntBytes(e.Tls)),
+            CreateFieldProcessor(attemptField, e => e.Attempt ?? string.Empty, e => EstimateStringBytes(e.Attempt)),
+            CreateFieldProcessor(typeField, e => e.Type ?? string.Empty, e => EstimateStringBytes(e.Type)),
+            CreateFieldProcessor(bounceClassificationField, e => e.BounceClassification ?? string.Empty, e => EstimateStringBytes(e.BounceClassification)),
+            CreateFieldProcessor(asmGroupIdField, e => e.AsmGroupId, e => EstimateNullableIntBytes(e.AsmGroupId)),
             //CreateFieldProcessor(uniqueArgsField,
             //    e => e.UniqueArgs.HasValue ? e.UniqueArgs.Value.GetRawText() : string.Empty),
-            CreateFieldProcessor(marketingCampaignIdField, e => e.MarketingCampaignId),
-            CreateFieldProcessor(marketingCampaignNameField, e => e.MarketingCampaignName ?? string.Empty),
-            CreateFieldProcessor(poolNameField, e => e.Pool?.Name ?? string.Empty),
-            CreateFieldProcessor(poolIdField, e => e.Pool?.Id),
-            CreateFieldProcessor(sendAtField, e => e.SendAt)
+            CreateFieldProcessor(marketingCampaignIdField, e => e.MarketingCampaignId, e => EstimateNullableIntBytes(e.MarketingCampaignId)),
+            CreateFieldProcessor(marketingCampaignNameField, e => e.MarketingCampaignName ?? string.Empty, e => EstimateStringBytes(e.MarketingCampaignName)),
+            CreateFieldProcessor(poolNameField, e => e.Pool?.Name ?? string.Empty, e => EstimateStringBytes(e.Pool?.Name)),
+            CreateFieldProcessor(poolIdField, e => e.Pool?.Id, e => EstimateNullableIntBytes(e.Pool?.Id)),
+            CreateFieldProcessor(sendAtField, e => e.SendAt, e => EstimateNullableLongBytes(e.SendAt))
         ];
     }
 
@@ -128,11 +191,18 @@ public class ParquetService
         IAsyncEnumerable<SendGridEvent> events,
         Stream stream,
         int rowGroupSize = DefaultRowGroupSize,
+        int rowGroupMaxEstimatedBytes = DefaultRowGroupMaxEstimatedBytes,
+        Action<ParquetRowGroupFlushMetrics>? onRowGroupFlushed = null,
         CancellationToken token = default)
     {
         if (rowGroupSize <= 0)
         {
             throw new ArgumentOutOfRangeException(nameof(rowGroupSize));
+        }
+
+        if (rowGroupMaxEstimatedBytes <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(rowGroupMaxEstimatedBytes));
         }
 
         Field[] fields = FieldProcessors.Select(fp => fp.Field).ToArray<Field>();
@@ -150,9 +220,9 @@ public class ParquetService
                 buffer.Append(sendGridEvent);
             }
 
-            if (buffers[0].Count >= rowGroupSize)
+            if (ShouldFlushRowGroup(buffers, rowGroupSize, rowGroupMaxEstimatedBytes))
             {
-                await WriteRowGroupAsync(writer, buffers);
+                await WriteRowGroupAsync(writer, buffers, onRowGroupFlushed);
             }
         }
 
@@ -163,10 +233,31 @@ public class ParquetService
 
         if (buffers[0].Count > 0)
         {
-            await WriteRowGroupAsync(writer, buffers);
+            await WriteRowGroupAsync(writer, buffers, onRowGroupFlushed);
         }
 
         return true;
+    }
+
+    private static bool ShouldFlushRowGroup(IColumnBuffer[] buffers, int rowGroupSize, int rowGroupMaxEstimatedBytes)
+    {
+        if (buffers[0].Count == 0)
+        {
+            return false;
+        }
+
+        if (buffers[0].Count >= rowGroupSize)
+        {
+            return true;
+        }
+
+        long estimatedBytes = 0;
+        foreach (IColumnBuffer buffer in buffers)
+        {
+            estimatedBytes += buffer.EstimatedBytes;
+        }
+
+        return estimatedBytes >= rowGroupMaxEstimatedBytes;
     }
 
     public async Task<bool> ConvertToParquetAsync(IReadOnlyCollection<SendGridEvent> events, Stream stream)
@@ -187,10 +278,20 @@ public class ParquetService
         return true;
     }
 
-    private static async Task WriteRowGroupAsync(ParquetWriter writer, IColumnBuffer[] buffers)
+    private static async Task WriteRowGroupAsync(
+        ParquetWriter writer,
+        IColumnBuffer[] buffers,
+        Action<ParquetRowGroupFlushMetrics>? onRowGroupFlushed)
     {
         if (buffers.Any(columnBuffer => columnBuffer.Count > 0))
         {
+            int rowCount = buffers[0].Count;
+            long estimatedBytes = 0;
+            foreach (IColumnBuffer buffer in buffers)
+            {
+                estimatedBytes += buffer.EstimatedBytes;
+            }
+
             // CreateRowGroup() メソッドに行数を指定する引数はありません。
             // 行グループの行数 (rowCount) は、WriteColumn() で書き込む配列の要素数で決まります
             // 複数の行グループを作成したい場合は、CreateRowGroup() の呼び出しとデータ書き込みの処理をループで繰り返します。
@@ -201,6 +302,12 @@ public class ParquetService
                 await groupWriter.WriteColumnAsync(column);
                 buffer.Clear();
             }
+
+            onRowGroupFlushed?.Invoke(new ParquetRowGroupFlushMetrics(
+                rowCount,
+                estimatedBytes,
+                GC.GetTotalMemory(false),
+                Process.GetCurrentProcess().WorkingSet64));
         }
     }
 

@@ -24,12 +24,6 @@ public class CompactionService(
     ParquetService parquetService
 )
 {
-    /// <summary>
-    /// Compaction においてはメモリに余裕のあるインスタンスで実行する
-    /// 1GB インスタンスで 200,000 行を指定したところ メモリ不足で失敗した
-    /// </summary>
-    private const int RowGroupSize = 60_000;
-
     private CancellationTokenSource? _startupCancellation;
     private volatile CompactionStartResult? _compactionStartResult;
     private readonly SemaphoreSlim _startupTaskSemaphore = new(1);
@@ -466,7 +460,7 @@ public class CompactionService(
     }
 
     /// <summary>
-    /// 読み込みファイル量が 512MB 達しない範囲でまとめてコンパクションを実行する
+    /// 読み込みファイル量が MaxBatchSizeBytes に達しない範囲でまとめてコンパクションを実行する
     /// </summary>
     /// <returns>対処したファイル</returns>
     private async Task<CompactionBatchResult> CompactionBatchAsync(CompactionBatchContext ctx, CancellationToken token)
@@ -526,7 +520,9 @@ public class CompactionService(
                     bool convertToParquetResult = await parquetService.ConvertToParquetStreamingAsync(
                         EnumeratePackedEventsAsync(hourlyFolder, token),
                         outputStream,
-                        rowGroupSize: RowGroupSize,
+                        rowGroupSize: _compactionOptions.RowGroupSize,
+                        rowGroupMaxEstimatedBytes: _compactionOptions.RowGroupMaxEstimatedBytes,
+                        onRowGroupFlushed: LogRowGroupFlushMetrics,
                         token: token);
                     if (!convertToParquetResult)
                     {
@@ -794,4 +790,8 @@ public class CompactionService(
             }
         }
     }
+
+    private void LogRowGroupFlushMetrics(ParquetService.ParquetRowGroupFlushMetrics metrics) =>
+        logger.ZLogDebug(
+            $"RowGroup flushed: rows={metrics.RowCount}, estimatedBytes={metrics.EstimatedBytes}, gcTotalMemory={metrics.GcTotalMemoryBytes}, workingSet={metrics.WorkingSetBytes}");
 }

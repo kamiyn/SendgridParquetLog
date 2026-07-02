@@ -1,6 +1,8 @@
 ﻿using System.Runtime.CompilerServices;
 using System.Text.Json;
 
+using Microsoft.Extensions.Options;
+
 using Parquet;
 
 using SendgridParquet.Shared;
@@ -23,14 +25,11 @@ public class MoreCompactionService(
     ILogger<MoreCompactionService> logger,
     S3StorageService s3StorageService,
     ParquetService parquetService,
-    TimeProvider timeProvider
+    TimeProvider timeProvider,
+    IOptions<CompactionOptions> compactionOptions
 )
 {
-    /// <summary>
-    /// Compaction と同じ RowGroup サイズ。
-    /// メモリ使用量を抑えるためストリーミングで書き込む。
-    /// </summary>
-    private const int RowGroupSize = 60_000;
+    private readonly CompactionOptions _compactionOptions = compactionOptions.Value;
 
     public sealed record HourFolder(
         int Year,
@@ -322,7 +321,8 @@ public class MoreCompactionService(
         bool hasData = await parquetService.ConvertToParquetStreamingAsync(
             EnumerateSourceEventsAsync(leftoverSources, count => Interlocked.Add(ref totalEvents, count), ct),
             outputStream,
-            rowGroupSize: RowGroupSize,
+            rowGroupSize: _compactionOptions.RowGroupSize,
+            rowGroupMaxEstimatedBytes: _compactionOptions.RowGroupMaxEstimatedBytes,
             token: ct);
 
         if (!hasData)
