@@ -472,8 +472,7 @@ public class CompactionService(
         if (await VerifyOutputFilesAsync(outputFiles, ctx, token))
         {
             // Delete original files after successful verification.
-            // 各削除は異なるキーを対象とし独立・冪等 (404 は成功扱い) なので並列実行して安全。
-            // 状態更新 (_deletedOriginalFiles は ConcurrentQueue, RunStatus 更新は Lock 保護) もスレッドセーフ。
+            // S3 の DELETE 操作のみ並列化する。各削除は異なるキーを対象とし独立・冪等 (404 は成功扱い)。
             var parallelOptions = new ParallelOptions
             {
                 MaxDegreeOfParallelism = _compactionOptions.DeleteParallelism,
@@ -486,11 +485,17 @@ public class CompactionService(
                 {
                     logger.ZLogWarning($"Failed to delete original file (will retry on next run via re-list): {originalFile}");
                 }
-
-                // 前進セマンティクス維持: 試行済みは consumed 扱いにして remainFiles を進める。
-                // 削除失敗分は翌 run の S3 再 list で再処理される。
-                ctx.AddDeletedOriginalFile(originalFile, timeProvider.GetUtcNow());
             });
+
+            // RunStatus の更新と通知は単一スレッドで行う。
+            // NotifyRunStatus -> RunStatusSubject.OnNext (R3 Subject<T>) は並行呼び出しに対応しないため、
+            // 上の並列削除ループ内からは呼び出さず、削除完了後にまとめて反映する。
+            // 前進セマンティクス維持: 試行済みは (削除成否によらず) consumed 扱いにして remainFiles を進める。
+            // 削除失敗分は翌 run の S3 再 list で再処理される。
+            foreach (string originalFile in ctx.GetProcessedFiles())
+            {
+                ctx.AddDeletedOriginalFile(originalFile, timeProvider.GetUtcNow());
+            }
         }
         //else
         //{
