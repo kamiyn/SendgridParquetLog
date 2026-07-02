@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -292,9 +291,12 @@ public class ParquetService
         {
             int rowCount = buffers[0].Count;
             long estimatedBytes = 0;
-            foreach (IColumnBuffer buffer in buffers)
+            if (onRowGroupFlushed is not null)
             {
-                estimatedBytes += buffer.EstimatedBytes;
+                foreach (IColumnBuffer buffer in buffers)
+                {
+                    estimatedBytes += buffer.EstimatedBytes;
+                }
             }
 
             // CreateRowGroup() メソッドに行数を指定する引数はありません。
@@ -308,11 +310,14 @@ public class ParquetService
                 buffer.Clear();
             }
 
-            onRowGroupFlushed?.Invoke(new ParquetRowGroupFlushMetrics(
-                rowCount,
-                estimatedBytes,
-                GC.GetTotalMemory(false),
-                Process.GetCurrentProcess().WorkingSet64));
+            if (onRowGroupFlushed is not null)
+            {
+                onRowGroupFlushed(new ParquetRowGroupFlushMetrics(
+                    rowCount,
+                    estimatedBytes,
+                    GC.GetTotalMemory(false),
+                    Environment.WorkingSet));
+            }
         }
     }
 
