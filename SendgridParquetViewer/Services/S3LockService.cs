@@ -227,7 +227,34 @@ public class S3LockService(
             return LockHeartbeatOutcome.Extended;
         }
 
-        // 例外は出ないが延長できなかった (ロック消失・別オーナー・CAS 競合)
+        // 延長できなかった (ロック消失・別オーナー・CAS 競合)。
+        // CAS 競合は、コンパクション中のバッチ延長 (SaveRunStatusAsync も同じ ExtendLockExpirationAsync を呼ぶ)
+        // が先に成功して ETag が変わった benign race の可能性がある。その場合ロックは同一オーナーで有効なままなので、
+        // 再確認して「同一 lockId・同一 ownerId・未期限切れ」なら維持できているとみなし成功扱いにする。
+        // (これをしないと、バッチ延長と競合し続けた場合に約15分=3tickで誤って Abandoned になりコンパクションが誤停止する)
+        try
+        {
+            LockInfo? lockInfo = await GetLockInfoAsync(ct);
+            if (lockInfo != null
+                && string.Equals(lockInfo.LockId, lockId, StringComparison.Ordinal)
+                && string.Equals(lockInfo.OwnerId, InstanceId, StringComparison.Ordinal)
+                && lockInfo.ExpiresAt > timeProvider.GetUtcNow())
+            {
+                _consecutiveExtendFailures = 0;
+                logger.ZLogDebug($"Heartbeat extend lost a CAS race but the lock is still held by us until {lockInfo.ExpiresAt:s}. Treating as extended. LockId={lockId}");
+                return LockHeartbeatOutcome.Extended;
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // 再確認自体に失敗した場合は延長失敗として扱う (下でカウント)
+            logger.ZLogWarning(ex, $"Failed to re-check lock state after extend conflict. LockId={lockId}");
+        }
+
         _consecutiveExtendFailures++;
         logger.ZLogWarning($"Heartbeat could not extend compaction lock. LockId={lockId}, ConsecutiveFailures={_consecutiveExtendFailures}");
         return ClassifyHeartbeatFailure();
