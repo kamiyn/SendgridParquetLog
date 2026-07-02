@@ -14,9 +14,10 @@ public class CompactionOptions : IValidatableObject
     public bool PeriodicRunEnabled { get; set; } = true;
 
     /// <summary>
-    /// 最大読み込みバイト数 (デフォルト: 256MB)
+    /// 最大読み込みバイト数 (デフォルト: 192MB)
+    /// 1GiB インスタンスでメモリ使用率が最大 92% に達したため、従来の 256MB から 25% ダウン (75%) とした
     /// </summary>
-    public long MaxBatchSizeBytes { get; set; } = 256 * 1024 * 1024;
+    public long MaxBatchSizeBytes { get; set; } = 192 * 1024 * 1024;
 
     /// <summary>
     /// Parquet RowGroup の最大行数。バイト量しきい値と併用する安全上限。
@@ -35,6 +36,12 @@ public class CompactionOptions : IValidatableObject
     /// 標準では JST基準で昨日以前のものが対象になる
     /// </summary>
     public TimeSpan TargetBefore { get; set; } = TimeSpan.FromDays(-1);
+
+    /// <summary>
+    /// 出力検証後の元ファイル削除の同時実行数 (デフォルト: 8)
+    /// </summary>
+    [Range(1, 256)]
+    public int DeleteParallelism { get; set; } = 8;
 
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {

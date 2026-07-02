@@ -471,12 +471,27 @@ public class CompactionService(
         var outputFiles = await CreateCompactedParquetAsync(sendGridEvents, token);
         if (await VerifyOutputFilesAsync(outputFiles, ctx, token))
         {
-            // Delete original files after successful verification
-            foreach (string originalFile in ctx.GetProcessedFiles())
+            // Delete original files after successful verification.
+            // 各削除は異なるキーを対象とし独立・冪等 (404 は成功扱い) なので並列実行して安全。
+            // 状態更新もスレッドセーフ (_deletedOriginalFiles は ConcurrentQueue、
+            // RunStatusContext.IncrementDeletedOriginalFile は OnNext まで含め _lock で直列化済み)。
+            var parallelOptions = new ParallelOptions
             {
-                await s3StorageService.DeleteObjectAsync(originalFile, token);
+                MaxDegreeOfParallelism = _compactionOptions.DeleteParallelism,
+                CancellationToken = token,
+            };
+            await Parallel.ForEachAsync(ctx.GetProcessedFiles(), parallelOptions, async (originalFile, ct) =>
+            {
+                bool deleted = await s3StorageService.DeleteObjectAsync(originalFile, ct);
+                if (!deleted)
+                {
+                    logger.ZLogWarning($"Failed to delete original file (will retry on next run via re-list): {originalFile}");
+                }
+
+                // 前進セマンティクス維持: 試行済みは consumed 扱いにして remainFiles を進める。
+                // 削除失敗分は翌 run の S3 再 list で再処理される。
                 ctx.AddDeletedOriginalFile(originalFile, timeProvider.GetUtcNow());
-            }
+            });
         }
         //else
         //{
