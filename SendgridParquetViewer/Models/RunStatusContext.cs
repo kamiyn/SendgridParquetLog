@@ -8,6 +8,9 @@
 /// <param name="SaveRunStatusAsyncFunc">永続的に保存する重たいメソッド</param>
 internal record RunStatusContext(RunStatus RunStatus, Action<RunStatus> NotifyRunStatus, Func<RunStatus, CancellationToken, Task> SaveRunStatusAsyncFunc)
 {
+    // RunStatus の更新と NotifyRunStatus (=RunStatusSubject.OnNext) の呼び出しは、この _lock 内で行う。
+    // R3 Subject<T> は同時 OnNext に対応しないため、並列削除など複数スレッドから呼ばれても
+    // 通知が直列化されるようにする。
     private readonly Lock _lock = new();
     internal async Task SaveRunStatusAsync(CancellationToken ct) => await SaveRunStatusAsyncFunc.Invoke(RunStatus, ct);
 
@@ -16,13 +19,16 @@ internal record RunStatusContext(RunStatus RunStatus, Action<RunStatus> NotifyRu
     /// </summary>
     public void StartADay(DateOnly targetDate, int totalFiles, DateTimeOffset now)
     {
-        RunStatus.CurrentDay = targetDate;
-        RunStatus.CurrentDayTotalFiles = totalFiles;
-        RunStatus.CurrentDayProcessedFiles = 0;
-        RunStatus.CurrentDayProcessedBytes = 0;
-        RunStatus.LastUpdated = now;
+        lock (_lock)
+        {
+            RunStatus.CurrentDay = targetDate;
+            RunStatus.CurrentDayTotalFiles = totalFiles;
+            RunStatus.CurrentDayProcessedFiles = 0;
+            RunStatus.CurrentDayProcessedBytes = 0;
+            RunStatus.LastUpdated = now;
 
-        NotifyRunStatus(RunStatus);
+            NotifyRunStatus(RunStatus);
+        }
     }
 
     /// <summary>
@@ -30,14 +36,17 @@ internal record RunStatusContext(RunStatus RunStatus, Action<RunStatus> NotifyRu
     /// </summary>
     internal void CompletedADay(DateTimeOffset now)
     {
-        RunStatus.CompletedDays += 1;
-        RunStatus.CurrentDay = null;
-        RunStatus.CurrentDayTotalFiles = null;
-        RunStatus.CurrentDayProcessedFiles = null;
-        RunStatus.CurrentDayProcessedBytes = null;
-        RunStatus.LastUpdated = now;
+        lock (_lock)
+        {
+            RunStatus.CompletedDays += 1;
+            RunStatus.CurrentDay = null;
+            RunStatus.CurrentDayTotalFiles = null;
+            RunStatus.CurrentDayProcessedFiles = null;
+            RunStatus.CurrentDayProcessedBytes = null;
+            RunStatus.LastUpdated = now;
 
-        NotifyRunStatus(RunStatus);
+            NotifyRunStatus(RunStatus);
+        }
     }
 
     internal void IncrementCurrentDayProcessedFiles(string parquetFile, long byteLength, DateTimeOffset now)
@@ -52,9 +61,9 @@ internal record RunStatusContext(RunStatus RunStatus, Action<RunStatus> NotifyRu
             long prevBytes = RunStatus.CurrentDayProcessedBytes ?? 0;
             RunStatus.CurrentDayProcessedBytes = prevBytes + byteLength;
             RunStatus.LastUpdated = now;
-        }
 
-        NotifyRunStatus(RunStatus);
+            NotifyRunStatus(RunStatus);
+        }
     }
 
     public void IncrementCurrentDayFailedFiles(string parquetFile, DateTimeOffset now)
@@ -63,9 +72,9 @@ internal record RunStatusContext(RunStatus RunStatus, Action<RunStatus> NotifyRu
         {
             RunStatus.FailedOriginalFiles.Add(parquetFile);
             RunStatus.LastUpdated = now;
-        }
 
-        NotifyRunStatus(RunStatus);
+            NotifyRunStatus(RunStatus);
+        }
     }
 
     public void IncrementDeletedOriginalFile(DateTimeOffset now)
@@ -75,17 +84,20 @@ internal record RunStatusContext(RunStatus RunStatus, Action<RunStatus> NotifyRu
             int prevFiles = RunStatus.DeletedOriginalFile;
             RunStatus.DeletedOriginalFile = prevFiles + 1; // Increment
             RunStatus.LastUpdated = now;
-        }
 
-        NotifyRunStatus(RunStatus);
+            NotifyRunStatus(RunStatus);
+        }
     }
 
     public void CompletedAllDays(DateTimeOffset now)
     {
-        RunStatus.EndTime = now;
-        RunStatus.LastUpdated = now;
+        lock (_lock)
+        {
+            RunStatus.EndTime = now;
+            RunStatus.LastUpdated = now;
 
-        NotifyRunStatus(RunStatus);
+            NotifyRunStatus(RunStatus);
+        }
     }
 
     public void AddVerifiedOutputFile(string outputFile, DateTimeOffset now)
@@ -97,9 +109,9 @@ internal record RunStatusContext(RunStatus RunStatus, Action<RunStatus> NotifyRu
             int prevFiles = RunStatus.OutputFilesCreated;
             RunStatus.OutputFilesCreated = prevFiles + 1; // Increment
             RunStatus.LastUpdated = now;
-        }
 
-        NotifyRunStatus(RunStatus);
+            NotifyRunStatus(RunStatus);
+        }
     }
 
     public void AddFailedOutputFile(string outputFile, DateTimeOffset now)
@@ -108,8 +120,8 @@ internal record RunStatusContext(RunStatus RunStatus, Action<RunStatus> NotifyRu
         {
             RunStatus.FailedOutputFiles.Add(outputFile);
             RunStatus.LastUpdated = now;
-        }
 
-        NotifyRunStatus(RunStatus);
+            NotifyRunStatus(RunStatus);
+        }
     }
 }
