@@ -331,21 +331,26 @@ public class CompactionService(
         var runStatus = runStatusContext.RunStatus;
         logger.ZLogInformation($"Compaction process started at {runStatus.StartTime} with {runStatus.TargetDays.Count} target dates");
 
-        using var lockHeartbeatCancellation = CancellationTokenSource.CreateLinkedTokenSource(token);
-        Task lockHeartbeatTask = RunLockHeartbeatAsync(runStatus.LockId, lockHeartbeatCancellation);
+        // ハートビートが Abandoned (ロック維持不能) を検知したときに、この CTS を通じて
+        // コンパクション本体ごと停止できるようにする (dual execution 防止)。
+        // 親 token へのリンク子なので、外部からの停止 (StopCompactionAsync) も引き続き伝播する。
+        // 本体は token ではなくこの compactionToken を監視する。
+        using var compactionCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+        CancellationToken compactionToken = compactionCts.Token;
+        Task lockHeartbeatTask = RunLockHeartbeatAsync(runStatus.LockId, compactionCts);
 
         try
         {
             foreach ((DateOnly dateOnly, string pathPrefix) in runStatus.TargetDays.Zip(runStatus.TargetPathPrefixes))
             {
-                token.ThrowIfCancellationRequested();
+                compactionToken.ThrowIfCancellationRequested();
                 logger.ZLogInformation($"Starting compaction for date {dateOnly} at path {pathPrefix}");
                 try
                 {
-                    await ExecuteCompactionOneDayAsync(runStatusContext, dateOnly, pathPrefix, token);
+                    await ExecuteCompactionOneDayAsync(runStatusContext, dateOnly, pathPrefix, compactionToken);
                     logger.ZLogInformation($"Completed compaction for date {dateOnly} at path {pathPrefix}");
                     runStatusContext.CompletedADay(timeProvider.GetUtcNow());
-                    await runStatusContext.SaveRunStatusAsync(token);
+                    await runStatusContext.SaveRunStatusAsync(compactionToken);
                 }
                 catch (OperationCanceledException)
                 {
@@ -366,7 +371,7 @@ public class CompactionService(
         }
         finally
         {
-            await lockHeartbeatCancellation.CancelAsync();
+            await compactionCts.CancelAsync();
             await lockHeartbeatTask;
             await s3LockService.ReleaseLockAsync(runStatus.LockId, CancellationToken.None);
             runStatusContext.CompletedAllDays(timeProvider.GetUtcNow());
