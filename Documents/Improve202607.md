@@ -69,9 +69,13 @@
 #### P1-6. メモリ観測性の追加
 
 - **対象**: [CompactionService.cs](../SendgridParquetViewer/Services/CompactionService.cs)、ServiceDefaults の OpenTelemetry。
-- **変更内容**: RowGroup フラッシュ時のバッファ行数・概算バイト数、`GC.GetTotalMemory` / `Process.WorkingSet64` をログ／メトリクス化。どの時間帯・どの列でスパイクするかを切り分け可能にする。
+- **変更内容**: RowGroup フラッシュ時のバッファ行数・概算バイト数、`GC.GetTotalMemory` / `Environment.WorkingSet` をログ／メトリクス化。どの時間帯・どの列でスパイクするかを切り分け可能にする。
 - **期待効果**: 対策の効果検証と、将来の再発時の一次切り分けが可能に。
 - **リスク**: ログ量増加（`ZLogDebug` レベルに)。
+- **設計判断（メトリクス収集を Debug 有効時のみに絞らない）**: RowGroup フラッシュ毎の `GC.GetTotalMemory(false)` / `Environment.WorkingSet` 取得を「ログレベルが Debug のときだけ実行する」よう分岐させることも検討したが、**採用しない**。理由は以下:
+  - このワークロードで支配的なのは**メモリ消費**であり、CPU 負荷はメトリクス収集中に一時的に約 25% へ上がる程度で**継続的な負荷ではない**（フラッシュは行グループ単位で頻度が低い）。よって収集コストは実運用上無視できる。
+  - `ZLogDebug` は**スキップ時に string interpolation を実行しない**（ZLogger の構造化ログにより、ログレベル無効時はメッセージ構築コスト自体が発生しない）ため、ログ出力側のオーバーヘッドも実質ゼロ。
+  - 収集を条件分岐で絞ると**コードの複雑性が増す**割に得られる利得が小さく、割に合わない。なおコールバック自体が不要な呼び出し元（`MoreCompactionService`）では `onRowGroupFlushed` を `null` にすることで収集を丸ごとスキップしており、これで十分。
 
 ### 検証方法
 

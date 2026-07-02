@@ -1,4 +1,6 @@
-﻿using System.Text.Json;
+﻿using System;
+using System.Buffers;
+using System.Text.Json;
 
 namespace SendgridParquet.Shared;
 
@@ -58,6 +60,41 @@ public static class SendGridEventValidator
             return 0;
         }
 
-        return element.GetRawText().Length * 2L;
+        var counter = new CountingBufferWriter();
+        using var writer = new Utf8JsonWriter(counter, new JsonWriterOptions { SkipValidation = true });
+        element.WriteTo(writer);
+        writer.Flush();
+        return counter.WrittenBytes * 2L;
+    }
+
+    private sealed class CountingBufferWriter : IBufferWriter<byte>
+    {
+        private byte[] _buffer = new byte[4096];
+
+        public long WrittenBytes { get; private set; }
+
+        public void Advance(int count) => WrittenBytes += count;
+
+        public Memory<byte> GetMemory(int sizeHint = 0)
+        {
+            EnsureCapacity(sizeHint);
+            return _buffer;
+        }
+
+        public Span<byte> GetSpan(int sizeHint = 0)
+        {
+            EnsureCapacity(sizeHint);
+            return _buffer;
+        }
+
+        private void EnsureCapacity(int sizeHint)
+        {
+            if (sizeHint <= 0 || sizeHint <= _buffer.Length)
+            {
+                return;
+            }
+
+            _buffer = new byte[Math.Max(sizeHint, _buffer.Length * 2)];
+        }
     }
 }
