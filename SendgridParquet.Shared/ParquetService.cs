@@ -101,6 +101,8 @@ public class ParquetService
             {
                 array = _values;
                 _values = new T[_values.Length];
+                _count = 0;
+                _estimatedBytes = 0;
             }
             else
             {
