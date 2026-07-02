@@ -26,6 +26,7 @@ public class WebhookHelper(
 )
 {
     private readonly int _maxBodyBytes = Math.Max(1, sendGridOptions.Value.MaxBodyBytes);
+    private readonly int _maxEventBytes = Math.Max(1, sendGridOptions.Value.MaxEventBytes);
 
     private async Task<(HttpStatusCode, IReadOnlyCollection<SendGridEvent>)> ReadSendGridEvents(
         PipeReader source,
@@ -51,6 +52,17 @@ public class WebhookHelper(
                 try
                 {
                     var events = JsonSerializer.Deserialize(payloadBytes, SendGridEventJsonContext.Default.SendGridEventArray) ?? [];
+                    foreach (SendGridEvent sendGridEvent in events)
+                    {
+                        long estimatedBytes = SendGridEventValidator.EstimateEventBytes(sendGridEvent);
+                        if (estimatedBytes > _maxEventBytes)
+                        {
+                            logger.ZLogInformation(
+                                $"Rejected oversized SendGrid event. estimatedBytes={estimatedBytes}, limit={_maxEventBytes}");
+                            return (HttpStatusCode.BadRequest, Array.Empty<SendGridEvent>());
+                        }
+                    }
+
                     return (HttpStatusCode.OK, events);
                 }
                 catch (JsonException ex)
@@ -139,7 +151,7 @@ public class WebhookHelper(
         CancellationToken ct)
     {
         var events = eventsEnumerable.ToArray();
-        await using var parquetData = new MemoryStream(); // WebHook は 最大 768KB でしか来ないのでメモリ上に展開する
+        await using var parquetData = new MemoryStream(); // WebHook ペイロードは SendGrid 側で 1 メッセージ最大 768 KB (Event Webhook overview 参照)
         bool convertResult = await parquetService.ConvertToParquetAsync(events, parquetData);
         if (!convertResult)
         {
