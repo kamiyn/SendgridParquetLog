@@ -106,6 +106,11 @@ public class ParquetService
 
         public void Clear()
         {
+            if (System.Runtime.CompilerServices.RuntimeHelpers.IsReferenceOrContainsReferences<T>())
+            {
+                Array.Clear(_values, 0, _count);
+            }
+
             _count = 0;
             _estimatedBytes = 0;
         }
