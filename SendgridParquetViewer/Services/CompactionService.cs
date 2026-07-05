@@ -29,6 +29,10 @@ public class CompactionService(
     private readonly SemaphoreSlim _startupTaskSemaphore = new(1);
     private readonly CompactionOptions _compactionOptions = compactionOptions.Value;
     private readonly IS3LockService _s3LockService = s3LockService;
+    // stall 判定およびハートビートの進捗ウォッチドッグの閾値。
+    // 注意: バッチ内の変換フェーズ (CreateCompactedParquetAsync / ConvertToParquetStreamingAsync) の
+    // 実行中は LastUpdated が更新されないため、この値は「1バッチの変換にかかる最悪時間」より
+    // 十分大きく取る必要がある (短くしすぎると正常な巨大バッチを誤ってストール扱いにする)。
     private static readonly TimeSpan MaxInactivityDuration = TimeSpan.FromDays(1);
     private TimeSpan LockHeartbeatInterval => _s3LockService.LockDuration / 6;
 
