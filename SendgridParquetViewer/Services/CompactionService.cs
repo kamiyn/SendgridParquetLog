@@ -491,9 +491,15 @@ public class CompactionService(
                     break;
                 }
 
-                // 延長に成功したので基準を更新する。
-                activityAtLastExtension = lastActivity;
-                lastExtensionAt = now;
+                // 実際に延長できた (Extended) 場合のみ基準を更新する。
+                // TransientFailure では実ロックの expiresAt は進んでいないため、lastExtensionAt を
+                // 更新するとロックの実期限とキャンセル判定 (now - lastExtensionAt >= LockDuration) がずれる。
+                // また activityAtLastExtension を進めないことで、次 tick も (前進があれば) 延長を再試行できる。
+                if (outcome == LockHeartbeatOutcome.Extended)
+                {
+                    activityAtLastExtension = lastActivity;
+                    lastExtensionAt = now;
+                }
             }
             // 実際に自分がキャンセルされた場合のみ終了する。
             // HttpClient のタイムアウト等 (TaskCanceledException) は S3LockService 側で
