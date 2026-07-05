@@ -108,3 +108,11 @@ h1:focus {
     padding: 0.75rem 1rem 1rem;
     overflow-y: auto;
 }
+
+/* Compaction ページ主タイトル: 狭い画面でのタイトルはみ出し防止 */
+.compaction-title-header {
+    height: auto !important; /* FluentHeader の固定高さを解除して内容に合わせる */
+    min-height: 48px;
+    flex-wrap: wrap;
+    padding-block: 0.5rem;
+}
