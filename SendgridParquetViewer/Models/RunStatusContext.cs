@@ -29,6 +29,20 @@ internal record RunStatusContext(RunStatus RunStatus, Action<RunStatus> NotifyRu
     }
 
     /// <summary>
+    /// 本体が生存し前進していることを示す liveness シグナルとして LastUpdated だけを更新する。
+    /// カウンタを持たない長時間フェーズ (parquet 変換の row group flush ごと等) から呼び、
+    /// ハートビートのウォッチドッグに「ストールではない」と伝えるために使う。
+    /// UI/Slack への通知 (NotifyRunStatus) は伴わない (前進の細かな内訳ではないため)。
+    /// </summary>
+    internal void TouchLastActivity(DateTimeOffset now)
+    {
+        lock (_lock)
+        {
+            RunStatus.LastUpdated = now;
+        }
+    }
+
+    /// <summary>
     /// 1日分のコンパクションを開始したことを記録する
     /// </summary>
     public void StartADay(DateOnly targetDate, int totalFiles, DateTimeOffset now)
