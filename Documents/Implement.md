@@ -291,7 +291,7 @@ stateDiagram-v2
 ### 延長・解放・ストール処理
 
 - **延長（ハートビート）**: `ExtendLockForHeartbeatAsync` は `lockId` と `ownerId` の両方が自分と一致する場合のみ `expiresAt` を更新。ただし呼び出し側（`RunLockHeartbeatAsync`）が**本体の前進を条件に**する: 前回延長（初回ロック取得を含む）から `RunStatus.LastUpdated` が進んでいなければ延長要求を送らない。連続失敗が閾値（3 回）に達する（`Abandoned`）、または無延長のまま `LockDuration` が経過してロックが期限切れになった場合は、呼び出し側がコンパクションをキャンセルして二重実行を防ぐ。バッチ境界では別途 `ExtendLockExpirationAsync`（進捗を伴うため無条件）で延長する。
-  - 進捗判定に使う `LastUpdated` は、読み取り／検証／削除の各フェーズだけでなく、カウンタを更新しない**変換フェーズ（row group flush ごとの `TouchLastActivity`）**でも前進する。これにより正常な巨大バッチを誤ってストール扱いにせず（`MaxBatchSizeBytes` を丸ごと変換する間も liveness が届く）、真のハングだけを検知できる。
+  - 進捗判定に使う `LastUpdated` は、カウンタ更新を伴うフェーズ（読み取り＝ダウンロード完了ごと／検証・削除＝ファイルごと）に加え、カウンタを持たない長時間 I/O でも `TouchLastActivity` で前進させる: **consumer 側の Parquet 展開（row group ごと）／変換フェーズ（row group flush ごと）／出力アップロード `PutObjectAsync`（前後）／検証ダウンロード（ファイル開始前）**。これにより 30 分（`LockDuration`）を超え得る単一 I/O がなくなり、`MaxBatchSizeBytes` を丸ごと処理する正常な巨大バッチを誤ってストール扱いにせず、真のハングだけを検知できる。
 - **解放**: `ReleaseLockAsync` も所有者一致を確認してから `expiresAt=now` に CAS 更新。
 - **ストール検出**: `StartCompactionAsync` は `run.json` の最終活動時刻が `MaxInactivityDuration = 1 日`を超える、または**ロックが期限切れ／不在**なら、前回実行をストールとみなし `FinalizeStalledRunAsync` で強制終了。ハングした実行はハートビートが延長を止めるため `LockDuration`（既定 30 分）でロックが期限切れになり、1 日の無活動閾値を待たずに「ロック期限切れ」経路で回復できる。ただしハートビートが十分に生きている（`expiresAt` が `now + LockHeartbeatInterval` より先）場合は、`run.json` が古いだけで実際は稼働中とみなしストール確定をスキップする。強制無効化は `TryForceInvalidateLockAsync`（所有者・`lockId` 一致を CAS で確認）で行う。
 

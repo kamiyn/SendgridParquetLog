@@ -658,7 +658,11 @@ public class CompactionService(
 
                     outputFileName = SendGridPathUtility.GetParquetCompactionFileName(dateOnly, dt.Hour, outputStream);
                     outputStream.Seek(0, SeekOrigin.Begin);
+                    // アップロードはカウンタも row group flush も更新しないため、開始前に liveness を送り
+                    // この 1 回のアップロードに LockDuration 分の猶予を与える (完了後にも送る)。
+                    ctx.TouchLastActivity(timeProvider.GetUtcNow());
                     await s3StorageService.PutObjectAsync(outputStream, outputFileName, token);
+                    ctx.TouchLastActivity(timeProvider.GetUtcNow());
                     outputFiles.Add(outputFileName);
                 }
                 finally
@@ -706,6 +710,9 @@ public class CompactionService(
     {
         foreach (string outputFile in outputFiles)
         {
+            // ダウンロード+検証は完了時 (AddVerifiedOutputFile) までカウンタを更新しないため、
+            // ファイルごとに開始前へ liveness を送り、1 ファイルの検証に LockDuration 分の猶予を与える。
+            ctx.TouchLastActivity(timeProvider.GetUtcNow());
             try
             {
                 using HttpResponseMessage response = await s3StorageService.GetObjectAsync(outputFile, token);
@@ -930,6 +937,11 @@ public class CompactionService(
 
                     hourlyfolder.AddCount(eventsByHour.Length);
                 }
+
+                // consumer 側の展開はカウンタを更新しないため、row group ごとに liveness を送る。
+                // producer のダウンロード完了 (AddProcessedFile) は先読み分だけ先行し得るので、
+                // 巨大ファイルの展開中や producer 完了後の末尾処理でハートビートがストール誤検知しないようにする。
+                ctx.TouchLastActivity(timeProvider.GetUtcNow());
             }
         }
 
