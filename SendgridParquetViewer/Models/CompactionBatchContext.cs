@@ -34,6 +34,11 @@ internal class CompactionBatchContext(RunStatusContext runStatusContext, DateOnl
     }
 
     /// <summary>
+    /// カウンタを持たない変換フェーズから liveness シグナルを送る (ハートビートのストール誤検知を防ぐ)。
+    /// </summary>
+    public void TouchLastActivity(DateTimeOffset now) => runStatusContext.TouchLastActivity(now);
+
+    /// <summary>
     /// 読み込み失敗したファイル
     /// </summary>
     private readonly ConcurrentQueue<string> _failedReadingParquetFiles = new();

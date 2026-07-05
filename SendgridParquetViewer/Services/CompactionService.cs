@@ -30,10 +30,10 @@ public class CompactionService(
     private readonly SemaphoreSlim _startupTaskSemaphore = new(1);
     private readonly CompactionOptions _compactionOptions = compactionOptions.Value;
     private readonly IS3LockService _s3LockService = s3LockService;
-    // stall 判定およびハートビートの進捗ウォッチドッグの閾値。
-    // 注意: バッチ内の変換フェーズ (CreateCompactedParquetAsync / ConvertToParquetStreamingAsync) の
-    // 実行中は LastUpdated が更新されないため、この値は「1バッチの変換にかかる最悪時間」より
-    // 十分大きく取る必要がある (短くしすぎると正常な巨大バッチを誤ってストール扱いにする)。
+    // 新規開始時 (StartCompactionAsyncInLock) に、既存 run を「無活動でストール済み」とみなす閾値。
+    // ハートビート側のストール判定は別ロジック (前回ロック延長からの進捗有無 + LockDuration) で行うため、
+    // この値はハートビートには使わない。変換フェーズも LastActivity を更新する (onRowGroupFlushed) ので、
+    // 正常な巨大バッチを誤ってストール扱いにすることはない。
     private static readonly TimeSpan MaxInactivityDuration = TimeSpan.FromDays(1);
     private TimeSpan LockHeartbeatInterval => _s3LockService.LockDuration / 6;
 
@@ -392,10 +392,10 @@ public class CompactionService(
     }
 
     /// <summary>
-    /// 各 tick はまず進捗ウォッチドッグを見る: in-memory の LastUpdated が
-    /// MaxInactivityDuration の間更新されなければ、本体ストールとみなしロックを延長せず
-    /// compaction をキャンセルする (ロックは期限切れ→次回 run が回復可能)。
-    /// 前進が続く間だけ、以下のロック延長を行う。
+    /// 各 tick はまず進捗ウォッチドッグを見る: 前回のロック延長 (初回ロック取得を含む) から
+    /// in-memory の LastActivity が一度も前進していなければロックを延長しない。前進が続く間だけ
+    /// 以下のロック延長を行う。無延長のまま LockDuration が経過し (=ロックが期限切れになり)
+    /// たら、二重実行を防ぐため compaction をキャンセルする (ロックは期限切れ→次回 run が回復可能)。
     ///
     ///   ┌───────────────────────┐              ┌───────────────┐               ┌────┐
     ///   │ RunLockHeartbeatAsync │              │ S3LockService │               │ S3 │
@@ -444,6 +444,9 @@ public class CompactionService(
     private async Task RunLockHeartbeatAsync(RunStatusContext runStatusContext, CancellationTokenSource cts)
     {
         string lockId = runStatusContext.RunStatus.LockId;
+        // 直近でロックを延長した時点の「進捗」と「時刻」。初回ロック取得時点を初期値とする。
+        DateTimeOffset activityAtLastExtension = runStatusContext.GetLastActivityTimestamp();
+        DateTimeOffset lastExtensionAt = timeProvider.GetUtcNow();
         while (!cts.Token.IsCancellationRequested)
         {
             try
@@ -454,15 +457,28 @@ public class CompactionService(
                 // 本体が (ハング等で) 前進しなくなってもハートビートによるロック延長は成功し続けるため、
                 // それだけを根拠にロックを維持すると、ハングしたプロセスがロックを恒久的に握り続け、
                 // 次回 run が FinalizeStalledRunAsync でロックを奪えず回復不能になる。
-                // in-memory の LastUpdated が MaxInactivityDuration の間まったく更新されない場合は
-                // 本体がストールしたとみなし、ロックを延長せず本体ごと停止してロックを期限切れにする。
                 var now = timeProvider.GetUtcNow();
                 var lastActivity = runStatusContext.GetLastActivityTimestamp();
-                if (now - lastActivity > MaxInactivityDuration)
+
+                // 前回のロック延長 (初回ロック取得を含む) から LastActivity が一度も前進していない場合は
+                // 本体がストールしているとみなし、ロックを延長しない。前進が続く間だけ延長することで、
+                // ハングしたプロセスがハートビートでロックを恒久保持するのを防ぐ。
+                // (読み取り/変換/検証/削除の各フェーズは LastActivity を更新するため、
+                //  正常なバッチではこのガードに掛からない。)
+                if (lastActivity <= activityAtLastExtension)
                 {
-                    logger.ZLogError($"Compaction made no progress for {now - lastActivity} (> {MaxInactivityDuration}). Stopping compaction and letting the lock expire so the next run can recover. LockId={lockId}, LastActivity={lastActivity:o}");
-                    await cts.CancelAsync();
-                    break;
+                    // 延長を止めるとロックは lastExtensionAt + LockDuration で自然に期限切れになる。
+                    // 期限切れになると別インスタンスが FinalizeStalledRunAsync でロックを奪い得るため、
+                    // 二重実行を防ぐべく、その時点までに本体をキャンセルして停止させる。
+                    if (now - lastExtensionAt >= _s3LockService.LockDuration)
+                    {
+                        logger.ZLogError($"No progress since last lock extension for {now - lastExtensionAt} (>= LockDuration {_s3LockService.LockDuration}). The lock is expiring; stopping compaction so the next run can recover. LockId={lockId}, LastActivity={lastActivity:o}");
+                        await cts.CancelAsync();
+                        break;
+                    }
+
+                    logger.ZLogWarning($"No progress since last lock extension (LastActivity={lastActivity:o}). Skipping heartbeat extension so the lock can expire if the stall persists. LockId={lockId}");
+                    continue;
                 }
 
                 // 連続失敗回数の管理としきい値判定は S3LockService 側が担う。
@@ -473,6 +489,16 @@ public class CompactionService(
                     logger.ZLogError($"Lock heartbeat abandoned after repeated failures. Cancelling compaction to prevent dual execution. LockId={lockId}");
                     await cts.CancelAsync();
                     break;
+                }
+
+                // 実際に延長できた (Extended) 場合のみ基準を更新する。
+                // TransientFailure では実ロックの expiresAt は進んでいないため、lastExtensionAt を
+                // 更新するとロックの実期限とキャンセル判定 (now - lastExtensionAt >= LockDuration) がずれる。
+                // また activityAtLastExtension を進めないことで、次 tick も (前進があれば) 延長を再試行できる。
+                if (outcome == LockHeartbeatOutcome.Extended)
+                {
+                    activityAtLastExtension = lastActivity;
+                    lastExtensionAt = now;
                 }
             }
             // 実際に自分がキャンセルされた場合のみ終了する。
@@ -547,7 +573,7 @@ public class CompactionService(
         var targetDate = ctx.TargetDate;
         FetchReadParquetFilesResult sendGridEvents = await FetchParquetFilesAsync(ctx, token);
         logger.ZLogInformation($"Total events loaded: {sendGridEvents.Count}");
-        var outputFiles = await CreateCompactedParquetAsync(sendGridEvents, token);
+        var outputFiles = await CreateCompactedParquetAsync(sendGridEvents, ctx, token);
         if (await VerifyOutputFilesAsync(outputFiles, ctx, token))
         {
             // Delete original files after successful verification.
@@ -587,7 +613,7 @@ public class CompactionService(
     /// <summary>
     /// Create compacted parquet file for each hour that has data
     /// </summary>
-    private async Task<IReadOnlyCollection<string>> CreateCompactedParquetAsync(FetchReadParquetFilesResult fetchReadParquetFilesResult, CancellationToken token)
+    private async Task<IReadOnlyCollection<string>> CreateCompactedParquetAsync(FetchReadParquetFilesResult fetchReadParquetFilesResult, CompactionBatchContext ctx, CancellationToken token)
     {
         var outputFiles = new List<string>(fetchReadParquetFilesResult.PackedByHours.Count);
         foreach (HourlyFolder hourlyFolder in fetchReadParquetFilesResult.PackedByHours
@@ -616,7 +642,13 @@ public class CompactionService(
                         outputStream,
                         rowGroupSize: _compactionOptions.RowGroupSize,
                         rowGroupMaxEstimatedBytes: _compactionOptions.RowGroupMaxEstimatedBytes,
-                        onRowGroupFlushed: LogRowGroupFlushMetrics,
+                        onRowGroupFlushed: metrics =>
+                        {
+                            LogRowGroupFlushMetrics(metrics);
+                            // 変換フェーズはカウンタを更新しないため、flush ごとに liveness を送って
+                            // ハートビートのウォッチドッグがストールと誤検知しないようにする。
+                            ctx.TouchLastActivity(timeProvider.GetUtcNow());
+                        },
                         token: token);
                     if (!convertToParquetResult)
                     {
@@ -626,7 +658,11 @@ public class CompactionService(
 
                     outputFileName = SendGridPathUtility.GetParquetCompactionFileName(dateOnly, dt.Hour, outputStream);
                     outputStream.Seek(0, SeekOrigin.Begin);
+                    // アップロードはカウンタも row group flush も更新しないため、開始前に liveness を送り
+                    // この 1 回のアップロードに LockDuration 分の猶予を与える (完了後にも送る)。
+                    ctx.TouchLastActivity(timeProvider.GetUtcNow());
                     await s3StorageService.PutObjectAsync(outputStream, outputFileName, token);
+                    ctx.TouchLastActivity(timeProvider.GetUtcNow());
                     outputFiles.Add(outputFileName);
                 }
                 finally
@@ -674,6 +710,9 @@ public class CompactionService(
     {
         foreach (string outputFile in outputFiles)
         {
+            // ダウンロード+検証は完了時 (AddVerifiedOutputFile) までカウンタを更新しないため、
+            // ファイルごとに開始前へ liveness を送り、1 ファイルの検証に LockDuration 分の猶予を与える。
+            ctx.TouchLastActivity(timeProvider.GetUtcNow());
             try
             {
                 using HttpResponseMessage response = await s3StorageService.GetObjectAsync(outputFile, token);
@@ -898,6 +937,11 @@ public class CompactionService(
 
                     hourlyfolder.AddCount(eventsByHour.Length);
                 }
+
+                // consumer 側の展開はカウンタを更新しないため、row group ごとに liveness を送る。
+                // producer のダウンロード完了 (AddProcessedFile) は先読み分だけ先行し得るので、
+                // 巨大ファイルの展開中や producer 完了後の末尾処理でハートビートがストール誤検知しないようにする。
+                ctx.TouchLastActivity(timeProvider.GetUtcNow());
             }
         }
 
