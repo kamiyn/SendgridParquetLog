@@ -15,6 +15,20 @@ internal record RunStatusContext(RunStatus RunStatus, Action<RunStatus> NotifyRu
     internal async Task SaveRunStatusAsync(CancellationToken ct) => await SaveRunStatusAsyncFunc.Invoke(RunStatus, ct);
 
     /// <summary>
+    /// 本体の前進 (進捗) を表す最終更新時刻をスレッドセーフに取得する。
+    /// 各 Increment/Start/Completed 系メソッドが _lock 内で LastUpdated を更新するため、
+    /// ここでも同じ _lock で読むことで torn read を避ける。
+    /// ハートビートのウォッチドッグが「作業が前進しているか」を判定するために使う。
+    /// </summary>
+    internal DateTimeOffset GetLastActivityTimestamp()
+    {
+        lock (_lock)
+        {
+            return RunStatus.GetLastActivityTimestamp();
+        }
+    }
+
+    /// <summary>
     /// 1日分のコンパクションを開始したことを記録する
     /// </summary>
     public void StartADay(DateOnly targetDate, int totalFiles, DateTimeOffset now)

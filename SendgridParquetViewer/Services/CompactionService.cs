@@ -29,6 +29,10 @@ public class CompactionService(
     private readonly SemaphoreSlim _startupTaskSemaphore = new(1);
     private readonly CompactionOptions _compactionOptions = compactionOptions.Value;
     private readonly IS3LockService _s3LockService = s3LockService;
+    // stall 判定およびハートビートの進捗ウォッチドッグの閾値。
+    // 注意: バッチ内の変換フェーズ (CreateCompactedParquetAsync / ConvertToParquetStreamingAsync) の
+    // 実行中は LastUpdated が更新されないため、この値は「1バッチの変換にかかる最悪時間」より
+    // 十分大きく取る必要がある (短くしすぎると正常な巨大バッチを誤ってストール扱いにする)。
     private static readonly TimeSpan MaxInactivityDuration = TimeSpan.FromDays(1);
     private TimeSpan LockHeartbeatInterval => _s3LockService.LockDuration / 6;
 
@@ -343,7 +347,7 @@ public class CompactionService(
         // 本体は token ではなくこの compactionToken を監視する。
         using var compactionCts = CancellationTokenSource.CreateLinkedTokenSource(token);
         CancellationToken compactionToken = compactionCts.Token;
-        Task lockHeartbeatTask = RunLockHeartbeatAsync(runStatus.LockId, compactionCts);
+        Task lockHeartbeatTask = RunLockHeartbeatAsync(runStatusContext, compactionCts);
 
         try
         {
@@ -387,6 +391,11 @@ public class CompactionService(
     }
 
     /// <summary>
+    /// 各 tick はまず進捗ウォッチドッグを見る: in-memory の LastUpdated が
+    /// MaxInactivityDuration の間更新されなければ、本体ストールとみなしロックを延長せず
+    /// compaction をキャンセルする (ロックは期限切れ→次回 run が回復可能)。
+    /// 前進が続く間だけ、以下のロック延長を行う。
+    ///
     ///   ┌───────────────────────┐              ┌───────────────┐               ┌────┐
     ///   │ RunLockHeartbeatAsync │              │ S3LockService │               │ S3 │
     ///   └───────────┬───────────┘              └───────┬───────┘               └──┬─┘
@@ -431,13 +440,29 @@ public class CompactionService(
     ///   │ RunLockHeartbeatAsync │              │ S3LockService │               │ S3 │
     ///   └───────────────────────┘              └───────────────┘               └────┘
     /// </summary>
-    private async Task RunLockHeartbeatAsync(string lockId, CancellationTokenSource cts)
+    private async Task RunLockHeartbeatAsync(RunStatusContext runStatusContext, CancellationTokenSource cts)
     {
+        string lockId = runStatusContext.RunStatus.LockId;
         while (!cts.Token.IsCancellationRequested)
         {
             try
             {
                 await Task.Delay(LockHeartbeatInterval, cts.Token);
+
+                // 進捗ウォッチドッグ: 「ロックの延長 (プロセスの生存)」と「本体の前進 (作業の進捗)」は別物。
+                // 本体が (ハング等で) 前進しなくなってもハートビートによるロック延長は成功し続けるため、
+                // それだけを根拠にロックを維持すると、ハングしたプロセスがロックを恒久的に握り続け、
+                // 次回 run が FinalizeStalledRunAsync でロックを奪えず回復不能になる。
+                // in-memory の LastUpdated が MaxInactivityDuration の間まったく更新されない場合は
+                // 本体がストールしたとみなし、ロックを延長せず本体ごと停止してロックを期限切れにする。
+                var now = timeProvider.GetUtcNow();
+                var lastActivity = runStatusContext.GetLastActivityTimestamp();
+                if (now - lastActivity > MaxInactivityDuration)
+                {
+                    logger.ZLogError($"Compaction made no progress for {now - lastActivity} (> {MaxInactivityDuration}). Stopping compaction and letting the lock expire so the next run can recover. LockId={lockId}, LastActivity={lastActivity:o}");
+                    await cts.CancelAsync();
+                    break;
+                }
 
                 // 連続失敗回数の管理としきい値判定は S3LockService 側が担う。
                 // ここではロックを維持できなくなった (Abandoned) 場合に compaction を止めるだけ。
