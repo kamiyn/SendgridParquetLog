@@ -1,4 +1,5 @@
-﻿using System.Text.Json;
+﻿using System.Runtime.ExceptionServices;
+using System.Text.Json;
 using System.Threading.Channels;
 
 using MemoryPack;
@@ -763,16 +764,94 @@ public class CompactionService(
             SingleWriter = true,
             FullMode = BoundedChannelFullMode.Wait,
         });
-        Task<FetchReadParquetFilesResult> consumer = FetchParquetFilesConsumerAsync(ctx, channel.Reader, token);
+        // consumer が例外で倒れると 満杯チャネルへの producer の WriteAsync が永久ブロックし、
+        // compaction が Running のままハングする。producer/consumer のどちらが倒れても
+        // linkedCts で相手の待機を解除し、デッドロックを防ぐ。
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+
+        Task producer = RunProducerAsync();
+        Task<FetchReadParquetFilesResult> consumer = RunConsumerAsync();
+
+        Exception? producerError = await CaptureAsync(producer);
+        (FetchReadParquetFilesResult? result, Exception? consumerError) = await CaptureAsync(consumer);
+
+        // 相手を巻き添えで cancel した OperationCanceledException よりも
+        // 本来の失敗原因を優先して投げる
+        if (producerError is not null and not OperationCanceledException
+            && consumerError is OperationCanceledException)
+        {
+            ExceptionDispatchInfo.Throw(producerError);
+        }
+        if (consumerError is not null)
+        {
+            ExceptionDispatchInfo.Throw(consumerError);
+        }
+        if (producerError is not null)
+        {
+            ExceptionDispatchInfo.Throw(producerError);
+        }
+        return result!;
+
+        async Task RunProducerAsync()
+        {
+            try
+            {
+                await FetchParquetFilesProducerAsync(ctx, channel.Writer, linkedCts.Token);
+            }
+            catch
+            {
+                // producer が倒れたら consumer 側の読み取り待ちを解除する
+                linkedCts.Cancel();
+                throw;
+            }
+            finally
+            {
+                channel.Writer.TryComplete();
+            }
+        }
+
+        async Task<FetchReadParquetFilesResult> RunConsumerAsync()
+        {
+            try
+            {
+                return await FetchParquetFilesConsumerAsync(ctx, channel.Reader, linkedCts.Token);
+            }
+            catch
+            {
+                // consumer が倒れたら producer の WriteAsync を解除する
+                linkedCts.Cancel();
+                throw;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Task の完了を待ち、結果か例外のいずれかを捕捉して返す（例外は再スローしない）。
+    /// producer/consumer の双方を待って本来の失敗原因を選別するために使う。
+    /// </summary>
+    private static async Task<(T? Result, Exception? Error)> CaptureAsync<T>(Task<T> task)
+    {
         try
         {
-            await FetchParquetFilesProducerAsync(ctx, channel.Writer, token);
+            return (await task, null);
         }
-        finally
+        catch (Exception ex)
         {
-            channel.Writer.TryComplete();
+            return (default, ex);
         }
-        return await consumer;
+    }
+
+    private static async Task<Exception?> CaptureAsync(Task task)
+    {
+        try
+        {
+            await task;
+            return null;
+        }
+        catch (Exception ex)
+        {
+            return ex;
+        }
     }
 
 
