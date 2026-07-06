@@ -69,6 +69,14 @@ public class S3StorageService(
 
     public Uri GetObjectUri(string key) => new($"{_options.SERVICEURL}/{_options.BUCKETNAME}/{key}");
 
+    /// <summary>
+    /// x-amz-copy-source 用に S3 オブジェクトキーをエンコードする。
+    /// パス区切り '/' はそのまま残し、各セグメントを RFC3986 準拠で URL エンコードする
+    /// (制御文字 CR/LF 等も %XX 化されるためヘッダーインジェクションを防げる)。
+    /// </summary>
+    internal static string EncodeS3KeyForCopySource(string key) =>
+        string.Join('/', key.Split('/').Select(Uri.EscapeDataString));
+
     public async ValueTask<bool> PutObjectAsync(Stream content, string key, CancellationToken ct)
     {
         var uri = GetObjectUri(key);
@@ -387,9 +395,12 @@ public class S3StorageService(
         {
             using var request = new HttpRequestMessage(HttpMethod.Put, uri);
 
+            // copy-source のキーはパス区切り '/' を保ちつつセグメント単位で URL エンコードする。
+            // 未エンコードだと特殊文字/制御文字 (CR/LF 等) で署名不整合やヘッダーインジェクションの恐れがあるため。
+            string encodedCopySource = $"/{_options.BUCKETNAME}/{EncodeS3KeyForCopySource(key)}";
             var additionalHeaders = new List<KeyValuePair<string, string>>(metadata.Count + 2)
             {
-                new("x-amz-copy-source", $"/{_options.BUCKETNAME}/{key}"),
+                new("x-amz-copy-source", encodedCopySource),
                 new("x-amz-metadata-directive", "REPLACE"),
             };
             foreach (var kv in metadata)
@@ -1037,7 +1048,13 @@ internal class S3CanonicalHeaders
         _sortedHeaders = new SortedDictionary<string, string>(StringComparer.Ordinal);
         foreach (var header in headers)
         {
-            _sortedHeaders.Add(header.Key.ToLowerInvariant(), header.Value.Trim());
+            string key = header.Key.ToLowerInvariant();
+            string value = header.Value.Trim();
+            // 同名ヘッダーが複数渡された場合、SortedDictionary.Add は例外になる。
+            // SigV4 の正規化に従い値をカンマ区切りで結合して例外を防ぐ (防御的措置。通常の呼び出しでは重複しない)。
+            _sortedHeaders[key] = _sortedHeaders.TryGetValue(key, out string? existing)
+                ? $"{existing},{value}"
+                : value;
         }
     }
 
