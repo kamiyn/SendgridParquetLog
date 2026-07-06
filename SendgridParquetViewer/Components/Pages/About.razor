@@ -6,6 +6,7 @@
 @using ZLogger
 @attribute [Authorize]
 @inject ILogger<About> Logger
+@inject AuthenticationStateProvider AuthenticationStateProvider
 
 <PageTitle>About</PageTitle>
 
@@ -13,18 +14,14 @@
 
 <section class="about-section">
     <h2>ログインアカウント</h2>
-    <AuthorizeView>
-        <Authorized>
-            <table class="about-table">
-                <tbody>
-                    <tr>
-                        <th>アカウント</th>
-                        <td>@context.User.Identity?.Name</td>
-                    </tr>
-                </tbody>
-            </table>
-        </Authorized>
-    </AuthorizeView>
+    <table class="about-table">
+        <tbody>
+            <tr>
+                <th>アカウント</th>
+                <td>@_accountName</td>
+            </tr>
+        </tbody>
+    </table>
 </section>
 
 <style>
@@ -209,15 +206,18 @@
     private GcMemoryInfoFormatted? _gcMemoryInfo;
     private TempFolderInfo? _tempFolderInfo;
     private IReadOnlyCollection<EnvironmentVariableEntry>? _environmentVariables;
+    private string _accountName = "";
 
-    protected override Task OnInitializedAsync()
+    protected override async Task OnInitializedAsync()
     {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        _accountName = authState.User.Identity?.Name ?? "(不明)";
+
         _gcMemoryInfo = GcMemoryInfoFormatted.Create();
         _tempFolderInfo = TempFolderInfo.Create(Logger);
         _environmentVariables = EnvironmentVariableEntry.GetMaskedEnvironmentVariables()
         .OrderBy(v => v.Name, StringComparer.OrdinalIgnoreCase)
         .ToArray();
-        return Task.CompletedTask;
     }
 
     private sealed record BuildInfo(
