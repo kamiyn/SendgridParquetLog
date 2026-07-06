@@ -89,6 +89,12 @@ Webhook signature verification requires configuration via Options:
 - `SENDGRID__ALLOWEDSKEW`: Timestamp skew parsed by `TimeSpan.Parse` (default `00:05:00`)
 - `SENDGRID__MAXBODYBYTES`: Request body limit in bytes (default `1048576`)
 
+Compaction behavior is bound from the `Compaction` section (`CompactionOptions`), configurable via `Compaction__*` environment variables or appsettings.json. Notable keys:
+- `Compaction__MaxBatchSizeBytes`: Max bytes read per batch (default `201326592` = 192MB)
+- `Compaction__DeleteParallelism`: Parallelism for deleting originals after verification (default `8`)
+- `Compaction__FailedReadRetentionDays`: Days that must elapse since the first read failure before an unreadable Parquet file may be deleted (default `3`). Read failures are recorded on the S3 object as `x-amz-meta-read-failure-first-utc` / `x-amz-meta-read-failure-count`.
+- `Compaction__FailedReadDeleteThreshold`: Failure count that must be reached before an unreadable Parquet file may be deleted (default `3`). Deletion happens only when both the retention period and this count are satisfied; empty (0-byte) files are deleted immediately, and HTTP-level download failures (e.g. 403/503/timeout) are only recorded, not counted toward deletion.
+
 In Aspire environment, these are automatically configured to use local MinIO instance.
 
 ## S3 Storage Layout

@@ -22,6 +22,28 @@ public record S3GetObjectResult(byte[] Content, string? ETag);
 public readonly record struct S3ObjectEntry(string Key, long Size);
 
 /// <summary>
+/// HEAD によるユーザーメタデータ取得の結果状態。
+/// </summary>
+public enum S3ObjectMetadataStatus
+{
+    /// <summary>HEAD 成功 (200)。<see cref="S3ObjectMetadataResult.Metadata"/> は空の場合もある。</summary>
+    Found,
+    /// <summary>オブジェクトが存在しない (404)。</summary>
+    NotFound,
+    /// <summary>一時的な失敗 (5xx / ネットワークエラー / 想定外ステータス) でメタデータを取得できなかった。</summary>
+    Unavailable,
+}
+
+/// <summary>
+/// <see cref="S3StorageService.GetObjectMetadataAsync"/> の結果。
+/// <see cref="Status"/> が <see cref="S3ObjectMetadataStatus.Found"/> のときのみ
+/// <see cref="Metadata"/> が有効 (それ以外は空辞書)。
+/// </summary>
+public readonly record struct S3ObjectMetadataResult(
+    S3ObjectMetadataStatus Status,
+    IReadOnlyDictionary<string, string> Metadata);
+
+/// <summary>
 /// 条件付き PUT の結果。
 /// </summary>
 public enum S3ConditionalPutResult
@@ -303,12 +325,19 @@ public class S3StorageService(
     /// </summary>
     public const string UserMetadataHeaderPrefix = "x-amz-meta-";
 
+    private static readonly IReadOnlyDictionary<string, string> EmptyMetadata =
+        new Dictionary<string, string>(StringComparer.Ordinal);
+
     /// <summary>
     /// 指定キーのオブジェクトのユーザーメタデータ (x-amz-meta-*) を HEAD で取得する。
     /// キーは接頭辞 (x-amz-meta-) を除去し小文字化して返す。
-    /// オブジェクトが存在しない (404) 場合は null、その他の失敗も null を返す。
+    /// 戻り値の <see cref="S3ObjectMetadataResult.Status"/> で結果を区別する:
+    ///  - <see cref="S3ObjectMetadataStatus.Found"/>: 取得成功 (メタデータは空の場合もある)
+    ///  - <see cref="S3ObjectMetadataStatus.NotFound"/>: 404 (オブジェクトなし)
+    ///  - <see cref="S3ObjectMetadataStatus.Unavailable"/>: 一時的な失敗 (5xx / ネットワークエラー / 想定外ステータス)
+    /// 呼び出し側は 404 や一時失敗を「メタデータなし」と誤認して既存値を上書きしないこと。
     /// </summary>
-    public async ValueTask<IReadOnlyDictionary<string, string>?> GetObjectMetadataAsync(string key, CancellationToken ct)
+    public async ValueTask<S3ObjectMetadataResult> GetObjectMetadataAsync(string key, CancellationToken ct)
     {
         var uri = GetObjectUri(key);
         try
@@ -319,12 +348,12 @@ public class S3StorageService(
 
             if (response.StatusCode == HttpStatusCode.NotFound)
             {
-                return null;
+                return new S3ObjectMetadataResult(S3ObjectMetadataStatus.NotFound, EmptyMetadata);
             }
             if (!response.IsSuccessStatusCode)
             {
                 logger.ZLogWarning($"Unexpected status code {response.StatusCode} while HEAD {uri} for metadata; treating as unavailable");
-                return null;
+                return new S3ObjectMetadataResult(S3ObjectMetadataStatus.Unavailable, EmptyMetadata);
             }
 
             var metadata = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -336,13 +365,13 @@ public class S3StorageService(
                     metadata[name] = string.Join(",", header.Value);
                 }
             }
-            return metadata;
+            return new S3ObjectMetadataResult(S3ObjectMetadataStatus.Found, metadata);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
             logger.ZLogWarning(ex, $"Error heading object {uri} for metadata");
-            return null;
+            return new S3ObjectMetadataResult(S3ObjectMetadataStatus.Unavailable, EmptyMetadata);
         }
     }
 
