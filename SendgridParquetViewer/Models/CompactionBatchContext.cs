@@ -19,7 +19,31 @@ internal class CompactionBatchContext(RunStatusContext runStatusContext, DateOnl
 
     private long _processedBytes;
 
-    internal IReadOnlyCollection<string> GetProcessedFiles() => _processingFiles.ToArray();
+    /// <summary>
+    /// 検証後の通常削除の対象ファイル (バッチ単位)。
+    /// producer がダウンロード成功として <see cref="_processingFiles"/> に積んでも、consumer 側で
+    /// Parquet 解析に失敗した (壊れた) ファイルは削除対象から除外する。これらは段階的削除機構
+    /// (HandleUnreadableParquetFileAsync) 側でのみ削除判断するため、通常削除で即削除してはならない
+    /// (要件: 読めなかったファイルは後段の S3 削除対象から除外)。
+    /// producer/consumer 完了後に呼ばれるため両キューは確定している。
+    /// </summary>
+    internal IReadOnlyCollection<string> GetProcessedFiles()
+    {
+        if (_failedReadingParquetFiles.IsEmpty)
+        {
+            return _processingFiles.ToArray();
+        }
+        var failed = new HashSet<string>(_failedReadingParquetFiles, StringComparer.Ordinal);
+        var kept = new List<string>(_processingFiles.Count);
+        foreach (string file in _processingFiles)
+        {
+            if (!failed.Contains(file))
+            {
+                kept.Add(file);
+            }
+        }
+        return kept.ToArray();
+    }
 
     /// <summary>
     /// 読み込み済みのバイト数 (バッチ単位)
