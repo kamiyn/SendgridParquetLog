@@ -953,9 +953,11 @@ public class CompactionService(
     }
 
     /// <summary>
-    /// Parquet の読み取り (ダウンロード/解析) が例外で失敗したファイルを段階的に処理する。
+    /// producer 側のダウンロード (GetObjectAsync / 本文の CopyToAsync) が例外で失敗したファイルを段階的に処理する。
     /// (HTTP 非成功ステータスや空ファイルはここには来ない。前者は一時障害の可能性があるため記録のみ、
-    ///  後者は <see cref="DeleteEmptyParquetFileAsync"/> で即時削除する。)
+    ///  後者は <see cref="DeleteEmptyParquetFileAsync"/> で即時削除する。
+    ///  ダウンロード成功後の consumer 側 Parquet 解析失敗 (ParquetReader.CreateAsync 等) はこの経路では扱わず、
+    ///  バッチ全体が abort する別経路のため、ここでメタデータ更新は行われない。)
     ///  - S3 オブジェクトメタデータに初回失敗時刻と失敗カウンタを記録する (失敗ごとに +1。
     ///    同時実行制御はしない = HEAD→自己 COPY の単純更新)。
     ///  - Warning ログを出力する。
@@ -1088,7 +1090,8 @@ public class CompactionService(
                 using HttpResponseMessage response = await s3StorageService.GetObjectAsync(parquetFile, token);
                 if (!response.IsSuccessStatusCode)
                 {
-                    // HTTP 非成功 (403/503/timeout 等) は Parquet 破損とは限らないため、削除機構には載せず記録のみに留める。
+                    // HTTP 非成功ステータス (403/503 等、応答は得られたケース) は Parquet 破損とは限らないため、削除機構には載せず記録のみに留める。
+                    // (SendAsync/本文読み取り中の例外＝転送 IOException/タイムアウトは下の catch で段階的削除機構に載る。)
                     logger.ZLogWarning($"Failed to download parquet file: {parquetFile} HttpStatus:{response.StatusCode}");
                     ctx.AddFailedReadingParquetFiles(parquetFile, timeProvider.GetUtcNow());
                     continue;
