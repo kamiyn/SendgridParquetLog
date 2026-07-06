@@ -908,56 +908,107 @@ public class CompactionService(
         await foreach (SendGridEventsOneFile sendgridEventOneFile in reader.ReadAllAsync(token))
         {
             await using FileStream parquetTempStream = sendgridEventOneFile.ParquetTempStream;
-            parquetTempStream.Seek(0, SeekOrigin.Begin);
-            using ParquetReader parquetReader = await ParquetReader.CreateAsync(parquetTempStream, cancellationToken: token);
-            for (int rowGroupIndex = 0; rowGroupIndex < parquetReader.RowGroupCount; rowGroupIndex++)
+
+            // 1ファイル分をいったんメモリ上で時間別にバッファし、ファイル全体の解析に成功した場合のみ
+            // hourly フォルダへ確定書き込みする。途中で Parquet 本体が壊れて解析に失敗しても部分データを
+            // 混入させないため (壊れたファイルは削除されず次回 run で再読込されるので、部分データを書くと
+            // run をまたいで重複が積み上がる)。生の v3raw ファイルは 1 webhook 分で小さいため
+            // ファイル単位のメモリバッファで問題ない。
+            Dictionary<long, List<SendGridEvent>> eventsByHour;
+            try
             {
-                var sendGridEvents = new List<SendGridEvent>();
-                using ParquetRowGroupReader rowGroupReader = parquetReader.OpenRowGroupReader(rowGroupIndex);
-                await foreach (SendGridEvent sendGridEvent in parquetService.ReadRowGroupEventsAsync(
-                                   rowGroupReader, parquetReader, token))
-                {
-                    sendGridEvents.Add(sendGridEvent);
-                }
-
-                foreach (var hourGroup in sendGridEvents.GroupBy(e => e.Timestamp / 3600 /* 1時間単位に分割 */))
-                {
-                    SendGridEvent[] eventsByHour = hourGroup.ToArray(); // シリアライズする前に 配列にする
-
-                    DateTimeOffset hourGroupKey = JstExtension.FromUnixTimeSecondsJst(hourGroup.Key * 3600);
-                    if (!createdHourlyFolders.TryGetValue(hourGroup.Key, out HourlyFolder? hourlyfolder))
-                    {
-                        string targetFolder = Path.Combine(dailyTargetFolder.FullName, $"{hourGroupKey:yyyyMMddHH}");
-                        Directory.CreateDirectory(targetFolder);
-                        hourlyfolder = new HourlyFolder(hourGroupKey, new DirectoryInfo(targetFolder));
-
-                        createdHourlyFolders.Add(hourGroup.Key, hourlyfolder);
-                    }
-                    string originalFileName = Path.GetFileName(sendgridEventOneFile.ParquetFile);
-                    // 中断した場合は上書きしたいため 元のファイル名を使う
-                    string targetFilePath = Path.Combine(hourlyfolder.DirectoryInfo.FullName, originalFileName);
-                    await using var fs = new FileStream(targetFilePath, FileMode.Create, FileAccess.Write, FileShare.None, DisposableTempFile.BufferSize, useAsync: true);
-                    await MemoryPackSerializer.SerializeAsync(fs, eventsByHour, cancellationToken: token);
-
-                    hourlyfolder.AddCount(eventsByHour.Length);
-                }
-
-                // consumer 側の展開はカウンタを更新しないため、row group ごとに liveness を送る。
-                // producer のダウンロード完了 (AddProcessedFile) は先読み分だけ先行し得るので、
-                // 巨大ファイルの展開中や producer 完了後の末尾処理でハートビートがストール誤検知しないようにする。
-                ctx.TouchLastActivity(timeProvider.GetUtcNow());
+                eventsByHour = await ReadOneParquetFileGroupedByHourAsync(parquetTempStream, ctx, token);
             }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                // ダウンロードは成功したが Parquet 本体が壊れて解析できない (例: Parquet.Net の
+                // IndexOutOfRangeException)。バッチ全体を abort させず、該当ファイルのみ段階的削除機構に
+                // 載せてスキップし、その日の他ファイルの compaction を前進させる。
+                logger.ZLogError(ex, $"Failed to parse parquet file (corrupt); skipping file: {sendgridEventOneFile.ParquetFile}");
+                await HandleUnreadableParquetFileAsync(ctx, sendgridEventOneFile.ParquetFile, token);
+                continue;
+            }
+
+            // 解析成功 → hourly フォルダへ確定書き込み。
+            string originalFileName = Path.GetFileName(sendgridEventOneFile.ParquetFile);
+            foreach ((long hourKey, List<SendGridEvent> hourEvents) in eventsByHour)
+            {
+                if (hourEvents.Count == 0)
+                {
+                    continue;
+                }
+                SendGridEvent[] eventsByHourArray = hourEvents.ToArray(); // シリアライズする前に 配列にする
+
+                DateTimeOffset hourGroupKey = JstExtension.FromUnixTimeSecondsJst(hourKey * 3600);
+                if (!createdHourlyFolders.TryGetValue(hourKey, out HourlyFolder? hourlyfolder))
+                {
+                    string targetFolder = Path.Combine(dailyTargetFolder.FullName, $"{hourGroupKey:yyyyMMddHH}");
+                    Directory.CreateDirectory(targetFolder);
+                    hourlyfolder = new HourlyFolder(hourGroupKey, new DirectoryInfo(targetFolder));
+
+                    createdHourlyFolders.Add(hourKey, hourlyfolder);
+                }
+                // 中断した場合は上書きしたいため 元のファイル名を使う
+                string targetFilePath = Path.Combine(hourlyfolder.DirectoryInfo.FullName, originalFileName);
+                await using var fs = new FileStream(targetFilePath, FileMode.Create, FileAccess.Write, FileShare.None, DisposableTempFile.BufferSize, useAsync: true);
+                await MemoryPackSerializer.SerializeAsync(fs, eventsByHourArray, cancellationToken: token);
+
+                hourlyfolder.AddCount(eventsByHourArray.Length);
+            }
+
+            // consumer 側の展開はカウンタを更新しないため、ファイルごとに liveness を送る。
+            // (row group 単位の liveness は ReadOneParquetFileGroupedByHourAsync 内で送っている。)
+            ctx.TouchLastActivity(timeProvider.GetUtcNow());
         }
 
         return new FetchReadParquetFilesResult { PackedByHours = createdHourlyFolders, };
     }
 
     /// <summary>
-    /// producer 側のダウンロード (GetObjectAsync / 本文の CopyToAsync) が例外で失敗したファイルを段階的に処理する。
+    /// 1つの Parquet ファイル (一時ストリーム) の全 row group を読み取り、1時間 (3600秒) 単位に
+    /// グルーピングした in-memory の辞書を返す。ファイル全体を読み切ってから返すため、途中の row group で
+    /// 解析例外 (壊れた Parquet 由来の IndexOutOfRangeException 等) が発生した場合は部分結果を返さず例外を
+    /// 伝播する。呼び出し側はこの例外を壊れたファイルとして扱い、部分データを確定書き込みしない。
+    /// row group ごとに liveness を送りハートビートのストール誤検知を防ぐ。
+    /// </summary>
+    private async Task<Dictionary<long, List<SendGridEvent>>> ReadOneParquetFileGroupedByHourAsync(
+        FileStream parquetTempStream, CompactionBatchContext ctx, CancellationToken token)
+    {
+        parquetTempStream.Seek(0, SeekOrigin.Begin);
+        var eventsByHour = new Dictionary<long, List<SendGridEvent>>();
+        using ParquetReader parquetReader = await ParquetReader.CreateAsync(parquetTempStream, cancellationToken: token);
+        for (int rowGroupIndex = 0; rowGroupIndex < parquetReader.RowGroupCount; rowGroupIndex++)
+        {
+            using ParquetRowGroupReader rowGroupReader = parquetReader.OpenRowGroupReader(rowGroupIndex);
+            await foreach (SendGridEvent sendGridEvent in parquetService.ReadRowGroupEventsAsync(
+                               rowGroupReader, parquetReader, token))
+            {
+                long hourKey = sendGridEvent.Timestamp / 3600; // 1時間単位に分割
+                if (!eventsByHour.TryGetValue(hourKey, out List<SendGridEvent>? hourEvents))
+                {
+                    hourEvents = new List<SendGridEvent>();
+                    eventsByHour[hourKey] = hourEvents;
+                }
+                hourEvents.Add(sendGridEvent);
+            }
+
+            // producer のダウンロード完了 (AddProcessedFile) は先読み分だけ先行し得るので、
+            // 巨大ファイルの展開中や producer 完了後の末尾処理でハートビートがストール誤検知しないようにする。
+            ctx.TouchLastActivity(timeProvider.GetUtcNow());
+        }
+        return eventsByHour;
+    }
+
+    /// <summary>
+    /// 読み取り不能だった Parquet ファイルを段階的に処理する。以下の2経路から呼ばれる:
+    ///  1) producer 側のダウンロード (GetObjectAsync / 本文の CopyToAsync) が例外で失敗した場合
+    ///  2) consumer 側で Parquet 本体の解析に失敗した場合 (壊れた Parquet 由来の IndexOutOfRangeException 等)
     /// (HTTP 非成功ステータスや空ファイルはここには来ない。前者は一時障害の可能性があるため記録のみ、
-    ///  後者は <see cref="DeleteEmptyParquetFileAsync"/> で即時削除する。
-    ///  ダウンロード成功後の consumer 側 Parquet 解析失敗 (ParquetReader.CreateAsync 等) はこの経路では扱わず、
-    ///  バッチ全体が abort する別経路のため、ここでメタデータ更新は行われない。)
+    ///  後者は <see cref="DeleteEmptyParquetFileAsync"/> で即時削除する。)
     ///  - S3 オブジェクトメタデータに初回失敗時刻と失敗カウンタを記録する (失敗ごとに +1。
     ///    同時実行制御はしない = HEAD→自己 COPY の単純更新)。
     ///  - Warning ログを出力する。
