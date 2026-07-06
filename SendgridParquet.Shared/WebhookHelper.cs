@@ -159,6 +159,32 @@ public class WebhookHelper(
             return HttpStatusCode.InternalServerError;
         }
 
+        // 書き込み直後のリードバック検証: 生成した Parquet を PUT する前に実際に読み返し、全 row group の
+        // 全イベントをデコードできること、かつ読み取れた件数が書き込んだ件数と一致することを確認する。
+        // これにより、書き込み時点で壊れた (compaction 時に IndexOutOfRangeException 等でデコード不能になる)
+        // Parquet が S3 に保存されて 2xx を返し、SendGrid が再送しないまま欠損する事態を防ぐ。
+        // 検証に失敗した場合は 500 を返し、SendGrid の再送に委ねる (書き込みは content-addressed で冪等)。
+        try
+        {
+            int readableCount = await parquetService.CountReadableEventsAsync(parquetData, ct);
+            if (readableCount != events.Length)
+            {
+                logger.ZLogError(
+                    $"Parquet read-back verification count mismatch for {targetDay:yyyy/MM/dd}: wrote {events.Length}, read {readableCount}. Not storing; returning 500 for SendGrid retry.");
+                return HttpStatusCode.InternalServerError;
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.ZLogError(ex,
+                $"Parquet read-back verification failed to decode for {targetDay:yyyy/MM/dd} ({events.Length} events). Not storing; returning 500 for SendGrid retry.");
+            return HttpStatusCode.InternalServerError;
+        }
+
         string fileName = SendGridPathUtility.GetParquetNonCompactionFileName(targetDay, parquetData);
         bool uploadSuccess = await s3StorageService.PutObjectAsync(parquetData, fileName, ct);
         if (!uploadSuccess)

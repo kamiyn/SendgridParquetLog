@@ -316,6 +316,30 @@ public class ParquetService
         return true;
     }
 
+    /// <summary>
+    /// Parquet ストリームを実際に読み返し、全 row group の全イベントをデコードして読み取れた件数を返す。
+    /// footer を開くだけでなく列復号 (定義レベルの展開等) まで行うため、書き込み時点で壊れた
+    /// (デコード不能な) Parquet を検知するのに使える。ストリームは先頭にシークしてから読む。
+    /// デコード中の例外は握りつぶさず伝播する (呼び出し側で「読めない」と判断させるため)。
+    /// 注意: <see cref="ReadRowGroupEventsAsync"/> は必須列の読み取り失敗時に 0 行を返すため、
+    /// 返り値を期待件数と比較することで「例外を投げる破損」と「静かに 0 行になる破損」の双方を検知できる。
+    /// </summary>
+    public async Task<int> CountReadableEventsAsync(Stream parquetStream, CancellationToken token = default)
+    {
+        parquetStream.Seek(0, SeekOrigin.Begin);
+        int readCount = 0;
+        using ParquetReader reader = await ParquetReader.CreateAsync(parquetStream, cancellationToken: token);
+        for (int rowGroupIndex = 0; rowGroupIndex < reader.RowGroupCount; rowGroupIndex++)
+        {
+            using ParquetRowGroupReader rowGroupReader = reader.OpenRowGroupReader(rowGroupIndex);
+            await foreach (SendGridEvent _ in ReadRowGroupEventsAsync(rowGroupReader, reader, token))
+            {
+                readCount++;
+            }
+        }
+        return readCount;
+    }
+
     private static async Task WriteRowGroupAsync(
         ParquetWriter writer,
         IColumnBuffer[] buffers,
