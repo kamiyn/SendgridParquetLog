@@ -102,6 +102,7 @@ In Aspire environment, these are automatically configured to use local MinIO ins
 ## S3 Storage Layout
 
 - Raw webhook uploads land under `v3raw/YYYY/MM/DD/<Base64UrlHash>.parquet`. The hash is the SHA-256 of the Parquet payload, so duplicate retries overwrite.
+- **Write-side read-back verification:** before uploading a freshly generated raw Parquet, the webhook path (`WebhookHelper.WriteParquet`) reads it back with `ParquetService.CountReadableEventsAsync` (decodes every row group) and requires the readable event count to equal the number written. If decoding throws or the count mismatches, it does **not** store the object and returns `500`, so SendGrid retries instead of silently dropping the batch (writes are content-addressed, so retries are idempotent). This closes the gap where a Parquet that is corrupt at write time would return `2xx` and only surface much later as an undecodable file during compaction. Cost: one extra in-memory decode per webhook POST (bounded by the ≤ `SENDGRID__MAXBODYBYTES` batch size).
 - Compacted hourly outputs are written to `v3compaction/YYYY/MM/DD/HH/<Base64UrlHash>.parquet`, sharing the same hashing scheme.
 - `v3compaction/run.json` tracks the active compaction run status (start/end timestamps, progress), and `v3compaction/run.lock` holds the distributed lock metadata.
 - Compaction only targets days up to the prior UTC day; once merged, the per-day folders under `v3raw` can be treated as source archives while queries should use the hourly compaction tree.
