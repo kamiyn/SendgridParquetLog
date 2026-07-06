@@ -1084,54 +1084,75 @@ public class CompactionService(
         foreach (string parquetFile in ctx.CandidateParquetFiles)
         {
             token.ThrowIfCancellationRequested();
+            logger.ZLogInformation($"Reading Parquet file: {parquetFile}");
+
+            FileStream parquetTempStream = null!;
+            long responseLength = 0;
+
+            // GetObjectAsync 〜 本文の CopyToAsync (S3 ダウンロード段階)。
+            // ここで発生する転送失敗 (IOException/タイムアウト等) はオブジェクトが読めない疑いとして
+            // 段階的削除機構 (HandleUnreadableParquetFileAsync) に載せる。
+            // 一方、DisposableTempFile.Open (ローカルのディスク確保) の失敗はクライアント側の問題であり
+            // オブジェクトの責任ではないため、段階的機構には載せず記録のみに留める。
             try
             {
-                logger.ZLogInformation($"Reading Parquet file: {parquetFile}");
                 using HttpResponseMessage response = await s3StorageService.GetObjectAsync(parquetFile, token);
                 if (!response.IsSuccessStatusCode)
                 {
                     // HTTP 非成功ステータス (403/503 等、応答は得られたケース) は Parquet 破損とは限らないため、削除機構には載せず記録のみに留める。
-                    // (SendAsync/本文読み取り中の例外＝転送 IOException/タイムアウトは下の catch で段階的削除機構に載る。)
                     logger.ZLogWarning($"Failed to download parquet file: {parquetFile} HttpStatus:{response.StatusCode}");
                     ctx.AddFailedReadingParquetFiles(parquetFile, timeProvider.GetUtcNow());
                     continue;
                 }
 
-                long? responseLength = response.Content.Headers.ContentLength;
-                if (responseLength is null)
+                long? contentLength = response.Content.Headers.ContentLength;
+                if (contentLength is null)
                 {
                     // Content-Length 不明。破損とは限らないため即時削除はせず記録のみに留める。
                     logger.ZLogWarning($"Parquet file has no content length header: {parquetFile}");
                     ctx.AddFailedReadingParquetFiles(parquetFile, timeProvider.GetUtcNow());
                     continue;
                 }
-                if (responseLength.Value <= 0)
+                if (contentLength.Value <= 0)
                 {
                     // 空 (0 バイト) は復旧不能かつその日の処理を塞ぐため、保持期間を待たず即時削除する。
                     logger.ZLogWarning($"Empty parquet file: {parquetFile}");
                     await DeleteEmptyParquetFileAsync(ctx, parquetFile, token);
                     continue;
                 }
+                responseLength = contentLength.Value;
+
                 if (ctx.ProcessedBytes > 0
-                    && ctx.ProcessedBytes + responseLength.Value > _compactionOptions.MaxBatchSizeBytes)
+                    && ctx.ProcessedBytes + responseLength > _compactionOptions.MaxBatchSizeBytes)
                 {
                     logger.ZLogInformation(
                         $"Reached read limit {_compactionOptions.MaxBatchSizeBytes}, stopping further reads in this batch");
                     break;
                 }
 
-                FileStream parquetTempStream = DisposableTempFile.Open(nameof(FetchParquetFilesProducerAsync));
-                await using Stream responseStream = await response.Content.ReadAsStreamAsync(token);
-                await responseStream.CopyToAsync(parquetTempStream, DisposableTempFile.BufferSize, token);
+                // ローカルの一時ファイル確保 (ディスク不足等はクライアント側の問題なので段階的機構に載せない)。
+                try
+                {
+                    parquetTempStream = DisposableTempFile.Open(nameof(FetchParquetFilesProducerAsync));
+                }
+                catch (Exception ex)
+                {
+                    logger.ZLogError(ex, $"Failed to open local temp file for parquet file: {parquetFile}");
+                    ctx.AddFailedReadingParquetFiles(parquetFile, timeProvider.GetUtcNow());
+                    continue;
+                }
 
-                await writer.WriteAsync(
-                    new SendGridEventsOneFile
-                    {
-                        ParquetFile = parquetFile,
-                        ParquetTempStream = parquetTempStream,
-                    }, token);
-                ctx.AddProcessedFile(parquetFile, responseLength.Value, timeProvider.GetUtcNow());
-                logger.ZLogInformation($"Successfully read from {parquetFile}");
+                // S3 本文のダウンロード。転送失敗はオブジェクトが読めない疑いとして下の catch で段階的機構に載せる。
+                try
+                {
+                    await using Stream responseStream = await response.Content.ReadAsStreamAsync(token);
+                    await responseStream.CopyToAsync(parquetTempStream, DisposableTempFile.BufferSize, token);
+                }
+                catch
+                {
+                    await parquetTempStream.DisposeAsync();
+                    throw;
+                }
             }
             catch (OperationCanceledException)
             {
@@ -1139,10 +1160,38 @@ public class CompactionService(
             }
             catch (Exception ex)
             {
-                logger.ZLogError(ex, $"Failed to read parquet file: {parquetFile}");
+                logger.ZLogError(ex, $"Failed to download parquet file: {parquetFile}");
                 await HandleUnreadableParquetFileAsync(ctx, parquetFile, token);
                 // 読めなくても処理を続け 無効なファイルとして後で削除する
+                continue;
             }
+
+            // 以降はローカル操作 (チャネルへの受け渡し)。ここでの失敗はオブジェクトの問題ではないため、
+            // 段階的削除機構には載せず記録のみに留める。所有権を consumer に渡す前に失敗した場合は temp を破棄する。
+            try
+            {
+                await writer.WriteAsync(
+                    new SendGridEventsOneFile
+                    {
+                        ParquetFile = parquetFile,
+                        ParquetTempStream = parquetTempStream,
+                    }, token);
+            }
+            catch (OperationCanceledException)
+            {
+                await parquetTempStream.DisposeAsync();
+                throw;
+            }
+            catch (Exception ex)
+            {
+                await parquetTempStream.DisposeAsync();
+                logger.ZLogError(ex, $"Failed to hand off parquet file to consumer: {parquetFile}");
+                ctx.AddFailedReadingParquetFiles(parquetFile, timeProvider.GetUtcNow());
+                continue;
+            }
+
+            ctx.AddProcessedFile(parquetFile, responseLength, timeProvider.GetUtcNow());
+            logger.ZLogInformation($"Successfully read from {parquetFile}");
         }
     }
 
