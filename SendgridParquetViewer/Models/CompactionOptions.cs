@@ -43,6 +43,19 @@ public class CompactionOptions : IValidatableObject
     [Range(1, 256)]
     public int DeleteParallelism { get; set; } = 8;
 
+    /// <summary>
+    /// 読み取り不能な Parquet ファイルを削除するまでに、初回失敗時刻から経過している必要がある日数 (デフォルト: 3)。
+    /// この日数が経過し、かつ <see cref="FailedReadDeleteThreshold"/> 回以上失敗した場合にのみ削除する。
+    /// </summary>
+    [Range(0, int.MaxValue)]
+    public int FailedReadRetentionDays { get; set; } = 3;
+
+    /// <summary>
+    /// 読み取り不能な Parquet ファイルを削除するために必要な失敗回数のしきい値 (デフォルト: 3)。
+    /// </summary>
+    [Range(1, int.MaxValue)]
+    public int FailedReadDeleteThreshold { get; set; } = 3;
+
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
         if (RowGroupSize > ParquetService.MaxRowGroupSize)

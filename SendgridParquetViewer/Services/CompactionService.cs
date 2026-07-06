@@ -37,6 +37,10 @@ public class CompactionService(
     private static readonly TimeSpan MaxInactivityDuration = TimeSpan.FromDays(1);
     private TimeSpan LockHeartbeatInterval => _s3LockService.LockDuration / 6;
 
+    // 読み取り不能ファイルに付与するユーザーメタデータのキー (x-amz-meta- は S3StorageService 側で付与)。
+    private const string ReadFailureFirstUtcMetadataKey = "read-failure-first-utc";
+    private const string ReadFailureCountMetadataKey = "read-failure-count";
+
     internal R3.Subject<RunStatus> RunStatusSubject { get; } = new();
 
     public bool IsCompactionRunningLocally =>
@@ -948,6 +952,81 @@ public class CompactionService(
         return new FetchReadParquetFilesResult { PackedByHours = createdHourlyFolders, };
     }
 
+    /// <summary>
+    /// 読み取り不能だった Parquet ファイルを処理する。
+    ///  - S3 オブジェクトメタデータに初回失敗時刻と失敗カウンタを記録する (カウンタは失敗ごとに +1。
+    ///    同時実行制御はしない = HEAD→自己 COPY の単純更新)。
+    ///  - Warning ログを出力する。
+    ///  - 初回失敗から <see cref="CompactionOptions.FailedReadRetentionDays"/> 日以上経過し、かつ
+    ///    失敗カウンタが <see cref="CompactionOptions.FailedReadDeleteThreshold"/> 以上に達した場合は
+    ///    オブジェクトを削除し Error ログを出力する。
+    ///  - 最後に <see cref="CompactionBatchContext.AddFailedReadingParquetFiles"/> で失敗を記録する
+    ///    (この時点で後段の削除対象 GetProcessedFiles には含まれず、通常削除からは除外される)。
+    /// メタデータ操作の S3 呼び出しはキャンセル以外の例外を握りつぶし、コンパクションのループを止めない。
+    /// </summary>
+    private async Task HandleUnreadableParquetFileAsync(CompactionBatchContext ctx, string parquetFile, CancellationToken token)
+    {
+        var now = timeProvider.GetUtcNow();
+        // HEAD/COPY はカウンタを更新しないため、ハートビートのストール誤検知を防ぐ liveness を送る。
+        ctx.TouchLastActivity(now);
+
+        try
+        {
+            IReadOnlyDictionary<string, string>? metadata = await s3StorageService.GetObjectMetadataAsync(parquetFile, token);
+
+            DateTimeOffset firstUtc = now;
+            int count = 0;
+            if (metadata != null)
+            {
+                if (metadata.TryGetValue(ReadFailureFirstUtcMetadataKey, out string? firstUtcRaw)
+                    && DateTimeOffset.TryParse(firstUtcRaw, System.Globalization.CultureInfo.InvariantCulture,
+                        System.Globalization.DateTimeStyles.RoundtripKind, out DateTimeOffset parsedFirstUtc))
+                {
+                    firstUtc = parsedFirstUtc;
+                }
+                if (metadata.TryGetValue(ReadFailureCountMetadataKey, out string? countRaw)
+                    && int.TryParse(countRaw, System.Globalization.NumberStyles.Integer,
+                        System.Globalization.CultureInfo.InvariantCulture, out int parsedCount)
+                    && parsedCount > 0)
+                {
+                    count = parsedCount;
+                }
+            }
+
+            int newCount = count + 1;
+            bool retentionElapsed = now - firstUtc >= TimeSpan.FromDays(_compactionOptions.FailedReadRetentionDays);
+            bool countReached = newCount >= _compactionOptions.FailedReadDeleteThreshold;
+
+            if (retentionElapsed && countReached)
+            {
+                bool deleted = await s3StorageService.DeleteObjectAsync(parquetFile, token);
+                logger.ZLogError($"Deleting unreadable parquet file {parquetFile} after {newCount} read failures since {firstUtc:o} (retention {_compactionOptions.FailedReadRetentionDays}d, threshold {_compactionOptions.FailedReadDeleteThreshold}). DeleteSucceeded={deleted}");
+            }
+            else
+            {
+                var updated = new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    [ReadFailureFirstUtcMetadataKey] = firstUtc.ToString("o", System.Globalization.CultureInfo.InvariantCulture),
+                    [ReadFailureCountMetadataKey] = newCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                };
+                await s3StorageService.CopyObjectWithMetadataAsync(parquetFile, updated, token);
+                logger.ZLogWarning($"Unreadable parquet file {parquetFile}: read-failure-count={newCount} since {firstUtc:o}. Will delete after {_compactionOptions.FailedReadRetentionDays}d and {_compactionOptions.FailedReadDeleteThreshold} failures.");
+            }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // メタデータ更新/削除の失敗はコンパクションを止めない。次回 run で再試行される。
+            logger.ZLogWarning(ex, $"Failed to record read-failure metadata for {parquetFile}");
+        }
+
+        ctx.TouchLastActivity(timeProvider.GetUtcNow());
+        ctx.AddFailedReadingParquetFiles(parquetFile, timeProvider.GetUtcNow());
+    }
+
     private async Task FetchParquetFilesProducerAsync(CompactionBatchContext ctx,
         ChannelWriter<SendGridEventsOneFile> writer,
         CancellationToken token)
@@ -962,7 +1041,7 @@ public class CompactionService(
                 if (!response.IsSuccessStatusCode)
                 {
                     logger.ZLogWarning($"Failed to download parquet file: {parquetFile} HttpStatus:{response.StatusCode}");
-                    ctx.AddFailedReadingParquetFiles(parquetFile, timeProvider.GetUtcNow());
+                    await HandleUnreadableParquetFileAsync(ctx, parquetFile, token);
                     continue;
                 }
 
@@ -970,7 +1049,7 @@ public class CompactionService(
                 if (responseLength is null or <= 0)
                 {
                     logger.ZLogWarning($"Empty parquet file: {parquetFile}");
-                    ctx.AddFailedReadingParquetFiles(parquetFile, timeProvider.GetUtcNow());
+                    await HandleUnreadableParquetFileAsync(ctx, parquetFile, token);
                     continue;
                 }
                 if (ctx.ProcessedBytes > 0
@@ -1001,7 +1080,7 @@ public class CompactionService(
             catch (Exception ex)
             {
                 logger.ZLogError(ex, $"Failed to read parquet file: {parquetFile}");
-                ctx.AddFailedReadingParquetFiles(parquetFile, timeProvider.GetUtcNow());
+                await HandleUnreadableParquetFileAsync(ctx, parquetFile, token);
                 // 読めなくても処理を続け 無効なファイルとして後で削除する
             }
         }
