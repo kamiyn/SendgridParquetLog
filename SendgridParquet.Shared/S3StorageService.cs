@@ -22,6 +22,28 @@ public record S3GetObjectResult(byte[] Content, string? ETag);
 public readonly record struct S3ObjectEntry(string Key, long Size);
 
 /// <summary>
+/// HEAD によるユーザーメタデータ取得の結果状態。
+/// </summary>
+public enum S3ObjectMetadataStatus
+{
+    /// <summary>HEAD 成功 (200)。<see cref="S3ObjectMetadataResult.Metadata"/> は空の場合もある。</summary>
+    Found,
+    /// <summary>オブジェクトが存在しない (404)。</summary>
+    NotFound,
+    /// <summary>一時的な失敗 (5xx / ネットワークエラー / 想定外ステータス) でメタデータを取得できなかった。</summary>
+    Unavailable,
+}
+
+/// <summary>
+/// <see cref="S3StorageService.GetObjectMetadataAsync"/> の結果。
+/// <see cref="Status"/> が <see cref="S3ObjectMetadataStatus.Found"/> のときのみ
+/// <see cref="Metadata"/> が有効 (それ以外は空辞書)。
+/// </summary>
+public readonly record struct S3ObjectMetadataResult(
+    S3ObjectMetadataStatus Status,
+    IReadOnlyDictionary<string, string> Metadata);
+
+/// <summary>
 /// 条件付き PUT の結果。
 /// </summary>
 public enum S3ConditionalPutResult
@@ -46,6 +68,14 @@ public class S3StorageService(
         : s.Length <= MaxErrorContentLength ? s : s[..MaxErrorContentLength] + "...(truncated)";
 
     public Uri GetObjectUri(string key) => new($"{_options.SERVICEURL}/{_options.BUCKETNAME}/{key}");
+
+    /// <summary>
+    /// x-amz-copy-source 用に S3 オブジェクトキーをエンコードする。
+    /// パス区切り '/' はそのまま残し、各セグメントを RFC3986 準拠で URL エンコードする
+    /// (制御文字 CR/LF 等も %XX 化されるためヘッダーインジェクションを防げる)。
+    /// </summary>
+    internal static string EncodeS3KeyForCopySource(string key) =>
+        string.Join('/', key.Split('/').Select(Uri.EscapeDataString));
 
     public async ValueTask<bool> PutObjectAsync(Stream content, string key, CancellationToken ct)
     {
@@ -294,6 +324,108 @@ public class S3StorageService(
         catch (Exception ex)
         {
             logger.ZLogError(ex, $"Error deleting object {uri} from S3");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// x-amz-meta-* のヘッダー接頭辞。
+    /// </summary>
+    public const string UserMetadataHeaderPrefix = "x-amz-meta-";
+
+    private static readonly IReadOnlyDictionary<string, string> EmptyMetadata =
+        new Dictionary<string, string>(StringComparer.Ordinal);
+
+    /// <summary>
+    /// 指定キーのオブジェクトのユーザーメタデータ (x-amz-meta-*) を HEAD で取得する。
+    /// キーは接頭辞 (x-amz-meta-) を除去し小文字化して返す。
+    /// 戻り値の <see cref="S3ObjectMetadataResult.Status"/> で結果を区別する:
+    ///  - <see cref="S3ObjectMetadataStatus.Found"/>: 取得成功 (メタデータは空の場合もある)
+    ///  - <see cref="S3ObjectMetadataStatus.NotFound"/>: 404 (オブジェクトなし)
+    ///  - <see cref="S3ObjectMetadataStatus.Unavailable"/>: 一時的な失敗 (5xx / ネットワークエラー / 想定外ステータス)
+    /// 呼び出し側は 404 や一時失敗を「メタデータなし」と誤認して既存値を上書きしないこと。
+    /// </summary>
+    public async ValueTask<S3ObjectMetadataResult> GetObjectMetadataAsync(string key, CancellationToken ct)
+    {
+        var uri = GetObjectUri(key);
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Head, uri);
+            AddAwsSignatureHeaders(request, null);
+            using HttpResponseMessage response = await httpClient.SendAsync(request, ct);
+
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                return new S3ObjectMetadataResult(S3ObjectMetadataStatus.NotFound, EmptyMetadata);
+            }
+            if (!response.IsSuccessStatusCode)
+            {
+                logger.ZLogWarning($"Unexpected status code {response.StatusCode} while HEAD {uri} for metadata; treating as unavailable");
+                return new S3ObjectMetadataResult(S3ObjectMetadataStatus.Unavailable, EmptyMetadata);
+            }
+
+            var metadata = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var header in response.Headers)
+            {
+                if (header.Key.StartsWith(UserMetadataHeaderPrefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    string name = header.Key[UserMetadataHeaderPrefix.Length..].ToLowerInvariant();
+                    metadata[name] = string.Join(",", header.Value);
+                }
+            }
+            return new S3ObjectMetadataResult(S3ObjectMetadataStatus.Found, metadata);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception ex)
+        {
+            logger.ZLogWarning(ex, $"Error heading object {uri} for metadata");
+            return new S3ObjectMetadataResult(S3ObjectMetadataStatus.Unavailable, EmptyMetadata);
+        }
+    }
+
+    /// <summary>
+    /// 同一キーへの COPY (x-amz-metadata-directive: REPLACE) でユーザーメタデータ (x-amz-meta-*) を差し替える。
+    /// オブジェクト本体はサーバー側でコピーされるため、GET がタイムアウトするようなオブジェクトでも成功が見込める。
+    /// metadata のキーは接頭辞なし・値は ASCII の想定。
+    /// </summary>
+    public async ValueTask<bool> CopyObjectWithMetadataAsync(string key, IReadOnlyDictionary<string, string> metadata, CancellationToken ct)
+    {
+        var uri = GetObjectUri(key);
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Put, uri);
+
+            // copy-source のキーはパス区切り '/' を保ちつつセグメント単位で URL エンコードする。
+            // 未エンコードだと特殊文字/制御文字 (CR/LF 等) で署名不整合やヘッダーインジェクションの恐れがあるため。
+            string encodedCopySource = $"/{_options.BUCKETNAME}/{EncodeS3KeyForCopySource(key)}";
+            var additionalHeaders = new List<KeyValuePair<string, string>>(metadata.Count + 2)
+            {
+                new("x-amz-copy-source", encodedCopySource),
+                new("x-amz-metadata-directive", "REPLACE"),
+            };
+            foreach (var kv in metadata)
+            {
+                additionalHeaders.Add(new KeyValuePair<string, string>($"{UserMetadataHeaderPrefix}{kv.Key}", kv.Value));
+            }
+
+            // COPY は本体を持たないため content は null (空ボディの SHA256 で署名する)。
+            AddAwsSignatureHeaders(request, null, additionalHeaders);
+            using HttpResponseMessage response = await httpClient.SendAsync(request, ct);
+
+            if (response.IsSuccessStatusCode)
+            {
+                logger.ZLogInformation($"Object {uri} metadata replaced via self-copy on S3");
+                return true;
+            }
+
+            string responseContent = await response.Content.ReadAsStringAsync(ct);
+            logger.ZLogError($"Error replacing metadata for {uri} on S3. Status: {response.StatusCode}, Response: {ErrorContent(responseContent)}");
+            return false;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception ex)
+        {
+            logger.ZLogError(ex, $"Error replacing metadata for {uri} on S3");
             return false;
         }
     }
@@ -629,26 +761,36 @@ public class S3StorageService(
         return new S3SignatureSource(now, _options.REGION);
     }
 
-    public void AddAwsSignatureHeaders(HttpRequestMessage request, Stream? content)
+    public void AddAwsSignatureHeaders(HttpRequestMessage request, Stream? content,
+        IReadOnlyList<KeyValuePair<string, string>>? additionalHeaders = null)
     {
-        foreach (var kv in GetAwsSignatureHeaders(new AwsSignatureHeadersRequest(request), content))
+        foreach (var kv in GetAwsSignatureHeaders(new AwsSignatureHeadersRequest(request), content, additionalHeaders))
         {
             request.Headers.TryAddWithoutValidation(kv.Key, kv.Value);
         }
     }
 
-    public IEnumerable<KeyValuePair<string, string>> GetAwsSignatureHeaders(IAwsSignatureHeadersRequest request, Stream? content)
+    /// <param name="additionalHeaders">
+    /// 署名対象に含める追加ヘッダー (x-amz-copy-source, x-amz-metadata-directive, x-amz-meta-* など)。
+    /// 署名され、かつリクエストにも付与される (Host と同名の場合を除く)。
+    /// </param>
+    public IEnumerable<KeyValuePair<string, string>> GetAwsSignatureHeaders(IAwsSignatureHeadersRequest request, Stream? content,
+        IReadOnlyList<KeyValuePair<string, string>>? additionalHeaders = null)
     {
         var signatureSource = CreateSignatureSource();
         var contentHash = CalculateSHA256Hash(content);
         var uri = request.RequestUri;
         var hostHeader = uri.IsDefaultPort ? uri.Host : $"{uri.Host}:{uri.Port}";
-        var headers = new KeyValuePair<string, string>[]
+        var headers = new List<KeyValuePair<string, string>>
         {
             new("Host", hostHeader),
             new("X-Amz-Date", signatureSource.AmzDate),
             new("X-Amz-Content-Sha256", contentHash)
         };
+        if (additionalHeaders is { Count: > 0 })
+        {
+            headers.AddRange(additionalHeaders);
+        }
 
         // Create canonical request
         var canonicalHeaders = new S3CanonicalHeaders(headers);
@@ -906,7 +1048,13 @@ internal class S3CanonicalHeaders
         _sortedHeaders = new SortedDictionary<string, string>(StringComparer.Ordinal);
         foreach (var header in headers)
         {
-            _sortedHeaders.Add(header.Key.ToLowerInvariant(), header.Value.Trim());
+            string key = header.Key.ToLowerInvariant();
+            string value = header.Value.Trim();
+            // 同名ヘッダーが複数渡された場合、SortedDictionary.Add は例外になる。
+            // SigV4 の正規化に従い値をカンマ区切りで結合して例外を防ぐ (防御的措置。通常の呼び出しでは重複しない)。
+            _sortedHeaders[key] = _sortedHeaders.TryGetValue(key, out string? existing)
+                ? $"{existing},{value}"
+                : value;
         }
     }
 

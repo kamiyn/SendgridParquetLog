@@ -89,6 +89,12 @@ Webhook signature verification requires configuration via Options:
 - `SENDGRID__ALLOWEDSKEW`: Timestamp skew parsed by `TimeSpan.Parse` (default `00:05:00`)
 - `SENDGRID__MAXBODYBYTES`: Request body limit in bytes (default `1048576`)
 
+Compaction behavior is bound from the `Compaction` section (`CompactionOptions`), configurable via `Compaction__*` environment variables or appsettings.json. Notable keys:
+- `Compaction__MaxBatchSizeBytes`: Max bytes read per batch (default `201326592` = 192MB)
+- `Compaction__DeleteParallelism`: Parallelism for deleting originals after verification (default `8`)
+- `Compaction__FailedReadRetentionDays`: Days that must elapse since the first read failure before an unreadable Parquet file may be deleted (default `3`). Read failures are recorded on the S3 object as `x-amz-meta-read-failure-first-utc` / `x-amz-meta-read-failure-count`. The graduated mechanism applies to producer-side download exceptions (transport `IOException` / timeout while fetching the object) — the persistent-failure case that otherwise hangs a day's compaction.
+- `Compaction__FailedReadDeleteThreshold`: Failure count that must be reached before an unreadable Parquet file may be deleted (default `3`). Deletion happens only when both the retention period and this count are satisfied. Exceptions to the graduated path: empty (0-byte) files are deleted immediately, while HTTP non-success **status codes** (e.g. 403/503, where a response was received) are only recorded and never counted toward deletion. Consumer-side Parquet parse failures after a successful download are not handled by this mechanism (they abort the batch on a separate path).
+
 In Aspire environment, these are automatically configured to use local MinIO instance.
 
 ## S3 Storage Layout
